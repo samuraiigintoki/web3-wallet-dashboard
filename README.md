@@ -4,25 +4,42 @@ A full-stack Web3 portfolio project for managing wallet and multisig contract da
 
 The project will use the existing Solidity `MultiSigWallet` as its contract foundation rather than introducing a separate, unrelated contract.
 
+## Current implementation
+
+The initial Go backend is running with:
+
+- A standard-library HTTP server and router
+- A `GET /health` endpoint
+- A JSON health response
+- Method-specific routing
+- Unit tests for successful and unsupported-method responses
+
+The PostgreSQL integration, authentication, frontend, contract integration, event indexer, CI, and deployment are not implemented yet.
+
 ## Planned architecture
 
 ```text
-React + TypeScript frontend
-          |
-          | REST API / optional WebSocket
-          v
-Go backend
-          |-- PostgreSQL
-          |-- background event indexer
-          |-- EVM JSON-RPC client
-          |
-          v
-Solidity MultiSigWallet
-          |
-          | contract events
-          v
-Go indexer -> PostgreSQL -> dashboard
+User
+  |
+  v
+React + TypeScript dashboard
+  |                         \
+  | REST API                 \ viem/wagmi + browser wallet
+  v                           v
+Go backend                EVM JSON-RPC
+  |                           |
+  |                           v
+  |                    Solidity MultiSigWallet
+  |
+  +-- PostgreSQL
+  +-- go-ethereum client ------> EVM JSON-RPC
+  +-- background indexer ------> EVM event logs
+                                  |
+                                  v
+                       PostgreSQL -> API -> dashboard
 ```
+
+The browser wallet will sign user transactions. The Go backend will not receive or store users' private keys.
 
 ## Planned capabilities
 
@@ -42,14 +59,64 @@ Go indexer -> PostgreSQL -> dashboard
 
 ```text
 web3-wallet-dashboard/
-├── backend/             # Go API and blockchain indexer
-├── frontend/            # React and TypeScript application
-├── contracts/           # Solidity MultiSigWallet and Foundry tests
-├── docs/                # Architecture and project documentation
-│   └── adr/             # Architecture decision records
+├── backend/
+│   ├── cmd/
+│   │   └── api/              # API entry point
+│   ├── internal/
+│   │   └── httpapi/          # Router, handlers, and HTTP tests
+│   └── go.mod
+├── frontend/                 # Planned React and TypeScript application
+├── contracts/                # Planned MultiSigWallet and Foundry tests
+├── docs/                     # Architecture and project documentation
+│   └── adr/                  # Architecture decision records
 ├── .github/
-│   └── workflows/       # CI workflows
+│   └── workflows/            # Planned CI workflows
 └── README.md
+```
+
+## Prerequisites
+
+- Go version declared in `backend/go.mod`
+
+## Run the backend
+
+From the repository root:
+
+```bash
+cd backend
+go run ./cmd/api
+```
+
+The API listens on `http://localhost:8080`.
+
+Verify the health endpoint from another terminal:
+
+```bash
+curl -i http://localhost:8080/health
+```
+
+Expected JSON body:
+
+```json
+{"status":"ok"}
+```
+
+Only `GET` and `HEAD` are accepted for this route. For example, a `POST` request returns `405 Method Not Allowed`:
+
+```bash
+curl -i -X POST http://localhost:8080/health
+```
+
+## Run backend checks
+
+From the repository root:
+
+```bash
+cd backend
+gofmt -w .
+go test -count=1 ./...
+go vet ./...
+go build ./...
 ```
 
 ## Current milestone
@@ -63,9 +130,3 @@ Current objectives:
 - Initialize the backend Go module
 - Define the initial architecture and project scope
 - Build a Go HTTP server with a tested health endpoint
-
-## Current status
-
-The monorepo structure and backend Go module have been initialized.
-
-Application features are not implemented yet. The HTTP API, PostgreSQL integration, frontend, contract integration, event indexer, CI, and deployment remain future work.
