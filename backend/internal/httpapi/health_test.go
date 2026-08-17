@@ -26,7 +26,7 @@ func TestHealthEndpointSuccess(t *testing.T) {
 
 	var res healthResponse
 	if err := json.NewDecoder(rec.Body).Decode(&res); err != nil {
-		t.Errorf("Failed to decode response body %v", err)
+		t.Fatalf("failed to decode response body: %v", err)
 	}
 
 	wantStatus := "ok"
@@ -45,6 +45,6 @@ func TestHealthEndpointMethodNotAllowed(t *testing.T) {
 	router.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusMethodNotAllowed {
-		t.Errorf("expected method = %d; got = %d", http.StatusMethodNotAllowed, rec.Code)
+		t.Errorf("expected status = %d; got = %d", http.StatusMethodNotAllowed, rec.Code)
 	}
 }
