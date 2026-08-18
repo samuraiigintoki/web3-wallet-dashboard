@@ -130,3 +130,11 @@ Current objectives:
 - Initialize the backend Go module
 - Define the initial architecture and project scope
 - Build a Go HTTP server with a tested health endpoint
+
+## Documentation
+
+- [Project specification](docs/project-spec.md)
+- [System architecture](docs/architecture.md)
+- [REST API outline](docs/api.md)
+- [PostgreSQL schema](docs/database-schema.md)
+- [MultiSigWallet integration requirements](docs/contract-requirements.md)
