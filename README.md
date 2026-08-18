@@ -119,6 +119,14 @@ go vet ./...
 go build ./...
 ```
 
+## Documentation
+
+- [Project specification](docs/project-spec.md)
+- [System architecture](docs/architecture.md)
+- [REST API outline](docs/api.md)
+- [PostgreSQL schema](docs/database-schema.md)
+- [MultiSigWallet integration requirements](docs/contract-requirements.md)
+
 ## Current milestone
 
 **Week 1: Go foundation and project architecture**
