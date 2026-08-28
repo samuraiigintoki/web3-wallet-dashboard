@@ -9,15 +9,23 @@ import (
 )
 
 const maxBodyBytes = 1 << 20
-
+// 1. Inbound DTO
 type CreateWalletRequest struct {
-	Address string `json:"address"`
-	ChainID int    `json:"chainId"`
-	Label   string `json:"label"`
+    Address string `json:"address"`
+    ChainID int    `json:"chainId"`
+    Label   string `json:"label"`
 }
 
-type WalletResponseEnvolope struct {
-	Data CreateWalletRequest `json:"data"`
+// 2. Outbound DTO
+type WalletResponse struct {
+    Address string `json:"address"`
+    ChainID int    `json:"chainId"`
+    Label   string `json:"label"`
+}
+
+// 3. Outbound Envelope
+type WalletResponseEnvelope struct {
+    Data WalletResponse `json:"data"`
 }
 
 func createWalletHandler(w http.ResponseWriter, r *http.Request) {
@@ -47,8 +55,8 @@ func createWalletHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	envelope := WalletResponseEnvolope{
-		Data: CreateWalletRequest{
+	envelope := WalletResponseEnvelope{
+		Data: WalletResponse{
 			Address: strings.TrimSpace(req.Address),
 			ChainID: req.ChainID,
 			Label:   strings.TrimSpace(req.Label),
@@ -63,11 +71,11 @@ func validateAddress(addr string) error {
 	trimmed := strings.TrimSpace(addr)
 
 	if len(trimmed) == 0 {
-		return errors.New("address required!!")
+		return errors.New("address is required")
 	}
 
 	if !strings.HasPrefix(trimmed, "0x") {
-		return errors.New("invalid address type")
+		return errors.New("address must start with 0x")
 	}
 
 	if len(trimmed) != 42 {
