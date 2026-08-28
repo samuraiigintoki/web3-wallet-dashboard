@@ -7,8 +7,9 @@ import (
 )
 
 type ErrorDetail struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	Code    string            `json:"code"`
+	Message string            `json:"message"`
+	Details map[string]string `json:"details,omitempty"`
 }
 
 type ErrorEnvelope struct {
@@ -21,12 +22,13 @@ func writeJSON(w http.ResponseWriter, status int, data any) error {
 	return json.NewEncoder(w).Encode(data)
 }
 
-func writeError(w http.ResponseWriter, status int, code string, message string) {
+func writeError(w http.ResponseWriter, status int, code string, message string, details map[string]string) {
 
 	resp := ErrorEnvelope{
 		Error: ErrorDetail{
 			Code:    code,
 			Message: message,
+			Details: details,
 		},
 	}
 

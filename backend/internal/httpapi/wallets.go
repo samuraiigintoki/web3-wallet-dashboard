@@ -37,23 +37,35 @@ func createWalletHandler(w http.ResponseWriter, r *http.Request) {
 
 	var req CreateWalletRequest
 	if err := decoder.Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid request body")
+		writeError(w, http.StatusBadRequest, CodeInvalidJSON, "invalid request body", nil)
 		return
 	}
 
 	if err := validateAddress(req.Address); err != nil {
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
-		return
+		var vErr *ValidationError
+		if errors.As(err, &vErr) {
+			writeError(w, http.StatusUnprocessableEntity, CodeValidationError, vErr.Message, map[string]string{
+				vErr.Field: vErr.Message})
+			return
+		}
 	}
 
-	if req.ChainID <= 0 {
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "chainId must be a positive integer")
-		return
+	if err := validateChainID(req.ChainID); err != nil {
+		var vErr *ValidationError
+		if errors.As(err, &vErr) {
+			writeError(w, http.StatusUnprocessableEntity, CodeValidationError, vErr.Message, map[string]string{
+				vErr.Field: vErr.Message})
+			return
+		}
 	}
 
 	if err := validateLabel(req.Label); err != nil {
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
-		return
+		var vErr *ValidationError
+		if errors.As(err, &vErr) {
+			writeError(w, http.StatusUnprocessableEntity, CodeValidationError, vErr.Message, map[string]string{
+				vErr.Field: vErr.Message})
+			return
+		}
 	}
 
 	envelope := WalletResponseEnvelope{
@@ -72,15 +84,15 @@ func validateAddress(addr string) error {
 	trimmed := strings.TrimSpace(addr)
 
 	if len(trimmed) == 0 {
-		return errors.New("address is required")
+		return &ValidationError{Field: "address", Message: "address is required"}
 	}
 
 	if !strings.HasPrefix(trimmed, "0x") {
-		return errors.New("address must start with 0x")
+		return &ValidationError{Field: "address", Message: "address must start with 0x"}
 	}
 
 	if len(trimmed) != 42 {
-		return errors.New("address must be of length 42")
+		return &ValidationError{Field: "address", Message: "address must be of length 42"}
 	}
 
 	return nil
@@ -91,12 +103,19 @@ func validateLabel(label string) error {
 	trimmed := strings.TrimSpace(label)
 
 	if len(trimmed) == 0 {
-		return errors.New("label is required")
+		return &ValidationError{Field: "label", Message: "label is required"}
 	}
 
 	if utf8.RuneCountInString(trimmed) > 50 {
-		return errors.New("label must be less than 50 characters")
+		return &ValidationError{Field: "label", Message: "label must be less than 50 characters"}
 	}
 
+	return nil
+}
+
+func validateChainID(chainID int) error {
+	if chainID <= 0 {
+		return &ValidationError{Field: "chainId", Message: "chainId must be a positive integer"}
+	}
 	return nil
 }
