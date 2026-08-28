@@ -9,23 +9,24 @@ import (
 )
 
 const maxBodyBytes = 1 << 20
+
 // 1. Inbound DTO
 type CreateWalletRequest struct {
-    Address string `json:"address"`
-    ChainID int    `json:"chainId"`
-    Label   string `json:"label"`
+	Address string `json:"address"`
+	ChainID int    `json:"chainId"`
+	Label   string `json:"label"`
 }
 
 // 2. Outbound DTO
 type WalletResponse struct {
-    Address string `json:"address"`
-    ChainID int    `json:"chainId"`
-    Label   string `json:"label"`
+	Address string `json:"address"`
+	ChainID int    `json:"chainId"`
+	Label   string `json:"label"`
 }
 
 // 3. Outbound Envelope
 type WalletResponseEnvelope struct {
-    Data WalletResponse `json:"data"`
+	Data WalletResponse `json:"data"`
 }
 
 func createWalletHandler(w http.ResponseWriter, r *http.Request) {
@@ -90,7 +91,7 @@ func validateLabel(label string) error {
 	trimmed := strings.TrimSpace(label)
 
 	if len(trimmed) == 0 {
-		return errors.New("label required!!")
+		return errors.New("label is required")
 	}
 
 	if utf8.RuneCountInString(trimmed) > 50 {
