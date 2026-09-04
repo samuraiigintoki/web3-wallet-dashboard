@@ -71,22 +71,14 @@ Protected routes require an authenticated application user. Browser-wallet conne
 
 The first implementation may use offset pagination. Cursor pagination can be considered only if measured data volume requires it.
 
-### Error
+### Error Response Catalog
 
-```json
-{
-  "error": {
-    "code": "VALIDATION_ERROR",
-    "message": "request validation failed",
-    "details": {
-      "field": "reason"
-    },
-    "requestId": "request-id"
-  }
-}
-```
-
-Do not expose stack traces, database errors, credentials, or raw internal RPC details.
+| Status | Code | Condition | Details Shape |
+|---|---|---|---|
+| `400 Bad Request` | `INVALID_JSON` | Malformed JSON syntax, unknown fields, field type mismatch, body > 1MB | None |
+| `422 Unprocessable Entity` | `VALIDATION_ERROR` | Domain rule failure (address length/prefix, label length, chainId <= 0) | `{"details": {"<field>": "<message>"}}` |
+| `409 Conflict` | `RESOURCE_CONFLICT` | Duplicate `(address, chainId)` record | None |
+| `500 Internal Server Error` | `INTERNAL_SERVER_ERROR` | Unhandled internal server error | None |
 
 ## Common status codes
 
@@ -100,7 +92,7 @@ Do not expose stack traces, database errors, credentials, or raw internal RPC de
 - `409 Conflict` — duplicate or conflicting state
 - `422 Unprocessable Entity` — valid JSON with domain-invalid values
 - `429 Too Many Requests` — rate limit exceeded
-- `500 Internal Server Error` — unexpected application failure
+- `500 internal Server Error` — unexpected application failure
 - `502 Bad Gateway` — upstream RPC failure where appropriate
 - `503 Service Unavailable` — required dependency unavailable
 
@@ -211,7 +203,9 @@ A saved wallet is an off-chain address record. It does not prove control of the 
 
 ### `POST /api/v1/wallets`
 
-**Authentication:** Required
+**Status:** Implemented — in-memory repository, unauthenticated
+
+**Authentication:** Public (authentication deferred to future block)
 
 Request:
 
@@ -222,15 +216,24 @@ Request:
   "label": "Primary Sepolia signer"
 }
 ```
-
 Validation:
 
-- Valid 20-byte EVM address
-- Supported positive chain ID
-- Label length limit
-- Duplicate `(user, chainId, address)` rejected
+- Address: non-empty after trimming, starts with 0x, exactly 42 characters total.
+- Chain ID: positive integer (> 0).
+- Label: non-empty after trimming, maximum 50 Unicode characters (runes).
+- Duplicate (address, chainId) rejected with 409 Conflict.
+- Request body size bounded to 1 MB maximum.
 
 Success: `201 Created`.
+```json
+{
+  "data": {
+    "address": "0x0000000000000000000000000000000000000001",
+    "chainId": 11155111,
+    "label": "Primary Sepolia signer"
+  }
+}
+```
 
 ### `GET /api/v1/wallets`
 
@@ -521,7 +524,7 @@ Rate limiting is planned for authentication and RPC-backed routes. It should be 
 
 1. Cookie session or bearer-token authentication.
 2. UUID or another public resource identifier format.
-3. Exact error-code catalog.
+3. Exact error-code catalog (partially resolved: `INVALID_JSON` for 400 and `VALIDATION_ERROR` for 422 implemented for wallet routes).
 4. Whether contract-state reads are always direct RPC reads or may use a short cache.
 5. Whether large EVM integers are always decimal strings.
 6. Whether transaction-receipt lookup needs a dedicated API route.
