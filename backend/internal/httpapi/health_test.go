@@ -5,10 +5,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
 )
 
 func TestHealthEndpointSuccess(t *testing.T) {
-	router := NewRouter()
+	repo := wallet.NewInMemoryWalletRepo()
+	svc := wallet.NewService(repo)
+	router := NewRouter(svc)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 
@@ -36,8 +40,9 @@ func TestHealthEndpointSuccess(t *testing.T) {
 }
 
 func TestHealthEndpointMethodNotAllowed(t *testing.T) {
-
-	router := NewRouter()
+	repo := wallet.NewInMemoryWalletRepo()
+	svc := wallet.NewService(repo)
+	router := NewRouter(svc)
 
 	req := httptest.NewRequest(http.MethodPost, "/health", nil)
 	rec := httptest.NewRecorder()

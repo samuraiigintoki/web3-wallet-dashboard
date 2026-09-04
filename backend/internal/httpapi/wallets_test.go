@@ -6,58 +6,14 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
 )
 
-func TestValidateAddress(t *testing.T) {
-	tests := []struct {
-		name    string
-		input   string
-		wantErr bool
-	}{
-		{name: "valid address", input: "0x0000000000000000000000000000000000000001", wantErr: false},
-		{name: "empty address", input: "", wantErr: true},
-		{name: "missing 0x", input: "1111000000000000000000000000000000000001",
-			wantErr: true},
-		{name: "invalid address length", input: "0x12345678", wantErr: true},
-		{name: "address contains whitespace", input: "0x  sdf sdf sdfsdf 23435 sd46", wantErr: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := validateAddress(tt.input)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("valdateAddress(%q) error = %v, wantErr = %v", tt.input, err, tt.wantErr)
-			}
-		})
-	}
-}
-
-func TestValidateLabel(t *testing.T) {
-	tests := []struct {
-		name    string
-		input   string
-		wantErr bool
-	}{
-		{name: "valid label", input: "Main Wallet", wantErr: false},
-		{name: "empty label", input: "", wantErr: true},
-		{name: "50 characters", input: strings.Repeat("a", 50), wantErr: false},
-		{name: "Invalid 51 characters", input: "MyPersonalPrimarySecureHotWalletAccountIdentifierExceeds51Characters", wantErr: true},
-		{name: "label exceeding 50 runes with Devanagari", input: "तेज़भूड़ीलोमड़ीआलसीकुत्तेकेऊपरसेकूदतीहैताकिटेस्टपासहavbd", wantErr: true},
-		{name: "valid Cyrillic label", input: "Кошелек", wantErr: false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := validateLabel(tt.input)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("validateLabel(%q) error = %v, want = %v", tt.input, err, tt.wantErr)
-			}
-		})
-	}
-}
-
 func TestCreateWalletEndpoint(t *testing.T) {
-	router := NewRouter()
+	repo := wallet.NewInMemoryWalletRepo()
+	svc := wallet.NewService(repo)
+	router := NewRouter(svc)
 
 	tests := []struct {
 		name           string
@@ -131,7 +87,7 @@ func TestCreateWalletEndpoint(t *testing.T) {
 		{
 			name: "40 unicode character string", method: http.MethodPost, path: "/api/v1/wallets",
 			body: `{
-    			"address": "0x0000000000000000000000000000000000000001",
+    			"address": "0x0000000000000000000000000000000000000012",
     			"chainId": 1,
     			"label": "नमस्तेनमस्तेनमस्तेनमस्तेनमस्तेनमस्तेनमस्तेनमस्ते"
 				}`,

@@ -5,10 +5,13 @@ import (
 	"net/http"
 
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/httpapi"
+	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
 )
 
 func main() {
-	handler := httpapi.NewRouter()
+	repo := wallet.NewInMemoryWalletRepo()
+	svc := wallet.NewService(repo)
+	handler := httpapi.NewRouter(svc)
 
 	addr := ":8080"
 	log.Printf("Starting HTTP Server on %s...", addr)

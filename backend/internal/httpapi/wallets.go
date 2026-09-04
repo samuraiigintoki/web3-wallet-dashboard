@@ -4,11 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strings"
-	"unicode/utf8"
+
+	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
 )
 
-const maxBodyBytes = 1 << 20
+const maxBodyBytes = 1 << 20 //1 MB
 
 // 1. Inbound DTO
 type CreateWalletRequest struct {
@@ -29,7 +29,20 @@ type WalletResponseEnvelope struct {
 	Data WalletResponse `json:"data"`
 }
 
-func createWalletHandler(w http.ResponseWriter, r *http.Request) {
+// Handler struct
+type Handler struct {
+	walletSvc *wallet.Service
+}
+
+// Handler constructor
+func NewHandler(walletSvc *wallet.Service) *Handler {
+	return &Handler{
+		walletSvc: walletSvc,
+	}
+}
+
+// Handler
+func (h *Handler) createWallet(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 
 	decoder := json.NewDecoder(r.Body)
@@ -41,81 +54,28 @@ func createWalletHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := validateAddress(req.Address); err != nil {
-		var vErr *ValidationError
+	createdWallet, err := h.walletSvc.Create(req.Address, req.ChainID, req.Label)
+	if err != nil {
+		var vErr *wallet.ValidationError
 		if errors.As(err, &vErr) {
-			writeError(w, http.StatusUnprocessableEntity, CodeValidationError, vErr.Message, map[string]string{
-				vErr.Field: vErr.Message})
+			writeError(w, http.StatusUnprocessableEntity, CodeValidationError, vErr.Message, map[string]string{vErr.Field: vErr.Message})
 			return
 		}
-	}
 
-	if err := validateChainID(req.ChainID); err != nil {
-		var vErr *ValidationError
-		if errors.As(err, &vErr) {
-			writeError(w, http.StatusUnprocessableEntity, CodeValidationError, vErr.Message, map[string]string{
-				vErr.Field: vErr.Message})
+		if errors.Is(err, wallet.ErrWalletDuplicate) {
+			writeError(w, http.StatusConflict, CodeResourceConflict, err.Error(), nil)
 			return
 		}
+
+		writeError(w, http.StatusInternalServerError, CodeInternalError, "internal server error", nil)
+		return
 	}
 
-	if err := validateLabel(req.Label); err != nil {
-		var vErr *ValidationError
-		if errors.As(err, &vErr) {
-			writeError(w, http.StatusUnprocessableEntity, CodeValidationError, vErr.Message, map[string]string{
-				vErr.Field: vErr.Message})
-			return
-		}
-	}
-
-	envelope := WalletResponseEnvelope{
+	writeJSON(w, http.StatusCreated, WalletResponseEnvelope{
 		Data: WalletResponse{
-			Address: strings.TrimSpace(req.Address),
-			ChainID: req.ChainID,
-			Label:   strings.TrimSpace(req.Label),
+			Address: createdWallet.Address,
+			ChainID: int(createdWallet.ChainID),
+			Label:   createdWallet.Label,
 		},
-	}
-	writeJSON(w, http.StatusCreated, envelope)
-
-}
-
-func validateAddress(addr string) error {
-
-	trimmed := strings.TrimSpace(addr)
-
-	if len(trimmed) == 0 {
-		return &ValidationError{Field: "address", Message: "address is required"}
-	}
-
-	if !strings.HasPrefix(trimmed, "0x") {
-		return &ValidationError{Field: "address", Message: "address must start with 0x"}
-	}
-
-	if len(trimmed) != 42 {
-		return &ValidationError{Field: "address", Message: "address must be of length 42"}
-	}
-
-	return nil
-}
-
-func validateLabel(label string) error {
-
-	trimmed := strings.TrimSpace(label)
-
-	if len(trimmed) == 0 {
-		return &ValidationError{Field: "label", Message: "label is required"}
-	}
-
-	if utf8.RuneCountInString(trimmed) > 50 {
-		return &ValidationError{Field: "label", Message: "label must be less than 50 characters"}
-	}
-
-	return nil
-}
-
-func validateChainID(chainID int) error {
-	if chainID <= 0 {
-		return &ValidationError{Field: "chainId", Message: "chainId must be a positive integer"}
-	}
-	return nil
+	})
 }
