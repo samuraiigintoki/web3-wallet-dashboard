@@ -86,7 +86,7 @@ The initial portfolio version will not:
 - Replace a browser wallet or general-purpose block explorer.
 - Support arbitrary smart contracts without a known ABI.
 - Target production mainnet funds.
-- Introduce microservices, RabbitMQ, Kafka, Redis, or Kubernetes without a measured requirement.
+- introduce microservices, RabbitMQ, Kafka, Redis, or Kubernetes without a measured requirement.
 - Implement advanced chain-reorganization handling beyond a documented basic strategy.
 - Provide token swaps, bridging, portfolio valuation, or trading features.
 - Use Rust before the core Go, React, PostgreSQL, Solidity, and indexer flow is complete.

@@ -22,7 +22,7 @@ This document is an initial logical schema. No PostgreSQL migrations are impleme
 - Store EVM addresses in one canonical representation for equality checks, initially lowercase `0x`-prefixed hexadecimal text.
 - Validate address length and hexadecimal shape in the application and optionally with database checks.
 - Store wei values as `NUMERIC(78,0)` to represent `uint256` safely.
-- Store block numbers and log indexes using types chosen to preserve required unsigned ranges; common testnet values fit PostgreSQL `BIGINT`, but conversion boundaries must be validated.
+- Store block numbers and log indexes using types chosen to preserve required unsigned ranges; common testnet values fit PostgreSQL `BIGint`, but conversion boundaries must be validated.
 - Never use floating-point types for wei values.
 - Do not store private keys, seed phrases, or raw wallet credentials.
 
@@ -36,7 +36,7 @@ erDiagram
     CONTRACTS ||--o{ MULTISIG_TRANSACTIONS : contains
     MULTISIG_TRANSACTIONS ||--o{ TRANSACTION_CONFIRMATIONS : has
     CONTRACTS ||--o{ CONTRACT_EVENTS : emits
-    CONTRACTS ||--|| INDEXER_CHECKPOINTS : has
+    CONTRACTS ||--|| INDEXER_CHECKPOintS : has
 
     USERS {
         uuid id PK
@@ -114,7 +114,7 @@ erDiagram
         timestamptz observed_at
     }
 
-    INDEXER_CHECKPOINTS {
+    INDEXER_CHECKPOintS {
         uuid contract_id PK,FK
         bigint last_indexed_block
         text last_indexed_block_hash
@@ -161,7 +161,7 @@ Proposed columns:
 |---|---|---|
 | `id` | `UUID` | Primary key |
 | `user_id` | `UUID` | Foreign key to `users`, not null |
-| `chain_id` | `BIGINT` | Positive, not null |
+| `chain_id` | `BIGint` | Positive, not null |
 | `address` | `VARCHAR(42)` | Canonical EVM address, not null |
 | `label` | `VARCHAR(100)` | User-visible label, not null or documented nullable |
 | `created_at` | `TIMESTAMPTZ` | Not null |
@@ -191,10 +191,10 @@ Proposed columns:
 | Column | Type | Constraints and notes |
 |---|---|---|
 | `id` | `UUID` | Primary key |
-| `chain_id` | `BIGINT` | Positive, not null |
+| `chain_id` | `BIGint` | Positive, not null |
 | `address` | `VARCHAR(42)` | Canonical contract address, not null |
 | `contract_version` | `VARCHAR(50)` | For example `multisig-v1.1` |
-| `start_block` | `BIGINT` | Deployment or configured indexing start block |
+| `start_block` | `BIGint` | Deployment or configured indexing start block |
 | `indexing_enabled` | `BOOLEAN` | Global indexer control |
 | `created_at` | `TIMESTAMPTZ` | Not null |
 | `updated_at` | `TIMESTAMPTZ` | Not null |
@@ -256,9 +256,9 @@ Proposed columns:
 | `executed` | `BOOLEAN` | Current derived state |
 | `submitted_by` | `VARCHAR(42)` | Owner from submit event |
 | `submit_evm_tx_hash` | `VARCHAR(66)` | Outer EVM transaction hash |
-| `submit_block_number` | `BIGINT` | Submission block |
+| `submit_block_number` | `BIGint` | Submission block |
 | `execute_evm_tx_hash` | `VARCHAR(66)` | Nullable until executed |
-| `execute_block_number` | `BIGINT` | Nullable until executed |
+| `execute_block_number` | `BIGint` | Nullable until executed |
 | `created_at` | `TIMESTAMPTZ` | Projection creation time |
 | `updated_at` | `TIMESTAMPTZ` | Last projection update |
 
@@ -288,9 +288,9 @@ Proposed columns:
 | `owner_address` | `VARCHAR(42)` | Confirming owner |
 | `confirmed` | `BOOLEAN` | Current projected state |
 | `confirmed_evm_tx_hash` | `VARCHAR(66)` | Latest confirmation hash, nullable |
-| `confirmed_block_number` | `BIGINT` | Latest confirmation block, nullable |
+| `confirmed_block_number` | `BIGint` | Latest confirmation block, nullable |
 | `revoked_evm_tx_hash` | `VARCHAR(66)` | Latest revocation hash, nullable |
-| `revoked_block_number` | `BIGINT` | Latest revocation block, nullable |
+| `revoked_block_number` | `BIGint` | Latest revocation block, nullable |
 | `updated_at` | `TIMESTAMPTZ` | Last state transition time |
 
 Primary or unique key:
@@ -314,11 +314,11 @@ Proposed columns:
 | `id` | `UUID` or `BIGSERIAL` | Primary key |
 | `contract_id` | `UUID` | Foreign key to `contracts` |
 | `event_name` | `VARCHAR(100)` | Supported ABI event name |
-| `block_number` | `BIGINT` | Not null |
+| `block_number` | `BIGint` | Not null |
 | `block_hash` | `VARCHAR(66)` | Not null |
 | `transaction_hash` | `VARCHAR(66)` | Not null |
-| `transaction_index` | `INTEGER` | Position in block where available |
-| `log_index` | `INTEGER` | Not null |
+| `transaction_index` | `intEGER` | Position in block where available |
+| `log_index` | `intEGER` | Not null |
 | `actor_address` | `VARCHAR(42)` | Event owner/sender where applicable |
 | `multisig_tx_index` | `NUMERIC(78,0)` | Nullable for non-transaction events |
 | `payload` | `JSONB` | Decoded event fields not promoted to columns |
@@ -355,12 +355,12 @@ Proposed columns:
 | Column | Type | Constraints and notes |
 |---|---|---|
 | `contract_id` | `UUID` | Primary key and foreign key to `contracts` |
-| `next_block` | `BIGINT` | Next block the indexer intends to process |
-| `last_indexed_block` | `BIGINT` | Nullable before first successful range |
+| `next_block` | `BIGint` | Next block the indexer intends to process |
+| `last_indexed_block` | `BIGint` | Nullable before first successful range |
 | `last_indexed_block_hash` | `VARCHAR(66)` | Nullable before first successful range |
 | `state` | `VARCHAR(30)` | Proposed: `idle`, `running`, `error`, `disabled` |
 | `last_error` | `TEXT` | Sanitized diagnostic, nullable |
-| `retry_count` | `INTEGER` | Operational state, bounded |
+| `retry_count` | `intEGER` | Operational state, bounded |
 | `updated_at` | `TIMESTAMPTZ` | Not null |
 
 Constraints:
@@ -437,7 +437,7 @@ Each migration must have a documented rollback strategy appropriate to the migra
 1. UUID generation method and extension.
 2. `TEXT` plus normalized unique index versus `CITEXT` for email.
 3. Session or token persistence after authentication design is chosen.
-4. `BIGINT` versus `NUMERIC` for block and transaction indexes at Go/SQL boundaries.
+4. `BIGint` versus `NUMERIC` for block and transaction indexes at Go/SQL boundaries.
 5. Whether calldata is stored as `BYTEA` or normalized hexadecimal text.
 6. Whether event primary keys use UUID or `BIGSERIAL`.
 7. Final indexer checkpoint and confirmation-depth strategy.
