@@ -78,4 +78,7 @@ func (h *Handler) createWallet(w http.ResponseWriter, r *http.Request) {
 			Label:   createdWallet.Label,
 		},
 	})
+
+
+	
 }
