@@ -39,7 +39,7 @@ func (s *Service) Create(address string, chainID int, label string) (Wallet, err
 	if !strings.HasPrefix(trimmedAddr, "0x") {
 		return Wallet{}, &ValidationError{
 			Field:   "address",
-			Message: "address must star with 0x",
+			Message: "address must start with 0x",
 		}
 	}
 	if len(trimmedAddr) != 42 {

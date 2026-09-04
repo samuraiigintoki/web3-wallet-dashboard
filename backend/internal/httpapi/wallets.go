@@ -74,7 +74,7 @@ func (h *Handler) createWallet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, WalletResponseEnvelope{
 		Data: WalletResponse{
 			Address: createdWallet.Address,
-			ChainID: int(createdWallet.ChainID),
+			ChainID: createdWallet.ChainID,
 			Label:   createdWallet.Label,
 		},
 	})
