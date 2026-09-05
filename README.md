@@ -6,19 +6,17 @@ The project will use the existing Solidity `MultiSigWallet` as its contract foun
 
 ## Current implementation
 
-The initial Go backend is running with:
+The Go backend features:
 
-- A standard-library HTTP server and router
-- A `GET /health` endpoint
-- A JSON health response
-- Method-specific routing
-- Unit tests for successful and unsupported-method responses
-- Standard-library HTTP server, router, and three-layer architecture (Handler -> Service -> Repository)
+- A standard-library HTTP server, router, and three-layer architecture (Handler -> Service -> Repository interface)
 - `GET /health` operational liveness endpoint
 - `POST /api/v1/wallets` endpoint with validation and repository persistence
-- PostgreSQL 16 local setup with Docker Compose and versioned migrations
+- Local PostgreSQL 16 container setup managed via Docker Compose
+- Versioned SQL migrations (`backend/migrations/`)
+- In-memory test double and repository interface seams
+- Automated table-driven unit and integration tests
 
-The PostgreSQL integration, authentication, frontend, contract integration, event indexer, CI, and deployment are not implemented yet.
+Authentication, smart contract event indexing, React frontend, and production deployment are planned for upcoming blocks.
 
 ## Planned architecture
 
