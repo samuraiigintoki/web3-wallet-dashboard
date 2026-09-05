@@ -13,6 +13,10 @@ The initial Go backend is running with:
 - A JSON health response
 - Method-specific routing
 - Unit tests for successful and unsupported-method responses
+- Standard-library HTTP server, router, and three-layer architecture (Handler -> Service -> Repository)
+- `GET /health` operational liveness endpoint
+- `POST /api/v1/wallets` endpoint with validation and repository persistence
+- PostgreSQL 16 local setup with Docker Compose and versioned migrations
 
 The PostgreSQL integration, authentication, frontend, contract integration, event indexer, CI, and deployment are not implemented yet.
 

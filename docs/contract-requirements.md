@@ -1,4 +1,4 @@
-# MultiSigWallet Integration Requirements
+# MultiSigWallet integration Requirements
 
 ## Decision
 
@@ -22,7 +22,7 @@ Reviewed baseline:
 - Fixed owner set and threshold
 - Submit, confirm, revoke, and execute lifecycle
 - ETH custody and arbitrary external calls
-- Checks-Effects-Interactions execution
+- Checks-Effects-interactions execution
 - Four lifecycle events
 - 24 passing Foundry tests reported by the source repository
 - Security assumptions and self-audit documentation
@@ -142,7 +142,7 @@ The frontend and Go chain client need to read:
 - Derived confirmation count
 - Contract ETH balance through the EVM account balance RPC
 
-## Integration gaps in the current v1
+## integration gaps in the current v1
 
 ### 1. Complete owners getter — required
 
@@ -347,7 +347,7 @@ User-facing applications should map selectors into understandable messages while
 - Owners and threshold are selected correctly at deployment.
 - Owner keys remain secured by their browser wallets.
 - The fixed owner set is acceptable for the portfolio demonstration.
-- Targets may execute arbitrary code, so execution must preserve Checks-Effects-Interactions.
+- Targets may execute arbitrary code, so execution must preserve Checks-Effects-interactions.
 - A failed external call reverts the execution and the `executed` state change.
 - Confirmation count remains derived from current mapping state.
 - Contract ETH may be locked if owners lose access or the threshold becomes unreachable.
