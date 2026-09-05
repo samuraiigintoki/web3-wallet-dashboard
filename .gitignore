@@ -1,0 +1,18 @@
+# Environment files
+.env
+.env.local
+
+# Binaries and build artifacts
+backend/bin/
+*.exe
+*.out
+
+# Operating System files
+.DS_Store
+Thumbs.db
+
+# IDE and Editor directories
+.idea/
+.vscode/
+*.swp
+*~

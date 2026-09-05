@@ -2,7 +2,7 @@
 
 ## Status
 
-This document is an initial logical schema. No PostgreSQL migrations are implemented at the time of writing. Names, types, and constraints must be confirmed during backend implementation.
+Initial schema defined. First migration `0001_create_wallets.up.sql` implemented for the unauthenticated wallet vertical slice. See `docs/adr/0001-wallet-id-and-schema-conventions.md` for MVP schema decisions.
 
 ## Design goals
 

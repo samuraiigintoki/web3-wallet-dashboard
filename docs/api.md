@@ -2,7 +2,7 @@
 
 ## Status
 
-This document is an initial API design. Only `GET /health` is implemented at the time of writing. All `/api/v1` routes below are planned and may change during implementation.
+This document is the living REST API design. `GET /health` and `POST /api/v1/wallets` are implemented.
 
 ## Design principles
 
