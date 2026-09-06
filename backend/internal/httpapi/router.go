@@ -12,5 +12,6 @@ func NewRouter(walletSvc *wallet.Service) http.Handler {
 
 	mux.HandleFunc("GET /health", healthHandler)
 	mux.HandleFunc("POST /api/v1/wallets", h.createWallet)
+	mux.HandleFunc("GET /api/v1/wallets/{id}", h.getWallet)
 	return mux
 }

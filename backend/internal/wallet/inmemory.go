@@ -1,10 +1,15 @@
 package wallet
 
-import "fmt"
-
 type InMemoryWalletRepo struct {
 	wallets []Wallet
-	counter int
+	counter int64
+}
+
+func NewInMemoryWalletRepo() *InMemoryWalletRepo {
+	return &InMemoryWalletRepo{
+		wallets: make([]Wallet, 0),
+		counter: 0,
+	}
 }
 
 // Create implements [WalletRepository].
@@ -16,7 +21,7 @@ func (repo *InMemoryWalletRepo) Create(w Wallet) (Wallet, error) {
 	}
 
 	repo.counter++
-	w.ID = fmt.Sprintf("w%d", repo.counter)
+	w.ID = repo.counter
 
 	repo.wallets = append(repo.wallets, w)
 
@@ -24,7 +29,7 @@ func (repo *InMemoryWalletRepo) Create(w Wallet) (Wallet, error) {
 }
 
 // GetByID implements [WalletRepository].
-func (repo *InMemoryWalletRepo) GetByID(id string) (Wallet, error) {
+func (repo *InMemoryWalletRepo) GetByID(id int64) (Wallet, error) {
 	for _, w := range repo.wallets {
 		if w.ID == id {
 			return w, nil
@@ -32,11 +37,4 @@ func (repo *InMemoryWalletRepo) GetByID(id string) (Wallet, error) {
 	}
 
 	return Wallet{}, ErrWalletNotFound
-}
-
-func NewInMemoryWalletRepo() *InMemoryWalletRepo {
-	return &InMemoryWalletRepo{
-		wallets: make([]Wallet, 0),
-		counter: 0,
-	}
 }

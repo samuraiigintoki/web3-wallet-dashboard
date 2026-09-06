@@ -1,6 +1,7 @@
 package wallet
 
 import (
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -25,8 +26,8 @@ func (e *ValidationError) Error() string {
 	return fmt.Sprintf("%q: %q", e.Field, e.Message)
 }
 
-func (s *Service) Create(address string, chainID int, label string) (Wallet, error) {
-	trimmedAddr := strings.TrimSpace(address)
+func (s *Service) Create(address string, chainID int64, label string) (Wallet, error) {
+	trimmedAddr := strings.ToLower(strings.TrimSpace(address))
 	trimmedlabel := strings.TrimSpace(label)
 
 	// address validations
@@ -46,6 +47,12 @@ func (s *Service) Create(address string, chainID int, label string) (Wallet, err
 		return Wallet{}, &ValidationError{
 			Field:   "address",
 			Message: "address must be of 42 characters",
+		}
+	}
+	if _, err := hex.DecodeString(trimmedAddr[2:]); err != nil {
+		return Wallet{}, &ValidationError{
+			Field:   "address",
+			Message: "address must be a hexadecimal string",
 		}
 	}
 
@@ -79,6 +86,6 @@ func (s *Service) Create(address string, chainID int, label string) (Wallet, err
 
 }
 
-func (s *Service) GetByID(id string) (Wallet, error) {
+func (s *Service) GetByID(id int64) (Wallet, error) {
 	return s.repo.GetByID(id)
 }

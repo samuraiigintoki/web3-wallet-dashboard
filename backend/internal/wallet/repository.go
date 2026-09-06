@@ -7,5 +7,5 @@ var ErrWalletNotFound = errors.New("wallet not found")
 
 type WalletRepository interface {
 	Create(Wallet) (Wallet, error)
-	GetByID(id string) (Wallet, error)
+	GetByID(id int64) (Wallet, error)
 }

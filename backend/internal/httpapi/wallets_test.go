@@ -163,3 +163,82 @@ func TestCreateWalletEndpoint(t *testing.T) {
 		})
 	}
 }
+
+func TestGetWalletEndpoint(t *testing.T) {
+	repo := wallet.NewInMemoryWalletRepo()
+	svc := wallet.NewService(repo)
+	router := NewRouter(svc)
+
+	seedWallet := `{"address":"0x0000000000000000000000000000000000000001","chainId":1,"label":"seed Wallet"}`
+
+	postReq, err := http.NewRequest(http.MethodPost, "/api/v1/wallets", strings.NewReader(seedWallet))
+	if err != nil {
+		t.Fatalf("failed to create seed request: %v", err)
+	}
+
+	postReq.Header.Set("Content-Type", "application/json")
+
+	seedRec := httptest.NewRecorder()
+	router.ServeHTTP(seedRec, postReq)
+	if seedRec.Code != http.StatusCreated {
+		t.Fatalf("failed to create wallet, expected: %d, got : %d", http.StatusCreated, seedRec.Code)
+	}
+
+	tests := []struct {
+		name           string
+		path           string
+		expectedStatus int
+		isHappyPath    bool
+	}{
+		{
+			name:           "happy path",
+			path:           "/api/v1/wallets/1",
+			expectedStatus: http.StatusOK,
+			isHappyPath:    true,
+		},
+		{
+			name:           "non-existent ID",
+			path:           "/api/v1/wallets/999",
+			expectedStatus: http.StatusNotFound,
+			isHappyPath:    false,
+		},
+		{
+			name:           "invalid non-numeric ID",
+			path:           "/api/v1/wallets/abc",
+			expectedStatus: http.StatusBadRequest,
+			isHappyPath:    false,
+		},
+		{
+			name:           "negative ID",
+			path:           "/api/v1/wallets/-1",
+			expectedStatus: http.StatusBadRequest,
+			isHappyPath:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodGet, tt.path, nil)
+			if err != nil {
+				t.Fatalf("Failed to create GET request: %v", err)
+			}
+
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			if rec.Code != tt.expectedStatus {
+				t.Errorf("Expected status %d, got %d", tt.expectedStatus, rec.Code)
+			}
+
+			if tt.isHappyPath && rec.Code == http.StatusOK {
+				var res WalletResponseEnvelope
+				if err := json.NewDecoder(rec.Body).Decode(&res); err != nil {
+					t.Fatalf("Failed to decode response body: %v", err)
+				}
+
+				if res.Data.ID != 1 {
+					t.Errorf("Expected wallet ID to be 1, got %d", res.Data.ID)
+				}
+			}
+		})
+	}
+}
