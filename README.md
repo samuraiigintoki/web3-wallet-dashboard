@@ -2,21 +2,21 @@
 
 A full-stack Web3 portfolio project for managing wallet and multisig contract data, interacting with an EVM smart contract, and displaying indexed blockchain events through a web dashboard.
 
-The project will use the existing Solidity `MultiSigWallet` as its contract foundation rather than introducing a separate, unrelated contract.
+The project uses the existing Solidity `MultiSigWallet` as its contract foundation.
 
 ## Current implementation
 
 The Go backend features:
 
 - A standard-library HTTP server, router, and three-layer architecture (Handler -> Service -> Repository interface)
+- `InMemoryWalletRepo` active in `cmd/api/main.go` providing ephemeral in-memory persistence
 - `GET /health` operational liveness endpoint
 - `POST /api/v1/wallets` endpoint with validation and repository persistence
 - Local PostgreSQL 16 container setup managed via Docker Compose
-- Versioned SQL migrations (`backend/migrations/`)
-- In-memory test double and repository interface seams
-- Automated table-driven unit and integration tests
+- Versioned SQL migrations (`backend/migrations/`) ready for the Block 9 database-backed repository
+- Automated table-driven unit tests for service, handler, and routing layers
 
-Authentication, smart contract event indexing, React frontend, and production deployment are planned for upcoming blocks.
+PostgreSQL repository integration (Block 9), smart contract event indexing, React frontend, and production deployment are planned for upcoming blocks.
 
 ## Planned architecture
 
@@ -63,17 +63,16 @@ The browser wallet will sign user transactions. The Go backend will not receive 
 web3-wallet-dashboard/
 ├── backend/
 │   ├── cmd/
-│   │   └── api/              # API entry point
+│   │   └── api/              # API entry point (composition root)
 │   ├── internal/
-│   │   └── httpapi/          # Router, handlers, and HTTP tests
-│   └── go.mod
-├── frontend/                 # Planned React and TypeScript application
-├── contracts/                # Planned MultiSigWallet and Foundry tests
-├── docs/                     # Architecture and project documentation
-│   └── adr/                  # Architecture decision records
-├── .github/
-│   └── workflows/            # Planned CI workflows
-└── README.md
+│   │   ├── httpapi/          # HTTP handlers, router, and DTOs
+│   │   └── wallet/           # Domain models, service logic, and repositories
+│   └── migrations/           # Versioned SQL schema migrations
+├── contracts/                # Solidity MultiSigWallet contracts
+├── docs/                     # Architecture, API, and schema documentation
+│   ├── adr/                  # Architecture Decision Records (ADR 0001, ADR 0002)
+│   └── security-assumptions.md # Security baseline and TLS assumptions
+└── docker-compose.yml        # Local PostgreSQL 16 service
 ```
 
 ## Prerequisites
