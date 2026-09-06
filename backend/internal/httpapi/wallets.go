@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
 )
@@ -13,14 +14,15 @@ const maxBodyBytes = 1 << 20 //1 MB
 // 1. Inbound DTO
 type CreateWalletRequest struct {
 	Address string `json:"address"`
-	ChainID int    `json:"chainId"`
+	ChainID int64  `json:"chainId"`
 	Label   string `json:"label"`
 }
 
 // 2. Outbound DTO
 type WalletResponse struct {
+	ID      int64  `json:"id"`
 	Address string `json:"address"`
-	ChainID int    `json:"chainId"`
+	ChainID int64  `json:"chainId"`
 	Label   string `json:"label"`
 }
 
@@ -73,9 +75,40 @@ func (h *Handler) createWallet(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusCreated, WalletResponseEnvelope{
 		Data: WalletResponse{
+			ID:      createdWallet.ID,
 			Address: createdWallet.Address,
 			ChainID: createdWallet.ChainID,
 			Label:   createdWallet.Label,
+		},
+	})
+}
+
+func (h *Handler) getWallet(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, CodeInvalidJSON, "invalid wallet id", nil)
+		return
+	}
+
+	foundWallet, err := h.walletSvc.GetByID(id)
+	if err != nil {
+		if errors.Is(err, wallet.ErrWalletNotFound) {
+			writeError(w, http.StatusNotFound, CodeInvalidJSON, "wallet not found", nil)
+			return
+		}
+
+		writeError(w, http.StatusInternalServerError, CodeInternalError, "internal server error", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, WalletResponseEnvelope{
+		WalletResponse{
+			ID:      foundWallet.ID,
+			Address: foundWallet.Address,
+			ChainID: foundWallet.ChainID,
+			Label:   foundWallet.Label,
 		},
 	})
 }

@@ -1,8 +1,8 @@
 package wallet
 
 type Wallet struct {
-	ID      string `json:"id"`
+	ID      int64  `json:"id"`
 	Address string `json:"address"`
-	ChainID int    `json:"chainId"`
+	ChainID int64  `json:"chainId"`
 	Label   string `json:"label"`
 }
