@@ -1,13 +1,13 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/httpapi"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
 	"log"
 	"net/http"
 	"os"
-	"context"
 	"time"
 )
 
@@ -32,7 +32,7 @@ func main() {
 
 	db.SetMaxOpenConns(25)
 	db.SetMaxIdleConns(25)
-	db.SetConnMaxLifetime(5*time.Minute)
+	db.SetConnMaxLifetime(5 * time.Minute)
 
 	repo := wallet.NewPostgresWalletRepo(db)
 	svc := wallet.NewService(repo)
@@ -42,10 +42,10 @@ func main() {
 	log.Printf("Starting HTTP Server on %s...", addr)
 
 	srv := &http.Server{
-    	Addr:              addr,
-    	Handler:           handler,
-    	ReadHeaderTimeout: 5 * time.Second, // to mitigate Slowloris Dos attack
-    	IdleTimeout:       60 * time.Second, 
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second, // to mitigate Slowloris Dos attack
+		IdleTimeout:       60 * time.Second,
 	}
 
 	if err := srv.ListenAndServe(); err != nil {

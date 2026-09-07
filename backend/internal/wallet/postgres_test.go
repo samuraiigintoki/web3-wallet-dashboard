@@ -5,11 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
 	"os"
 	"testing"
 	"time"
-	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
 )
 
 func TestPostgresWalletRepo_Integration(t *testing.T) {
@@ -24,9 +24,9 @@ func TestPostgresWalletRepo_Integration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error initializing database: %v", err)
 	}
-	t.Cleanup(func ()  {
+	t.Cleanup(func() {
 		db.Close()
-	}) 
+	})
 
 	if err := db.Ping(); err != nil {
 		t.Fatalf("error connecting database:%v", err)
@@ -37,8 +37,8 @@ func TestPostgresWalletRepo_Integration(t *testing.T) {
 	uniqueAddr := fmt.Sprintf("0x%040x", time.Now().UnixNano())
 
 	t.Cleanup(func() {
-    _, _ = db.ExecContext(context.Background(), "DELETE FROM wallets WHERE address = $1", uniqueAddr)
-    })
+		_, _ = db.ExecContext(context.Background(), "DELETE FROM wallets WHERE address = $1", uniqueAddr)
+	})
 
 	createWallet := wallet.Wallet{
 		Address: uniqueAddr,

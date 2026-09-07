@@ -41,7 +41,7 @@ func TestService_Create_SequentialAndDuplicate(t *testing.T) {
 
 func TestService_Create_Validation(t *testing.T) {
 	ctx := t.Context()
-	
+
 	tests := []struct {
 		name          string
 		address       string
