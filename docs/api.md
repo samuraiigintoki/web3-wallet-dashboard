@@ -2,14 +2,14 @@
 
 ## Status
 
-This document is the living REST API design. `GET /health` and `POST /api/v1/wallets` are implemented.
+This document is the living REST API design. `GET /health`, `POST /api/v1/wallets`, and `GET /api/v1/wallets/{id}` are implemented. Additional routes remain planned.
 
 ## Design principles
 
 - Use JSON over HTTPS.
 - Version application routes under `/api/v1`.
 - Keep liveness and readiness endpoints outside authenticated API routes.
-- Authenticate protected routes.
+- Authenticate protected routes (planned for auth milestone).
 - Enforce record ownership in services and repository queries.
 - Use consistent errors, pagination, filtering, and request identifiers.
 - Keep browser-wallet contract writes out of the Go API. Users sign state-changing transactions in their browser wallet.
@@ -76,9 +76,13 @@ The first implementation may use offset pagination. Cursor pagination can be con
 | Status | Code | Condition | Details Shape |
 |---|---|---|---|
 | `400 Bad Request` | `INVALID_JSON` | Malformed JSON syntax, unknown fields, field type mismatch, body > 1MB | None |
-| `422 Unprocessable Entity` | `VALIDATION_ERROR` | Domain rule failure (address length/prefix, label length, chainId <= 0) | `{"details": {"<field>": "<message>"}}` |
+| `400 Bad Request` | `VALIDATION_ERROR` | Invalid path parameter or non-numeric/negative ID | None |
+| `404 Not Found` | `RESOURCE_NOT_FOUND` | Resource matching requested ID does not exist | None |
 | `409 Conflict` | `RESOURCE_CONFLICT` | Duplicate `(address, chainId)` record | None |
+| `422 Unprocessable Entity` | `VALIDATION_ERROR` | Domain rule failure (address length/prefix/hex, label length, chainId <= 0) | `{"details": {"<field>": "<message>"}}` |
 | `500 Internal Server Error` | `INTERNAL_SERVER_ERROR` | Unhandled internal server error | None |
+
+*Note on 405 Method Not Allowed: Method mismatch rejections (e.g. `POST /health`) are handled natively by `http.ServeMux` and return `405 Method Not Allowed` in `text/plain` format.*
 
 ## Common status codes
 
@@ -203,9 +207,9 @@ A saved wallet is an off-chain address record. It does not prove control of the 
 
 ### `POST /api/v1/wallets`
 
-**Status:** Implemented — in-memory repository, unauthenticated
+**Status:** Implemented — PostgreSQL persistence
 
-**Authentication:** Public (authentication deferred to future block)
+**Authentication:** Public (unauthenticated for MVP slice)
 
 Request:
 
@@ -228,6 +232,7 @@ Success: `201 Created`.
 ```json
 {
   "data": {
+    "id": 1,
     "address": "0x0000000000000000000000000000000000000001",
     "chainId": 11155111,
     "label": "Primary Sepolia signer"
@@ -248,13 +253,15 @@ Query parameters:
 
 Only the authenticated user's records are returned.
 
-### `GET /api/v1/wallets/{walletId}`
+### `GET /api/v1/wallets/{id}`
 
-**Authentication:** Required
+**Status:** Implemented
 
-Returns one user-owned saved wallet.
+**Authentication:** Public (unauthenticated for MVP slice)
 
-### `PATCH /api/v1/wallets/{walletId}`
+Returns one saved wallet by database identity ID.
+
+### `PATCH /api/v1/wallets/{id}`
 
 **Authentication:** Required
 
@@ -268,7 +275,7 @@ Initial mutable field:
 
 Changing address or chain should create a new record rather than silently changing resource identity unless a later requirement justifies it.
 
-### `DELETE /api/v1/wallets/{walletId}`
+### `DELETE /api/v1/wallets/{id}`
 
 **Authentication:** Required
 

@@ -56,7 +56,7 @@ func (h *Handler) createWallet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	createdWallet, err := h.walletSvc.Create(req.Address, req.ChainID, req.Label)
+	createdWallet, err := h.walletSvc.Create(r.Context(), req.Address, req.ChainID, req.Label)
 	if err != nil {
 		var vErr *wallet.ValidationError
 		if errors.As(err, &vErr) {
@@ -92,7 +92,7 @@ func (h *Handler) getWallet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	foundWallet, err := h.walletSvc.GetByID(id)
+	foundWallet, err := h.walletSvc.GetByID(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, wallet.ErrWalletNotFound) {
 			writeError(w, http.StatusNotFound, CodeResourceNotFound, "wallet not found", nil)

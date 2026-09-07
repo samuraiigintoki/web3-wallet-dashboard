@@ -1,6 +1,7 @@
 package wallet
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 	"strings"
@@ -26,7 +27,7 @@ func (e *ValidationError) Error() string {
 	return fmt.Sprintf("%q: %q", e.Field, e.Message)
 }
 
-func (s *Service) Create(address string, chainID int64, label string) (Wallet, error) {
+func (s *Service) Create(ctx context.Context, address string, chainID int64, label string) (Wallet, error) {
 	trimmedAddr := strings.ToLower(strings.TrimSpace(address))
 	trimmedlabel := strings.TrimSpace(label)
 
@@ -78,7 +79,7 @@ func (s *Service) Create(address string, chainID int64, label string) (Wallet, e
 		}
 	}
 
-	return s.repo.Create(Wallet{
+	return s.repo.Create(ctx, Wallet{
 		Address: trimmedAddr,
 		ChainID: chainID,
 		Label:   trimmedlabel,
@@ -86,6 +87,6 @@ func (s *Service) Create(address string, chainID int64, label string) (Wallet, e
 
 }
 
-func (s *Service) GetByID(id int64) (Wallet, error) {
-	return s.repo.GetByID(id)
+func (s *Service) GetByID(ctx context.Context, id int64) (Wallet, error) {
+	return s.repo.GetByID(ctx, id)
 }

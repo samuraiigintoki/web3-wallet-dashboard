@@ -2,20 +2,22 @@
 
 A full-stack Web3 portfolio project for managing wallet and multisig contract data, interacting with an EVM smart contract, and displaying indexed blockchain events through a web dashboard.
 
+The project uses the existing Solidity `MultiSigWallet` as its contract foundation.
+
 ## Current implementation
 
 The Go backend features:
 
 - Standard-library HTTP server, router, and three-layer architecture (Handler -> Service -> Repository interface)
-- `PostgresWalletRepo` active in `cmd/api/main.go` providing PostgreSQL persistence
+- `PostgresWalletRepo` active in `cmd/api/main.go` providing PostgreSQL database persistence
 - `GET /health` operational liveness endpoint
-- `POST /api/v1/wallets` endpoint with validation, identity primary key, and repository persistence
+- `POST /api/v1/wallets` endpoint with validation, identity primary key, and database persistence
 - `GET /api/v1/wallets/{id}` endpoint retrieving saved wallets by database identity ID
 - PostgreSQL 16 container setup managed via Docker Compose
 - Versioned SQL migrations (`backend/migrations/`) embedded with `go:embed` and managed via `cmd/migrate`
-- Automated table-driven unit and integration tests
+- Table-driven unit tests for service, handler, and routing layers, plus database integration tests
 
-Authentication, smart contract event indexing, React frontend, and production deployment are planned for upcoming blocks.
+Smart contract event indexing, React frontend, and production deployment are planned for upcoming blocks.
 
 ## Planned architecture
 
@@ -70,7 +72,9 @@ web3-wallet-dashboard/
 │   └── migrations/           # Versioned SQL schema migrations
 ├── contracts/                # Solidity MultiSigWallet contracts
 ├── docs/                     # Architecture, API, and schema documentation
-│   ├── adr/                  # Architecture Decision Records (ADR 0001, ADR 0002)
+│   ├── adr/                  # Architecture Decision Records
+│   │   ├── 0001-wallet-id-and-schema-conventions.md
+│   │   └── 0002-migration-runner-and-execution-strategy.md
 │   ├── api.md                # REST API design specifications
 │   ├── database-schema.md    # PostgreSQL schema definitions
 │   └── security-assumptions.md # Security baseline and TLS assumptions
@@ -122,22 +126,18 @@ go vet ./...
 go build ./...
 ```
 
-## Documentation
+## Documentation Index
 
 - [Project specification](docs/project-spec.md)
-- [System architecture](docs/architecture.md)
-- [REST API outline](docs/api.md)
-- [PostgreSQL schema](docs/database-schema.md)
-- [MultiSigWallet integration requirements](docs/contract-requirements.md)
+- [Architecture & Boundaries](docs/architecture.md)
+- [REST API Specification](docs/api.md)
+- [Database Schema](docs/database-schema.md)
+- [Contract Integration Requirements](docs/contract-requirements.md)
+- [Security Assumptions](docs/security-assumptions.md)
+- [ADR 0001: Wallet Identity Type and MVP Schema Conventions](docs/adr/0001-wallet-id-and-schema-conventions.md)
+- [ADR 0002: Migration Runner and Execution Strategy](docs/adr/0002-migration-runner-and-execution-strategy.md)
 
-## Current milestone
+## Development status
 
-**Week 1: Go foundation and project architecture**
-
-Current objectives:
-
-- Learn the Go fundamentals required for implementation
-- Establish the monorepo structure
-- Initialize the backend Go module
-- Define the initial architecture and project scope
-- Build a Go HTTP server with a tested health endpoint
+- **Current milestone:** Week 2 (Backend principles, three-layer architecture, and PostgreSQL integration)
+- **Status:** In active development

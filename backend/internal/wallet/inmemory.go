@@ -1,5 +1,7 @@
 package wallet
 
+import "context"
+
 type InMemoryWalletRepo struct {
 	wallets []Wallet
 	counter int64
@@ -13,7 +15,7 @@ func NewInMemoryWalletRepo() *InMemoryWalletRepo {
 }
 
 // Create implements [WalletRepository].
-func (repo *InMemoryWalletRepo) Create(w Wallet) (Wallet, error) {
+func (repo *InMemoryWalletRepo) Create(ctx context.Context, w Wallet) (Wallet, error) {
 	for _, existing := range repo.wallets {
 		if existing.Address == w.Address && existing.ChainID == w.ChainID {
 			return Wallet{}, ErrWalletDuplicate
@@ -29,7 +31,7 @@ func (repo *InMemoryWalletRepo) Create(w Wallet) (Wallet, error) {
 }
 
 // GetByID implements [WalletRepository].
-func (repo *InMemoryWalletRepo) GetByID(id int64) (Wallet, error) {
+func (repo *InMemoryWalletRepo) GetByID(ctx context.Context, id int64) (Wallet, error) {
 	for _, w := range repo.wallets {
 		if w.ID == id {
 			return w, nil
