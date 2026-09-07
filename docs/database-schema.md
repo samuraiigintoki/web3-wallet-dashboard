@@ -126,6 +126,17 @@ erDiagram
 
 ## Tables
 
+### `schema_migrations`
+
+Purpose: records applied database migrations to guarantee idempotent execution.
+
+Proposed columns:
+
+| Column | Type | Constraints and notes |
+| --- | --- | --- |
+| `version` | `TEXT` | Primary key (e.g. `0001_create_wallets`) |
+| `applied_at` | `TIMESTAMPTZ` | Not null, default current timestamp |
+
 ### `users`
 
 Purpose: application identity and authentication record.

@@ -2,21 +2,20 @@
 
 A full-stack Web3 portfolio project for managing wallet and multisig contract data, interacting with an EVM smart contract, and displaying indexed blockchain events through a web dashboard.
 
-The project uses the existing Solidity `MultiSigWallet` as its contract foundation.
-
 ## Current implementation
 
 The Go backend features:
 
-- A standard-library HTTP server, router, and three-layer architecture (Handler -> Service -> Repository interface)
-- `InMemoryWalletRepo` active in `cmd/api/main.go` providing ephemeral in-memory persistence
+- Standard-library HTTP server, router, and three-layer architecture (Handler -> Service -> Repository interface)
+- `PostgresWalletRepo` active in `cmd/api/main.go` providing PostgreSQL persistence
 - `GET /health` operational liveness endpoint
-- `POST /api/v1/wallets` endpoint with validation and repository persistence
-- Local PostgreSQL 16 container setup managed via Docker Compose
-- Versioned SQL migrations (`backend/migrations/`) ready for the Block 9 database-backed repository
-- Automated table-driven unit tests for service, handler, and routing layers
+- `POST /api/v1/wallets` endpoint with validation, identity primary key, and repository persistence
+- `GET /api/v1/wallets/{id}` endpoint retrieving saved wallets by database identity ID
+- PostgreSQL 16 container setup managed via Docker Compose
+- Versioned SQL migrations (`backend/migrations/`) embedded with `go:embed` and managed via `cmd/migrate`
+- Automated table-driven unit and integration tests
 
-PostgreSQL repository integration (Block 9), smart contract event indexing, React frontend, and production deployment are planned for upcoming blocks.
+Authentication, smart contract event indexing, React frontend, and production deployment are planned for upcoming blocks.
 
 ## Planned architecture
 
@@ -63,7 +62,8 @@ The browser wallet will sign user transactions. The Go backend will not receive 
 web3-wallet-dashboard/
 ├── backend/
 │   ├── cmd/
-│   │   └── api/              # API entry point (composition root)
+│   │   ├── api/              # API entry point (composition root)
+│   │   └── migrate/          # Database migration CLI tool
 │   ├── internal/
 │   │   ├── httpapi/          # HTTP handlers, router, and DTOs
 │   │   └── wallet/           # Domain models, service logic, and repositories
@@ -71,6 +71,8 @@ web3-wallet-dashboard/
 ├── contracts/                # Solidity MultiSigWallet contracts
 ├── docs/                     # Architecture, API, and schema documentation
 │   ├── adr/                  # Architecture Decision Records (ADR 0001, ADR 0002)
+│   ├── api.md                # REST API design specifications
+│   ├── database-schema.md    # PostgreSQL schema definitions
 │   └── security-assumptions.md # Security baseline and TLS assumptions
 └── docker-compose.yml        # Local PostgreSQL 16 service
 ```
