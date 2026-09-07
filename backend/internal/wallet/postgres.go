@@ -3,7 +3,7 @@ package wallet
 import (
 	"database/sql"
 	"errors"
-	"strings"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type PostgresWalletRepo struct {
@@ -22,9 +22,11 @@ func (repo *PostgresWalletRepo) Create(w Wallet) (Wallet, error) {
 		VALUES ($1,$2,$3)
 		RETURNING id; 
 	`
+
 	err := repo.db.QueryRow(query, w.Address, w.ChainID, w.Label).Scan(&w.ID)
 	if err != nil {
-		if strings.Contains(err.Error(), "unique_address_chain") || strings.Contains(err.Error(), "23505") {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return Wallet{}, ErrWalletDuplicate
 		}
 		return Wallet{}, err

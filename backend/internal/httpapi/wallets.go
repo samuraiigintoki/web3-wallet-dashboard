@@ -88,14 +88,14 @@ func (h *Handler) getWallet(w http.ResponseWriter, r *http.Request) {
 
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || id <= 0 {
-		writeError(w, http.StatusBadRequest, CodeInvalidJSON, "invalid wallet id", nil)
+		writeError(w, http.StatusBadRequest, CodeValidationError, "invalid request", nil)
 		return
 	}
 
 	foundWallet, err := h.walletSvc.GetByID(id)
 	if err != nil {
 		if errors.Is(err, wallet.ErrWalletNotFound) {
-			writeError(w, http.StatusNotFound, CodeInvalidJSON, "wallet not found", nil)
+			writeError(w, http.StatusNotFound, CodeResourceNotFound, "wallet not found", nil)
 			return
 		}
 

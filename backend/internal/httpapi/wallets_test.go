@@ -181,37 +181,42 @@ func TestGetWalletEndpoint(t *testing.T) {
 	seedRec := httptest.NewRecorder()
 	router.ServeHTTP(seedRec, postReq)
 	if seedRec.Code != http.StatusCreated {
-		t.Fatalf("failed to create wallet, expected: %d, got : %d", http.StatusCreated, seedRec.Code)
+		t.Fatalf("failed to create wallet, expected: %d, got: %d", http.StatusCreated, seedRec.Code)
 	}
 
 	tests := []struct {
 		name           string
 		path           string
 		expectedStatus int
+		expectedCode   string
 		isHappyPath    bool
 	}{
 		{
 			name:           "happy path",
 			path:           "/api/v1/wallets/1",
 			expectedStatus: http.StatusOK,
+			expectedCode:   "",
 			isHappyPath:    true,
 		},
 		{
 			name:           "non-existent ID",
 			path:           "/api/v1/wallets/999",
 			expectedStatus: http.StatusNotFound,
+			expectedCode:   CodeResourceNotFound,
 			isHappyPath:    false,
 		},
 		{
 			name:           "invalid non-numeric ID",
 			path:           "/api/v1/wallets/abc",
 			expectedStatus: http.StatusBadRequest,
+			expectedCode:   CodeValidationError,
 			isHappyPath:    false,
 		},
 		{
 			name:           "negative ID",
 			path:           "/api/v1/wallets/-1",
 			expectedStatus: http.StatusBadRequest,
+			expectedCode:   CodeValidationError,
 			isHappyPath:    false,
 		},
 	}
@@ -237,6 +242,16 @@ func TestGetWalletEndpoint(t *testing.T) {
 
 				if res.Data.ID != 1 {
 					t.Errorf("Expected wallet ID to be 1, got %d", res.Data.ID)
+				}
+			}
+
+			if !tt.isHappyPath && tt.expectedCode != "" {
+				var errRes ErrorEnvelope
+				if err := json.NewDecoder(rec.Body).Decode(&errRes); err != nil {
+					t.Fatalf("Failed to decode error body: %v", err)
+				}
+				if errRes.Error.Code != tt.expectedCode {
+					t.Errorf("Expected error code %q, got %q", tt.expectedCode, errRes.Error.Code)
 				}
 			}
 		})
