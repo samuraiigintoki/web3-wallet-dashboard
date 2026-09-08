@@ -1,6 +1,9 @@
 package wallet
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 type InMemoryWalletRepo struct {
 	wallets []Wallet
@@ -24,6 +27,7 @@ func (repo *InMemoryWalletRepo) Create(ctx context.Context, w Wallet) (Wallet, e
 
 	repo.counter++
 	w.ID = repo.counter
+	w.CreatedAt = time.Now().UTC()
 
 	repo.wallets = append(repo.wallets, w)
 

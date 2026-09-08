@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
 )
@@ -24,6 +25,7 @@ type WalletResponse struct {
 	Address string `json:"address"`
 	ChainID int64  `json:"chainId"`
 	Label   string `json:"label"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // 3. Outbound Envelope
@@ -79,6 +81,7 @@ func (h *Handler) createWallet(w http.ResponseWriter, r *http.Request) {
 			Address: createdWallet.Address,
 			ChainID: createdWallet.ChainID,
 			Label:   createdWallet.Label,
+			CreatedAt: createdWallet.CreatedAt,
 		},
 	})
 }
@@ -109,6 +112,7 @@ func (h *Handler) getWallet(w http.ResponseWriter, r *http.Request) {
 			Address: foundWallet.Address,
 			ChainID: foundWallet.ChainID,
 			Label:   foundWallet.Label,
+			CreatedAt: foundWallet.CreatedAt,
 		},
 	})
 }
