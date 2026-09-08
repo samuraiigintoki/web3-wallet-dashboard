@@ -78,3 +78,34 @@ func TestPostgresWalletRepo_Integration(t *testing.T) {
 	}
 
 }
+
+func TestWalletRepository_CancelledContext(t *testing.T) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("skipping integration test:DATABASE_URL not set")
+	}
+
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("error initializing database: %v", err)
+	}
+	t.Cleanup(func() {
+		db.Close()
+	})
+
+	if err := db.Ping(); err != nil {
+		t.Fatalf("error connecting database:%v", err)
+	}
+
+	repo := wallet.NewPostgresWalletRepo(db)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err = repo.GetByID(ctx, 1)
+
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context.Canceled, got: %v", err)
+	}
+
+}
