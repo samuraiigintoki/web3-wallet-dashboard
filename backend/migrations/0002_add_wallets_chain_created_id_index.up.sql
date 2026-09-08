@@ -1,0 +1,1 @@
+CREATE INDEX IF NOT EXISTS idx_wallets_chain_created_id ON wallets (chain_id, created_at DESC, id DESC);

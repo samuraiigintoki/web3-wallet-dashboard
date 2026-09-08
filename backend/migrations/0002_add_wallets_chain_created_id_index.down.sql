@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS idx_wallets_chain_created_id;
