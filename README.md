@@ -1,5 +1,7 @@
 # Web3 Wallet Dashboard
 
+[![CI](https://github.com/samuraiigintoki/web3-wallet-dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/samuraiigintoki/web3-wallet-dashboard/actions/workflows/ci.yml)
+
 A full-stack Web3 portfolio project for managing wallet and multisig contract data, interacting with an EVM smart contract, and displaying indexed blockchain events through a web dashboard.
 
 The project uses the existing Solidity `MultiSigWallet` as its contract foundation.
