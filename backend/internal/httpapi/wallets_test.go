@@ -106,13 +106,9 @@ func TestCreateWalletEndpoint(t *testing.T) {
 			body:           strings.Repeat("a", 1<<20+100),
 			expectedStatus: http.StatusBadRequest, expectedCode: CodeInvalidJSON},
 		{
-			name: "method not allowed", method: http.MethodGet, path: "/api/v1/wallets",
-			body: `{
-    			"address": "0x0000000000000000000000000000000000000001",
-    			"chainId": 1,
-    			"label": "Primary Sepolia signer"
-				}`,
-			expectedStatus: http.StatusMethodNotAllowed},
+			name: "list empty", method: http.MethodGet, path: "/api/v1/wallets",
+			body: "",
+			expectedStatus: http.StatusOK},
 	}
 
 	for _, tt := range tests {
