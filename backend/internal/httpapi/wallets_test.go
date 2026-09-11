@@ -107,7 +107,7 @@ func TestCreateWalletEndpoint(t *testing.T) {
 			expectedStatus: http.StatusBadRequest, expectedCode: CodeInvalidJSON},
 		{
 			name: "list empty", method: http.MethodGet, path: "/api/v1/wallets",
-			body: "",
+			body:           "",
 			expectedStatus: http.StatusOK},
 	}
 
@@ -252,4 +252,215 @@ func TestGetWalletEndpoint(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestListWalletsEndpoint(t *testing.T) {
+	repo := wallet.NewInMemoryWalletRepo()
+	svc := wallet.NewService(repo)
+	router := NewRouter(svc)
+
+	// case 1: empty list (no seed)
+	{
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/wallets", nil)
+		rec := httptest.NewRecorder()
+
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected code: %d, got: %d", http.StatusOK, rec.Code)
+		}
+
+		var res WalletListEnvelope
+		if err := json.NewDecoder(rec.Body).Decode(&res); err != nil {
+			t.Fatalf("Failed to decode response body: %v", err)
+		}
+
+		if len(res.Data) != 0 {
+			t.Errorf("expected len(res.Data) to be 0, got %d", len(res.Data))
+		}
+
+		if res.Pagination.Page != 1 {
+			t.Errorf("expected res.Pagination.Page to be 1, got %d", res.Pagination.Page)
+		}
+
+		if res.Pagination.PageSize != 20 {
+			t.Errorf("expected res.Pagination.PageSize to be 20, got %d", res.Pagination.PageSize)
+		}
+
+		if res.Pagination.TotalItems != 0 {
+			t.Errorf("expected res.Pagination.TotalItems to be 0, got %d", res.Pagination.TotalItems)
+		}
+
+		if res.Pagination.TotalPages != 0 {
+			t.Errorf("expected res.Pagination.TotalPages to be 0, got %d", res.Pagination.TotalPages)
+		}
+	}
+
+	// case 2 bad path (no seed)
+	{
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/wallets?page=abc", nil)
+		rec := httptest.NewRecorder()
+
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected status code %d, got %d", http.StatusBadRequest, rec.Code)
+		}
+
+		var errRes ErrorEnvelope
+		if err := json.NewDecoder(rec.Body).Decode(&errRes); err != nil {
+			t.Fatalf("failed to decode response body: %v", err)
+		}
+
+		if errRes.Error.Code != CodeValidationError {
+			t.Errorf("expected error code: %s, got: %s", CodeValidationError, errRes.Error.Code)
+		}
+	}
+
+	// case 3: cases that needs data (table driven)
+	{
+		seedA := `{"address":"0x00000000000000000000000000000000000000aa","chainId":1,"label":"alpha wallet"}`
+		postReq := httptest.NewRequest(http.MethodPost, "/api/v1/wallets", strings.NewReader(seedA))
+		postReq.Header.Set("Content-Type", "application/json")
+
+		postRec := httptest.NewRecorder()
+
+		router.ServeHTTP(postRec, postReq)
+
+		if postRec.Code != http.StatusCreated {
+			t.Fatalf("expected status code:%d, got:%d", http.StatusCreated, postRec.Code)
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/wallets", nil)
+		rec := httptest.NewRecorder()
+
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected code :%d, got :%d", http.StatusOK, rec.Code)
+		}
+
+		var res WalletListEnvelope
+		if err := json.NewDecoder(rec.Body).Decode(&res); err != nil {
+			t.Fatalf("failed to decode response body: %v", err)
+		}
+
+		if len(res.Data) != 1 {
+			t.Errorf("expected len(res.Data) to be 1, got: %d", len(res.Data))
+		} else if res.Data[0].Address != "0x00000000000000000000000000000000000000aa" {
+			t.Errorf("expected address to be ...aa, got:%s", res.Data[0].Address)
+		}
+
+		if res.Pagination.Page != 1 {
+			t.Errorf("expected res.Pagination.Page to be 1, got:%d", res.Pagination.Page)
+		}
+
+		if res.Pagination.PageSize != 20 {
+			t.Errorf("expected res.Pagination.PageSize to be 20, got: %d", res.Pagination.PageSize)
+		}
+
+		if res.Pagination.TotalItems != 1 {
+			t.Errorf("expected res.Pagination.TotalItems to be 1, got:%d", res.Pagination.TotalItems)
+		}
+
+		if res.Pagination.TotalPages != 1 {
+			t.Errorf("expected res.Pagination.TotalPages to be 1, got:%d", res.Pagination.TotalPages)
+		}
+
+	}
+
+	// case 4: page size 1 page 1 (Seed A + B)
+	{
+		// 1. POST seed B
+		seedB := `{"address":"0x00000000000000000000000000000000000000bb","chainId":1,"label":"beta search-hit"}`
+		postReq := httptest.NewRequest(http.MethodPost, "/api/v1/wallets", strings.NewReader(seedB))
+		postReq.Header.Set("Content-Type", "application/json")
+		postRec := httptest.NewRecorder()
+
+		router.ServeHTTP(postRec, postReq)
+		if postRec.Code != http.StatusCreated {
+			t.Fatalf("seeding failed: expected status code %d, got %d", http.StatusCreated, postRec.Code)
+		}
+
+		// 2. GET page=1&pageSize=1
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/wallets?page=1&pageSize=1", nil)
+		rec := httptest.NewRecorder()
+
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("Case 4: expected status code %d, got %d", http.StatusOK, rec.Code)
+		}
+
+		var res WalletListEnvelope
+		if err := json.NewDecoder(rec.Body).Decode(&res); err != nil {
+			t.Fatalf("Case 4: failed to decode response body: %v", err)
+		}
+
+		if len(res.Data) != 1 {
+			t.Errorf("Case 4: expected len(res.Data) to be 1, got %d", len(res.Data))
+		} else if res.Data[0].Address != "0x00000000000000000000000000000000000000bb" {
+			t.Errorf("Case 4: expected address to be ...bb, got %s", res.Data[0].Address)
+		}
+
+		if res.Pagination.TotalItems != 2 || res.Pagination.TotalPages != 2 {
+			t.Errorf("Case 4: expected totalItems=2, totalPages=2; got totalItems=%d, totalPages=%d", res.Pagination.TotalItems, res.Pagination.TotalPages)
+		}
+	}
+
+	// Case 5: page size 1 page 2 (Seed A + B)
+	{
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/wallets?page=2&pageSize=1", nil)
+		rec := httptest.NewRecorder()
+
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("Case 5: expected status code %d, got %d", http.StatusOK, rec.Code)
+		}
+
+		var res WalletListEnvelope
+		if err := json.NewDecoder(rec.Body).Decode(&res); err != nil {
+			t.Fatalf("Case 5: failed to decode response body: %v", err)
+		}
+
+		if len(res.Data) != 1 {
+			t.Errorf("Case 5: expected len(res.Data) to be 1, got %d", len(res.Data))
+		} else if res.Data[0].Address != "0x00000000000000000000000000000000000000aa" {
+			t.Errorf("Case 5: expected address to be ...aa, got %s", res.Data[0].Address)
+		}
+	}
+
+	// Case 6: filter chain 137 (Seed A + B + C)
+	{
+		// 1. POST seed C (Chain 137)
+		seedC := `{"address":"0x00000000000000000000000000000000000000cc","chainId":137,"label":"polygon only"}`
+		postReq := httptest.NewRequest(http.MethodPost, "/api/v1/wallets", strings.NewReader(seedC))
+		postReq.Header.Set("Content-Type", "application/json")
+		postRec := httptest.NewRecorder()
+
+		router.ServeHTTP(postRec, postReq)
+		if postRec.Code != http.StatusCreated {
+			t.Fatalf("Case 6: seeding failed: expected status code %d, got %d", http.StatusCreated, postRec.Code)
+		}
+
+		// 2. GET chainId=137
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/wallets?chainId=137", nil)
+		rec := httptest.NewRecorder()
+
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("Case 6: expected status code %d, got %d", http.StatusOK, rec.Code)
+		}
+
+		var res WalletListEnvelope
+		if err := json.NewDecoder(rec.Body).Decode(&res); err != nil {
+			t.Fatalf("Case 6: failed to decode response body: %v", err)
+		}
+
+		if len(res.Data) != 1 {
+			t.Errorf("Case 6: expected len(res.Data) to be 1, got %d", len(res.Data))
+		} else if res.Data[0].Address != "0x00000000000000000000000000000000000000cc" {
+			t.Errorf("Case 6: expected address to be ...cc, got %s", res.Data[0].Address)
+		}
+	}
+
 }
