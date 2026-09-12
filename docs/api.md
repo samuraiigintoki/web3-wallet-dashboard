@@ -242,16 +242,45 @@ Success: `201 Created`.
 
 ### `GET /api/v1/wallets`
 
-**Authentication:** Required
+**Status:** Implemented — PostgreSQL persistence
+
+**Authentication:** Public (unauthenticated for MVP slice)
 
 Query parameters:
 
-- `page`
-- `pageSize`
-- `chainId`
-- `search` for label or address where supported
+- `page` — optional integer. Default `1`. Maximum `10000`. Missing uses the default. Non-integer or greater than `10000` → `400` `VALIDATION_ERROR`.
+- `pageSize` — optional integer. Default `20`. Maximum `100`. Missing uses the default. Non-integer or greater than `100` → `400` `VALIDATION_ERROR`.
+- `chainId` — optional integer. Omitted or `0` means no chain filter. Non-integer or negative → `400` `VALIDATION_ERROR`.
+- `search` — optional string. Trimmed; case-insensitive substring match on `label` or `address`. Empty after trim means no search filter. `%` and `_` are literal characters, not SQL wildcards.
 
-Only the authenticated user's records are returned.
+Sort: `createdAt` descending, then `id` descending.
+
+A page past the last page returns `200` with `"data": []` and the true `totalItems` / `totalPages`.
+
+`createdAt` is RFC3339 UTC.
+
+Success: `200 OK`.
+
+```json
+{
+  "data": [
+    {
+      "id": 2,
+      "address": "0x00000000000000000000000000000000000000bb",
+      "chainId": 1,
+      "label": "beta search-hit",
+      "createdAt": "2026-09-12T12:00:00Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "pageSize": 20,
+    "totalItems": 1,
+    "totalPages": 1
+  }
+}
+```
+
 
 ### `GET /api/v1/wallets/{id}`
 
