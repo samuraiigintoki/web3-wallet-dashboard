@@ -76,7 +76,7 @@ The first implementation may use offset pagination. Cursor pagination can be con
 | Status | Code | Condition | Details Shape |
 |---|---|---|---|
 | `400 Bad Request` | `INVALID_JSON` | Malformed JSON syntax, unknown fields, field type mismatch, body > 1MB | None |
-| `400 Bad Request` | `VALIDATION_ERROR` | Invalid path parameter or non-numeric/negative ID | None |
+| `400 Bad Request` | `VALIDATION_ERROR` | Invalid path or query parameter: non-integer `id`/`page`/`pageSize`/`chainId`; `page` > 10000; `pageSize` > 100; negative `chainId` | Parse errors: none. Bounds errors: `{"details": {"<field>": "<message>"}}` |
 | `404 Not Found` | `RESOURCE_NOT_FOUND` | Resource matching requested ID does not exist | None |
 | `409 Conflict` | `RESOURCE_CONFLICT` | Duplicate `(address, chainId)` record | None |
 | `422 Unprocessable Entity` | `VALIDATION_ERROR` | Domain rule failure (address length/prefix/hex, label length, chainId <= 0) | `{"details": {"<field>": "<message>"}}` |
@@ -248,16 +248,16 @@ Success: `201 Created`.
 
 Query parameters:
 
-- `page` — optional integer. Default `1`. Maximum `10000`. Missing uses the default. Non-integer or greater than `10000` → `400` `VALIDATION_ERROR`.
-- `pageSize` — optional integer. Default `20`. Maximum `100`. Missing uses the default. Non-integer or greater than `100` → `400` `VALIDATION_ERROR`.
+- `page` — optional integer. Default `1`. Maximum `10000`. Omitted, `0`, or negative uses the default. Non-integer or greater than `10000` → `400` `VALIDATION_ERROR`.
+- `pageSize` — optional integer. Default `20`. Maximum `100`. Omitted, `0`, or negative uses the default. Non-integer or greater than `100` → `400` `VALIDATION_ERROR`.
 - `chainId` — optional integer. Omitted or `0` means no chain filter. Non-integer or negative → `400` `VALIDATION_ERROR`.
-- `search` — optional string. Trimmed; case-insensitive substring match on `label` or `address`. Empty after trim means no search filter. `%` and `_` are literal characters, not SQL wildcards.
+- `search` — optional string. Trimmed; case-insensitive substring match on `label` or `address`. Empty after trim means no search filter. `%` and `_` are literal characters, not SQL wildcards. Send `%` as `%25`. A raw `search=%` is an invalid URL escape and is dropped (same as omitting `search`).
 
 Sort: `createdAt` descending, then `id` descending.
 
 A page past the last page returns `200` with `"data": []` and the true `totalItems` / `totalPages`.
 
-`createdAt` is RFC3339 UTC.
+`createdAt` is RFC3339 from `time.Time` (UTC if the value is UTC).
 
 Success: `200 OK`.
 
@@ -284,11 +284,27 @@ Success: `200 OK`.
 
 ### `GET /api/v1/wallets/{id}`
 
-**Status:** Implemented
+**Status:** Implemented — PostgreSQL persistence
 
 **Authentication:** Public (unauthenticated for MVP slice)
 
 Returns one saved wallet by database identity ID.
+
+Success: `200 OK`.
+
+```json
+{
+  "data": {
+    "id": 1,
+    "address": "0x0000000000000000000000000000000000000001",
+    "chainId": 11155111,
+    "label": "Primary Sepolia signer",
+    "createdAt": "2026-09-12T12:00:00Z"
+  }
+}
+```
+`404` `RESOURCE_NOT_FOUND` if the id does not exist. Invalid or non-positive `id` → `400` `VALIDATION_ERROR`.
+
 
 ### `PATCH /api/v1/wallets/{id}`
 

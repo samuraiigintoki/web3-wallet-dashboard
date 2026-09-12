@@ -197,12 +197,12 @@ func (h *Handler) listWallets(w http.ResponseWriter, r *http.Request) {
 	}
 
 	effectivePage := 1
-	if filter.Page != 0 {
+	if filter.Page > 0 {
 		effectivePage = filter.Page
 	}
 
 	effectivePageSize := 20
-	if filter.PageSize != 0 {
+	if filter.PageSize > 0 {
 		effectivePageSize = filter.PageSize
 	}
 

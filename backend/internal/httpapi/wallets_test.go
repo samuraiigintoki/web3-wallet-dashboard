@@ -463,4 +463,113 @@ func TestListWalletsEndpoint(t *testing.T) {
 		}
 	}
 
+	// case 7: testing path /api/v1/wallets?page=-5
+	{
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/wallets?page=-5", nil)
+		rec := httptest.NewRecorder()
+
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("Case 7: expected status code %d, got %d", http.StatusOK, rec.Code)
+		}
+
+		var res WalletListEnvelope
+		if err := json.NewDecoder(rec.Body).Decode(&res); err != nil {
+			t.Fatalf("Case 7: failed to decode response body: %v", err)
+		}
+
+		if len(res.Data) == 0 {
+			t.Errorf("Case 7: expected len(res.Data) to be greater than 0, got %d", len(res.Data))
+		}
+
+		if res.Pagination.Page != 1 {
+			t.Errorf("Case 7: expected res.Pagination.Page to be 1, got: %d", res.Pagination.Page)
+		}
+	}
+
+	// case 8: testing path /api/v1/wallets?pageSize=-5
+	{
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/wallets?pageSize=-5", nil)
+		rec := httptest.NewRecorder()
+
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("Case 8: expected status code %d, got %d", http.StatusOK, rec.Code)
+		}
+
+		var res WalletListEnvelope
+		if err := json.NewDecoder(rec.Body).Decode(&res); err != nil {
+			t.Fatalf("Case 8: failed to decode response body: %v", err)
+		}
+
+		if res.Pagination.PageSize != 20 {
+			t.Errorf("Case 8: expected res.Pagination.PageSize to be 20, got: %d", res.Pagination.PageSize)
+		}
+
+		if res.Pagination.TotalPages == 0 {
+			t.Errorf("Case 8: expected res.Pagination.TotalPages not to be 0, got:%d", res.Pagination.TotalPages)
+		}
+	}
+
+	// case 9: testing path /api/v1/wallets?page=0
+	{
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/wallets?page=0", nil)
+		rec := httptest.NewRecorder()
+
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("Case 9: expected status code %d, got %d", http.StatusOK, rec.Code)
+		}
+
+		var res WalletListEnvelope
+		if err := json.NewDecoder(rec.Body).Decode(&res); err != nil {
+			t.Fatalf("Case 9: failed to decode response body: %v", err)
+		}
+
+		if res.Pagination.Page != 1 {
+			t.Errorf("Case 9: expected res.Pagination.Page to be 1, got:%d", res.Pagination.Page)
+		}
+	}
+
+	// case 10: testing path /api/v1/wallets?chainId=0
+	{
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/wallets?chainId=0", nil)
+		rec := httptest.NewRecorder()
+
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("Case 10: expected status code %d, got %d", http.StatusOK, rec.Code)
+		}
+
+		var res WalletListEnvelope
+		if err := json.NewDecoder(rec.Body).Decode(&res); err != nil {
+			t.Fatalf("Case 10: failed to decode response body: %v", err)
+		}
+
+		if len(res.Data) < 3 {
+			t.Errorf("Case 10: expected at least 3 wallets, got:%d", len(res.Data))
+		}
+	}
+
+	// case 11: testing path /api/v1/wallets?search=search-hit
+	{
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/wallets?search=search-hit", nil)
+		rec := httptest.NewRecorder()
+
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("Case 11: expected status code %d, got %d", http.StatusOK, rec.Code)
+		}
+
+		var res WalletListEnvelope
+		if err := json.NewDecoder(rec.Body).Decode(&res); err != nil {
+			t.Fatalf("Case 11: failed to decode response body: %v", err)
+		}
+
+		if len(res.Data) != 1 {
+			t.Errorf("Case 11: expected exactly 1 wallet, got : %d", len(res.Data))
+		} else if res.Data[0].Address != "0x00000000000000000000000000000000000000bb" {
+			t.Errorf("Case 11: expected res.Data[0].Address to be ...bb , got: %s", res.Data[0].Address)
+		}
+	}
 }
