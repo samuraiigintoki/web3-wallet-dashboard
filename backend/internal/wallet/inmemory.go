@@ -55,7 +55,7 @@ func (repo *InMemoryWalletRepo) List(ctx context.Context, filter WalletFilter) (
 		return nil, 0, err
 	}
 
-	for _, w := range repo.wallets{
+	for _, w := range repo.wallets {
 		if filter.ChainID > 0 && w.ChainID != filter.ChainID {
 			continue
 		}
@@ -66,10 +66,9 @@ func (repo *InMemoryWalletRepo) List(ctx context.Context, filter WalletFilter) (
 			}
 		}
 
-		
 		filtered = append(filtered, w)
 	}
-	
+
 	totalItems := int64(len(filtered))
 
 	// sorting
@@ -80,10 +79,10 @@ func (repo *InMemoryWalletRepo) List(ctx context.Context, filter WalletFilter) (
 		return filtered[i].CreatedAt.After(filtered[j].CreatedAt)
 	})
 
-	offset:= (filter.Page - 1) * filter.PageSize
+	offset := (filter.Page - 1) * filter.PageSize
 
 	if offset < 0 || offset >= len(filtered) {
-		return  make([]Wallet, 0), totalItems, nil
+		return make([]Wallet, 0), totalItems, nil
 	}
 
 	end := offset + filter.PageSize
@@ -91,5 +90,5 @@ func (repo *InMemoryWalletRepo) List(ctx context.Context, filter WalletFilter) (
 		end = len(filtered)
 	}
 
-	return filtered[offset:end], totalItems, nil 
+	return filtered[offset:end], totalItems, nil
 }

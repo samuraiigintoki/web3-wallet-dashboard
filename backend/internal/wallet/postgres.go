@@ -57,11 +57,10 @@ func (repo *PostgresWalletRepo) GetByID(ctx context.Context, id int64) (Wallet, 
 	return w, nil
 }
 
-
 func (repo *PostgresWalletRepo) List(ctx context.Context, filter WalletFilter) ([]Wallet, int64, error) {
 	whereClauses := []string{"1=1"}
 	args := []any{}
-	argIndex := 1		
+	argIndex := 1
 
 	if filter.ChainID > 0 {
 		whereClauses = append(whereClauses, fmt.Sprintf("chain_id = $%d", argIndex))
@@ -100,7 +99,7 @@ func (repo *PostgresWalletRepo) List(ctx context.Context, filter WalletFilter) (
 	rows, err := repo.db.QueryContext(ctx, selectQuery, selectArgs...)
 	if err != nil {
 		return nil, 0, err
-	}	
+	}
 	defer rows.Close()
 
 	wallets := make([]Wallet, 0)
@@ -118,5 +117,5 @@ func (repo *PostgresWalletRepo) List(ctx context.Context, filter WalletFilter) (
 		return nil, 0, err
 	}
 
-	return wallets, totalItems, nil 
+	return wallets, totalItems, nil
 }
