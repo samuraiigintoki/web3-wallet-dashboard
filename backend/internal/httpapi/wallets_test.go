@@ -480,7 +480,7 @@ func TestListWalletsEndpoint(t *testing.T) {
 
 		if len(res.Data) == 0 {
 			t.Errorf("Case 7: expected len(res.Data) to be greater than 0, got %d", len(res.Data))
-		} 
+		}
 
 		if res.Pagination.Page != 1 {
 			t.Errorf("Case 7: expected res.Pagination.Page to be 1, got: %d", res.Pagination.Page)
@@ -500,7 +500,7 @@ func TestListWalletsEndpoint(t *testing.T) {
 		var res WalletListEnvelope
 		if err := json.NewDecoder(rec.Body).Decode(&res); err != nil {
 			t.Fatalf("Case 8: failed to decode response body: %v", err)
-		}		
+		}
 
 		if res.Pagination.PageSize != 20 {
 			t.Errorf("Case 8: expected res.Pagination.PageSize to be 20, got: %d", res.Pagination.PageSize)
@@ -524,8 +524,8 @@ func TestListWalletsEndpoint(t *testing.T) {
 		var res WalletListEnvelope
 		if err := json.NewDecoder(rec.Body).Decode(&res); err != nil {
 			t.Fatalf("Case 9: failed to decode response body: %v", err)
-		}			
-		
+		}
+
 		if res.Pagination.Page != 1 {
 			t.Errorf("Case 9: expected res.Pagination.Page to be 1, got:%d", res.Pagination.Page)
 		}
@@ -544,8 +544,8 @@ func TestListWalletsEndpoint(t *testing.T) {
 		var res WalletListEnvelope
 		if err := json.NewDecoder(rec.Body).Decode(&res); err != nil {
 			t.Fatalf("Case 10: failed to decode response body: %v", err)
-		}			
-			
+		}
+
 		if len(res.Data) < 3 {
 			t.Errorf("Case 10: expected at least 3 wallets, got:%d", len(res.Data))
 		}
@@ -564,7 +564,7 @@ func TestListWalletsEndpoint(t *testing.T) {
 		var res WalletListEnvelope
 		if err := json.NewDecoder(rec.Body).Decode(&res); err != nil {
 			t.Fatalf("Case 11: failed to decode response body: %v", err)
-		}		
+		}
 
 		if len(res.Data) != 1 {
 			t.Errorf("Case 11: expected exactly 1 wallet, got : %d", len(res.Data))
