@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"database/sql"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/httpapi"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
 	"log"
 	"net/http"
 	"os"
 	"time"
-	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 func main() {
