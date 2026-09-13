@@ -47,6 +47,11 @@ type WalletListEnvelope struct {
 	Pagination Pagination       `json:"pagination"`
 }
 
+// 7. PATCH handler DTO
+type UpdateWalletRequest struct {
+	Label *string `json:"label"`
+}
+
 // Handler struct
 type Handler struct {
 	walletSvc *wallet.Service
@@ -59,15 +64,11 @@ func NewHandler(walletSvc *wallet.Service) *Handler {
 	}
 }
 
-// Handler
+// Handler functionssss
 func (h *Handler) createWallet(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
-
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
 
 	var req CreateWalletRequest
-	if err := decoder.Decode(&req); err != nil {
+	if err := decodeJSONBody(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, CodeInvalidJSON, "invalid request body", nil)
 		return
 	}
@@ -222,4 +223,87 @@ func (h *Handler) listWallets(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, responsePayload)
+}
+
+func (h *Handler) updateWallet(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, CodeValidationError, "invalid request", nil)
+		return
+	}
+
+	var req UpdateWalletRequest
+	if err := decodeJSONBody(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, CodeInvalidJSON, "invalid request body", nil)
+		return
+	}
+
+	updatedWallet, err := h.walletSvc.UpdateLabel(r.Context(), id, req.Label)
+	if err != nil {
+		var vErr *wallet.ValidationError
+		if errors.As(err, &vErr) {
+			writeError(w, http.StatusUnprocessableEntity, CodeValidationError, vErr.Message, map[string]string{vErr.Field: vErr.Message})
+			return
+		}
+
+		if errors.Is(err, wallet.ErrWalletNotFound) {
+			writeError(w, http.StatusNotFound, CodeResourceNotFound, "wallet not found", nil)
+			return
+		}
+
+		writeError(w, http.StatusInternalServerError, CodeInternalError, "internal server error", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, WalletResponseEnvelope{
+		WalletResponse{
+			ID:        updatedWallet.ID,
+			Address:   updatedWallet.Address,
+			ChainID:   updatedWallet.ChainID,
+			Label:     updatedWallet.Label,
+			CreatedAt: updatedWallet.CreatedAt,
+		},
+	})
+}
+
+func (h *Handler) deleteWallet(w http.ResponseWriter, r *http.Request) {
+
+	idStr := r.PathValue("id")
+
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, CodeValidationError, "invalid request", nil)
+		return
+	}
+
+	err = h.walletSvc.Delete(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, wallet.ErrWalletNotFound) {
+			writeError(w, http.StatusNotFound, CodeResourceNotFound, "wallet not found", nil)
+			return
+		}
+
+		writeError(w, http.StatusInternalServerError, CodeInternalError, "internal server error", nil)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+///// Helper functions
+
+func decodeJSONBody(w http.ResponseWriter, r *http.Request, dst any) error {
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+
+	if err := decoder.Decode(dst); err != nil {
+		return err
+	}
+
+	return nil
 }

@@ -14,5 +14,7 @@ func NewRouter(walletSvc *wallet.Service) http.Handler {
 	mux.HandleFunc("POST /api/v1/wallets", h.createWallet)
 	mux.HandleFunc("GET /api/v1/wallets/{id}", h.getWallet)
 	mux.HandleFunc("GET /api/v1/wallets", h.listWallets)
+	mux.HandleFunc("PATCH /api/v1/wallets/{id}", h.updateWallet)
+	mux.HandleFunc("DELETE /api/v1/wallets/{id}", h.deleteWallet)
 	return mux
 }
