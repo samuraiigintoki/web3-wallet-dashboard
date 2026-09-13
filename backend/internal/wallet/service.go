@@ -29,7 +29,6 @@ func (e *ValidationError) Error() string {
 
 func (s *Service) Create(ctx context.Context, address string, chainID int64, label string) (Wallet, error) {
 	trimmedAddr := strings.ToLower(strings.TrimSpace(address))
-	trimmedlabel := strings.TrimSpace(label)
 
 	// address validations
 	if len(trimmedAddr) <= 0 {
@@ -66,23 +65,15 @@ func (s *Service) Create(ctx context.Context, address string, chainID int64, lab
 	}
 
 	// label validations
-	if len(trimmedlabel) == 0 {
-		return Wallet{}, &ValidationError{
-			Field:   "label",
-			Message: "label must not be empty",
-		}
-	}
-	if utf8.RuneCountInString(trimmedlabel) > 50 {
-		return Wallet{}, &ValidationError{
-			Field:   "label",
-			Message: "label must not be greater than 50 characters",
-		}
+	trimmedLabel, err := validateLabel(label)
+	if err != nil {
+		return Wallet{}, err
 	}
 
 	return s.repo.Create(ctx, Wallet{
 		Address: trimmedAddr,
 		ChainID: chainID,
-		Label:   trimmedlabel,
+		Label:   trimmedLabel,
 	})
 
 }
@@ -121,4 +112,46 @@ func (s *Service) List(ctx context.Context, filter WalletFilter) ([]Wallet, int6
 	}
 
 	return s.repo.List(ctx, filter)
+}
+
+func (s *Service) UpdateLabel(ctx context.Context, id int64, label *string) (Wallet, error) {
+
+	if label == nil {
+		return s.GetByID(ctx, id)
+	}
+
+	rawLabel := *label
+
+	validatedLabel, err := validateLabel(rawLabel)
+	if err != nil {
+		return Wallet{}, err
+	}
+
+	return s.repo.Update(ctx, id, validatedLabel)
+}
+
+func (s *Service) Delete(ctx context.Context, id int64) error {
+	return s.repo.Delete(ctx, id)
+}
+
+// /// Helper Validation Function
+func validateLabel(label string) (string, error) {
+
+	trimmedLabel := strings.TrimSpace(label)
+
+	if len(trimmedLabel) == 0 {
+		return "", &ValidationError{
+			Field:   "label",
+			Message: "label must not be empty",
+		}
+	}
+
+	if utf8.RuneCountInString(trimmedLabel) > 50 {
+		return "", &ValidationError{
+			Field:   "label",
+			Message: "label must not be greater than 50 characters",
+		}
+	}
+
+	return trimmedLabel, nil
 }

@@ -19,4 +19,6 @@ type WalletRepository interface {
 	Create(ctx context.Context, w Wallet) (Wallet, error)
 	GetByID(ctx context.Context, id int64) (Wallet, error)
 	List(ctx context.Context, filter WalletFilter) ([]Wallet, int64, error)
+	Update(ctx context.Context, id int64, newLabel string) (Wallet, error)
+	Delete(ctx context.Context, id int64) error
 }
