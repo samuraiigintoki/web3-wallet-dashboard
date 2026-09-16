@@ -2,7 +2,7 @@
 
 ## Status
 
-This document is the living REST API design. `GET /health`, `POST /api/v1/wallets`, and `GET /api/v1/wallets/{id}` are implemented. Additional routes remain planned.
+This document is the living REST API design. `GET /health`, `POST /api/v1/wallets`, `GET /api/v1/wallets`, `GET /api/v1/wallets/{id}`, `PATCH /api/v1/wallets/{id}`, and `DELETE /api/v1/wallets/{id}` are implemented. Additional routes remain planned.
 
 ## Design principles
 
@@ -308,9 +308,13 @@ Success: `200 OK`.
 
 ### `PATCH /api/v1/wallets/{id}`
 
-**Authentication:** Required
+**Status:** Implemented — PostgreSQL persistence
 
-Initial mutable field:
+**Authentication:** Public (unauthenticated for MVP slice)
+
+Updates the label of an existing saved wallet. This is the only mutable field.
+
+Request:
 
 ```json
 {
@@ -318,15 +322,64 @@ Initial mutable field:
 }
 ```
 
-Changing address or chain should create a new record rather than silently changing resource identity unless a later requirement justifies it.
+Behavior:
+
+- `label` is optional. Absent, or `{"label":null}`, is a no-op: the wallet is
+  returned unchanged, `200 OK`.
+- `label` present and non-empty after trimming: validated under the same rule
+  as `POST` (max 50 Unicode characters), then updated.
+- `label` present but empty or whitespace-only after trimming: `422`
+  `VALIDATION_ERROR`.
+- Unknown fields (including `address` or `chainId`) are rejected as
+  `400` `INVALID_JSON`, same as `POST`. Changing address or chain identity is
+  not supported through `PATCH`; create a new record instead.
+- `createdAt` is never modified by `PATCH`, on any path including the no-op
+  case.
+
+Success: `200 OK`.
+
+```json
+{
+  "data": {
+    "id": 1,
+    "address": "0x0000000000000000000000000000000000000001",
+    "chainId": 11155111,
+    "label": "Updated label",
+    "createdAt": "2026-09-12T12:00:00Z"
+  }
+}
+```
+
+`404` `RESOURCE_NOT_FOUND` if the id does not exist. Invalid or non-positive
+`id` → `400` `VALIDATION_ERROR`. Malformed JSON, unknown fields, or an empty
+body → `400` `INVALID_JSON`. Whitespace-only `label` → `422`
+`VALIDATION_ERROR`.
+
+**Accepted MVP risk:** no auth until the auth milestone (B6) — any caller can
+`PATCH` any wallet by id. Recorded and accepted, not accidental.
 
 ### `DELETE /api/v1/wallets/{id}`
 
-**Authentication:** Required
+**Status:** Implemented — PostgreSQL persistence
 
-Removes the authenticated user's saved-wallet record. It does not perform an on-chain action.
+**Authentication:** Public (unauthenticated for MVP slice)
 
-Success: `204 No Content`.
+Removes a saved-wallet record. It does not perform an on-chain action.
+
+Success: `204 No Content`, with an empty response body.
+
+`404` `RESOURCE_NOT_FOUND` if the id does not exist — including a second
+`DELETE` of an id already removed. This endpoint is not idempotent: a repeated
+delete of the same id returns `404`, not another `204`. A client that loses
+the response to a successful `204` (timeout, dropped connection, etc.) and
+retries must treat the resulting `404` as confirmation the wallet is already
+deleted, not as a new failure.
+
+Invalid or non-positive `id` → `400` `VALIDATION_ERROR`.
+
+**Accepted MVP risk:** no auth until the auth milestone (B6) — any caller can
+`DELETE` any wallet by id. Recorded and accepted, not accidental.
+
 
 ## Tracked-contract routes
 
