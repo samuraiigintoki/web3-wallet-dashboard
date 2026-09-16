@@ -109,3 +109,157 @@ func TestWalletRepository_CancelledContext(t *testing.T) {
 	}
 
 }
+
+func TestPostgresUpdateLabel(t *testing.T) {
+	ctx := t.Context()
+
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("skipping integration test:DATABASE_URL not set")
+	}
+
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("error initializing database: %v", err)
+	}
+	t.Cleanup(func() {
+		db.Close()
+	})
+
+	if err := db.Ping(); err != nil {
+		t.Fatalf("error connecting database:%v", err)
+	}
+
+	repo := wallet.NewPostgresWalletRepo(db)
+
+	uniqueAddr := fmt.Sprintf("0x%040x", time.Now().UnixNano())
+
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(context.Background(), "DELETE FROM wallets WHERE address = $1", uniqueAddr)
+	})
+
+	createWallet := wallet.Wallet{
+		Address: uniqueAddr,
+		ChainID: 1,
+		Label:   "pg original label",
+	}
+	created, err := repo.Create(ctx, createWallet)
+	if err != nil {
+		t.Fatalf("error during creation: %v", err)
+	}
+
+	updated, err := repo.Update(ctx, created.ID, "pg new label")
+	if err != nil {
+		t.Fatalf("error during update: %v", err)
+	}
+	if updated.Label != "pg new label" {
+		t.Errorf("expected label %q, got %q", "pg new label", updated.Label)
+	}
+	if !updated.CreatedAt.Equal(created.CreatedAt) {
+		t.Errorf("expected createdAt %v, got %v", created.CreatedAt, updated.CreatedAt)
+	}
+
+	fetched, err := repo.GetByID(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("expected no error fetching after update, got: %v", err)
+	}
+	if fetched.Label != "pg new label" {
+		t.Errorf("expected persisted label %q, got %q", "pg new label", fetched.Label)
+	}
+}
+
+func TestPostgresDelete(t *testing.T) {
+	ctx := t.Context()
+
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("skipping integration test:DATABASE_URL not set")
+	}
+
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("error initializing database: %v", err)
+	}
+	t.Cleanup(func() {
+		db.Close()
+	})
+
+	if err := db.Ping(); err != nil {
+		t.Fatalf("error connecting database:%v", err)
+	}
+
+	repo := wallet.NewPostgresWalletRepo(db)
+
+	uniqueAddr := fmt.Sprintf("0x%040x", time.Now().UnixNano())
+
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(context.Background(), "DELETE FROM wallets WHERE address = $1", uniqueAddr)
+	})
+
+	createWallet := wallet.Wallet{
+		Address: uniqueAddr,
+		ChainID: 1,
+		Label:   "pg delete me",
+	}
+	created, err := repo.Create(ctx, createWallet)
+	if err != nil {
+		t.Fatalf("error during creation: %v", err)
+	}
+
+	if err := repo.Delete(ctx, created.ID); err != nil {
+		t.Fatalf("expected no error deleting, got: %v", err)
+	}
+
+	_, err = repo.GetByID(ctx, created.ID)
+	if !errors.Is(err, wallet.ErrWalletNotFound) {
+		t.Errorf("expected errors.Is(err, wallet.ErrWalletNotFound) to be true, got: %v", err)
+	}
+}
+
+func TestPostgresDeleteNotFound(t *testing.T) {
+	ctx := t.Context()
+
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("skipping integration test:DATABASE_URL not set")
+	}
+
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("error initializing database: %v", err)
+	}
+	t.Cleanup(func() {
+		db.Close()
+	})
+
+	if err := db.Ping(); err != nil {
+		t.Fatalf("error connecting database:%v", err)
+	}
+
+	repo := wallet.NewPostgresWalletRepo(db)
+
+	uniqueAddr := fmt.Sprintf("0x%040x", time.Now().UnixNano())
+
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(context.Background(), "DELETE FROM wallets WHERE address = $1", uniqueAddr)
+	})
+
+	createWallet := wallet.Wallet{
+		Address: uniqueAddr,
+		ChainID: 1,
+		Label:   "pg second delete",
+	}
+	created, err := repo.Create(ctx, createWallet)
+	if err != nil {
+		t.Fatalf("error during creation: %v", err)
+	}
+
+	if err := repo.Delete(ctx, created.ID); err != nil {
+		t.Fatalf("expected no error on first delete, got: %v", err)
+	}
+
+	err = repo.Delete(ctx, created.ID)
+	if !errors.Is(err, wallet.ErrWalletNotFound) {
+		t.Errorf("expected errors.Is(err, wallet.ErrWalletNotFound) on second delete, got: %v", err)
+	}
+}

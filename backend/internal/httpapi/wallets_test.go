@@ -2,8 +2,10 @@ package httpapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -572,4 +574,451 @@ func TestListWalletsEndpoint(t *testing.T) {
 			t.Errorf("Case 11: expected res.Data[0].Address to be ...bb , got: %s", res.Data[0].Address)
 		}
 	}
+}
+
+func TestUpdateWallet(t *testing.T) {
+
+	t.Run("updates label and preserves createdAt", func(t *testing.T) {
+		repo := wallet.NewInMemoryWalletRepo()
+		svc := wallet.NewService(repo)
+		router := NewRouter(svc)
+
+		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
+
+		createdAtBefore := created.Data.CreatedAt
+		target := "/api/v1/wallets/" + strconv.Itoa(int(created.Data.ID))
+
+		// PATCH: change the label
+		patchBody := `{"label":"new label"}`
+		patchReq, err := http.NewRequest(http.MethodPatch, target, strings.NewReader(patchBody))
+		if err != nil {
+			t.Fatalf("failed to create patch request: %v", err)
+		}
+		patchReq.Header.Set("Content-Type", "application/json")
+
+		patchRec := httptest.NewRecorder()
+		router.ServeHTTP(patchRec, patchReq)
+		if patchRec.Code != http.StatusOK {
+			t.Fatalf("expected: %d, got: %d", http.StatusOK, patchRec.Code)
+		}
+
+		var updated WalletResponseEnvelope
+		if err := json.NewDecoder(patchRec.Body).Decode(&updated); err != nil {
+			t.Fatalf("failed to decode patch response body: %v", err)
+		}
+		if updated.Data.Label != "new label" {
+			t.Fatalf("expected label 'new label', got: %s", updated.Data.Label)
+		}
+		if !updated.Data.CreatedAt.Equal(createdAtBefore) {
+			t.Fatalf("expected createdAt %v, got %v", createdAtBefore, updated.Data.CreatedAt)
+		}
+
+		// Probe: GET through a different path to confirm storage actually changed
+		getReq, err := http.NewRequest(http.MethodGet, target, nil)
+		if err != nil {
+			t.Fatalf("failed to create get request: %v", err)
+		}
+
+		getRec := httptest.NewRecorder()
+		router.ServeHTTP(getRec, getReq)
+		if getRec.Code != http.StatusOK {
+			t.Fatalf("failed to fetch after update, expected: %d, got: %d", http.StatusOK, getRec.Code)
+		}
+
+		var fetched WalletResponseEnvelope
+		if err := json.NewDecoder(getRec.Body).Decode(&fetched); err != nil {
+			t.Fatalf("failed to decode get response body: %v", err)
+		}
+		if fetched.Data.Label != "new label" {
+			t.Fatalf("label not persisted after update, got: %s", fetched.Data.Label)
+		}
+	})
+
+	t.Run("null label is treated as absent", func(t *testing.T) {
+		repo := wallet.NewInMemoryWalletRepo()
+		svc := wallet.NewService(repo)
+		router := NewRouter(svc)
+
+		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
+
+		createdAtBefore := created.Data.CreatedAt
+		target := "/api/v1/wallets/" + strconv.Itoa(int(created.Data.ID))
+
+		patchBody := `{"label":null}`
+		patchReq, err := http.NewRequest(http.MethodPatch, target, strings.NewReader(patchBody))
+		if err != nil {
+			t.Fatalf("failed to create patch request: %v", err)
+		}
+		patchReq.Header.Set("Content-Type", "application/json")
+
+		patchRec := httptest.NewRecorder()
+		router.ServeHTTP(patchRec, patchReq)
+		if patchRec.Code != http.StatusOK {
+			t.Fatalf("expected: %d, got: %d", http.StatusOK, patchRec.Code)
+		}
+
+		var updated WalletResponseEnvelope
+		if err := json.NewDecoder(patchRec.Body).Decode(&updated); err != nil {
+			t.Fatalf("failed to decode patch response body: %v", err)
+		}
+		if updated.Data.Label != "seed Wallet" {
+			t.Fatalf("expected label to stay 'seed Wallet', got: %s", updated.Data.Label)
+		}
+		if !updated.Data.CreatedAt.Equal(createdAtBefore) {
+			t.Fatalf("expected createdAt %v, got %v", createdAtBefore, updated.Data.CreatedAt)
+		}
+	})
+
+	t.Run("no-op when label absent", func(t *testing.T) {
+		repo := wallet.NewInMemoryWalletRepo()
+		svc := wallet.NewService(repo)
+		router := NewRouter(svc)
+
+		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
+
+		createdAtBefore := created.Data.CreatedAt
+		target := "/api/v1/wallets/" + strconv.Itoa(int(created.Data.ID))
+
+		patchBody := "{}"
+		patchReq, err := http.NewRequest(http.MethodPatch, target, strings.NewReader(patchBody))
+		if err != nil {
+			t.Fatalf("failed to create patch request: %v", err)
+		}
+		patchReq.Header.Set("Content-Type", "application/json")
+
+		patchRec := httptest.NewRecorder()
+		router.ServeHTTP(patchRec, patchReq)
+		if patchRec.Code != http.StatusOK {
+			t.Fatalf("expected: %d, got: %d", http.StatusOK, patchRec.Code)
+		}
+
+		var updated WalletResponseEnvelope
+		if err := json.NewDecoder(patchRec.Body).Decode(&updated); err != nil {
+			t.Fatalf("failed to decode patch response body: %v", err)
+		}
+		if updated.Data.Label != "seed Wallet" {
+			t.Fatalf("expected label to stay 'seed Wallet', got: %s", updated.Data.Label)
+		}
+		if !updated.Data.CreatedAt.Equal(createdAtBefore) {
+			t.Fatalf("expected createdAt %v, got %v", createdAtBefore, updated.Data.CreatedAt)
+		}
+	})
+
+	t.Run("whitespace label returns 422", func(t *testing.T) {
+		repo := wallet.NewInMemoryWalletRepo()
+		svc := wallet.NewService(repo)
+		router := NewRouter(svc)
+
+		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
+
+		target := "/api/v1/wallets/" + strconv.Itoa(int(created.Data.ID))
+		patchBody := `{"label":"   "}`
+
+		patchReq, err := http.NewRequest(http.MethodPatch, target, strings.NewReader(patchBody))
+		if err != nil {
+			t.Fatalf("failed to create patch request: %v", err)
+		}
+		patchReq.Header.Set("Content-Type", "application/json")
+
+		patchRec := httptest.NewRecorder()
+		router.ServeHTTP(patchRec, patchReq)
+		if patchRec.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("expected: %d, got: %d", http.StatusUnprocessableEntity, patchRec.Code)
+		}
+
+		var errRes ErrorEnvelope
+		if err := json.NewDecoder(patchRec.Body).Decode(&errRes); err != nil {
+			t.Fatalf("failed to decode patch response body: %v", err)
+		}
+		if errRes.Error.Code != CodeValidationError {
+			t.Fatalf("expected error code %q, got %q", CodeValidationError, errRes.Error.Code)
+		}
+
+	})
+
+	t.Run("missing id returns 404", func(t *testing.T) {
+		repo := wallet.NewInMemoryWalletRepo()
+		svc := wallet.NewService(repo)
+		router := NewRouter(svc)
+
+		// no seed => id 999999 never existed
+		patchBody := `{"label":"x"}`
+		patchReq, err := http.NewRequest(http.MethodPatch, "/api/v1/wallets/999999", strings.NewReader(patchBody))
+		if err != nil {
+			t.Fatalf("failed to create patch request: %v", err)
+		}
+		patchReq.Header.Set("Content-Type", "application/json")
+
+		patchRec := httptest.NewRecorder()
+		router.ServeHTTP(patchRec, patchReq)
+		if patchRec.Code != http.StatusNotFound {
+			t.Fatalf("expected: %d, got: %d", http.StatusNotFound, patchRec.Code)
+		}
+
+		var errRes ErrorEnvelope
+		if err := json.NewDecoder(patchRec.Body).Decode(&errRes); err != nil {
+			t.Fatalf("failed to decode patch response body: %v", err)
+		}
+		if errRes.Error.Code != CodeResourceNotFound {
+			t.Fatalf("expected error code %q, got %q", CodeResourceNotFound, errRes.Error.Code)
+		}
+	})
+
+	t.Run("invalid id returns 400", func(t *testing.T) {
+		repo := wallet.NewInMemoryWalletRepo()
+		svc := wallet.NewService(repo)
+		router := NewRouter(svc)
+
+		patchBody := `{"label":"x"}`
+		patchReq, err := http.NewRequest(http.MethodPatch, "/api/v1/wallets/abc", strings.NewReader(patchBody))
+		if err != nil {
+			t.Fatalf("failed to create patch request: %v", err)
+		}
+		patchReq.Header.Set("Content-Type", "application/json")
+
+		patchRec := httptest.NewRecorder()
+		router.ServeHTTP(patchRec, patchReq)
+		if patchRec.Code != http.StatusBadRequest {
+			t.Fatalf("expected: %d, got: %d", http.StatusBadRequest, patchRec.Code)
+		}
+
+		var errRes ErrorEnvelope
+		if err := json.NewDecoder(patchRec.Body).Decode(&errRes); err != nil {
+			t.Fatalf("failed to decode patch response body: %v", err)
+		}
+		if errRes.Error.Code != CodeValidationError {
+			t.Fatalf("expected error code %q, got %q", CodeValidationError, errRes.Error.Code)
+		}
+	})
+
+	t.Run("unknown field returns 400", func(t *testing.T) {
+		repo := wallet.NewInMemoryWalletRepo()
+		svc := wallet.NewService(repo)
+		router := NewRouter(svc)
+
+		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
+		target := "/api/v1/wallets/" + strconv.Itoa(int(created.Data.ID))
+
+		patchBody := `{"foo":"bar"}`
+		patchReq, err := http.NewRequest(http.MethodPatch, target, strings.NewReader(patchBody))
+		if err != nil {
+			t.Fatalf("failed to create patch request: %v", err)
+		}
+		patchReq.Header.Set("Content-Type", "application/json")
+
+		patchRec := httptest.NewRecorder()
+		router.ServeHTTP(patchRec, patchReq)
+		if patchRec.Code != http.StatusBadRequest {
+			t.Fatalf("expected: %d, got: %d", http.StatusBadRequest, patchRec.Code)
+		}
+
+		var errRes ErrorEnvelope
+		if err := json.NewDecoder(patchRec.Body).Decode(&errRes); err != nil {
+			t.Fatalf("failed to decode patch response body: %v", err)
+		}
+		if errRes.Error.Code != CodeInvalidJSON {
+			t.Fatalf("expected error code %q, got %q", CodeInvalidJSON, errRes.Error.Code)
+		}
+	})
+
+	t.Run("empty body returns 400", func(t *testing.T) {
+		repo := wallet.NewInMemoryWalletRepo()
+		svc := wallet.NewService(repo)
+		router := NewRouter(svc)
+
+		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
+		target := "/api/v1/wallets/" + strconv.Itoa(int(created.Data.ID))
+
+		patchReq, err := http.NewRequest(http.MethodPatch, target, strings.NewReader(""))
+		if err != nil {
+			t.Fatalf("failed to create patch request: %v", err)
+		}
+		patchReq.Header.Set("Content-Type", "application/json")
+
+		patchRec := httptest.NewRecorder()
+		router.ServeHTTP(patchRec, patchReq)
+		if patchRec.Code != http.StatusBadRequest {
+			t.Fatalf("expected: %d, got: %d", http.StatusBadRequest, patchRec.Code)
+		}
+
+		var errRes ErrorEnvelope
+		if err := json.NewDecoder(patchRec.Body).Decode(&errRes); err != nil {
+			t.Fatalf("failed to decode patch response body: %v", err)
+		}
+		if errRes.Error.Code != CodeInvalidJSON {
+			t.Fatalf("expected error code %q, got %q", CodeInvalidJSON, errRes.Error.Code)
+		}
+	})
+
+	t.Run("updates only the target row", func(t *testing.T) {
+		repo := wallet.NewInMemoryWalletRepo()
+		svc := wallet.NewService(repo)
+		router := NewRouter(svc)
+
+		first := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
+		second := seedWallet(t, router, "0x0000000000000000000000000000000000000002")
+
+		targetSecond := "/api/v1/wallets/" + strconv.Itoa(int(second.Data.ID))
+		patchBody := `{"label":"new label"}`
+		patchReq, err := http.NewRequest(http.MethodPatch, targetSecond, strings.NewReader(patchBody))
+		if err != nil {
+			t.Fatalf("failed to create patch request: %v", err)
+		}
+		patchReq.Header.Set("Content-Type", "application/json")
+
+		patchRec := httptest.NewRecorder()
+		router.ServeHTTP(patchRec, patchReq)
+		if patchRec.Code != http.StatusOK {
+			t.Fatalf("expected: %d, got: %d", http.StatusOK, patchRec.Code)
+		}
+
+		// Probe: fetch the FIRST wallet through a separate GET — it must be untouched
+		targetFirst := "/api/v1/wallets/" + strconv.Itoa(int(first.Data.ID))
+		getReq, err := http.NewRequest(http.MethodGet, targetFirst, nil)
+		if err != nil {
+			t.Fatalf("failed to create get request: %v", err)
+		}
+
+		getRec := httptest.NewRecorder()
+		router.ServeHTTP(getRec, getReq)
+		if getRec.Code != http.StatusOK {
+			t.Fatalf("expected: %d, got: %d", http.StatusOK, getRec.Code)
+		}
+
+		var fetched WalletResponseEnvelope
+		if err := json.NewDecoder(getRec.Body).Decode(&fetched); err != nil {
+			t.Fatalf("failed to decode get response body: %v", err)
+		}
+		if fetched.Data.Label != "seed Wallet" {
+			t.Fatalf("expected first wallet's label to stay 'seed Wallet', got: %s", fetched.Data.Label)
+		}
+	})
+
+}
+
+func TestDeleteWallet(t *testing.T) {
+
+	t.Run("returns 204 with empty body", func(t *testing.T) {
+		repo := wallet.NewInMemoryWalletRepo()
+		svc := wallet.NewService(repo)
+		router := NewRouter(svc)
+
+		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
+
+		target := "/api/v1/wallets/" + strconv.Itoa(int(created.Data.ID))
+
+		delReq, err := http.NewRequest(http.MethodDelete, target, nil)
+		if err != nil {
+			t.Fatalf("failed to create delete request: %v", err)
+		}
+
+		delRec := httptest.NewRecorder()
+		router.ServeHTTP(delRec, delReq)
+		if delRec.Code != http.StatusNoContent {
+			t.Fatalf("expected: %d, got: %d", http.StatusNoContent, delRec.Code)
+		}
+		if delRec.Body.Len() != 0 {
+			t.Fatalf("expected empty body, got: %q", delRec.Body.String())
+		}
+
+		getReq, err := http.NewRequest(http.MethodGet, target, nil)
+		if err != nil {
+			t.Fatalf("failed to create get request: %v", err)
+		}
+
+		getRec := httptest.NewRecorder()
+		router.ServeHTTP(getRec, getReq)
+		if getRec.Code != http.StatusNotFound {
+			t.Fatalf("expected: %d, got: %d", http.StatusNotFound, getRec.Code)
+		}
+	})
+
+	t.Run("second delete returns 404", func(t *testing.T) {
+		repo := wallet.NewInMemoryWalletRepo()
+		svc := wallet.NewService(repo)
+		router := NewRouter(svc)
+
+		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
+
+		target := "/api/v1/wallets/" + strconv.Itoa(int(created.Data.ID))
+
+		firstDelReq, err := http.NewRequest(http.MethodDelete, target, nil)
+		if err != nil {
+			t.Fatalf("failed to create first delete request: %v", err)
+		}
+		firstDelRec := httptest.NewRecorder()
+		router.ServeHTTP(firstDelRec, firstDelReq)
+		if firstDelRec.Code != http.StatusNoContent {
+			t.Fatalf("expected: %d, got: %d", http.StatusNoContent, firstDelRec.Code)
+		}
+
+		secondDelReq, err := http.NewRequest(http.MethodDelete, target, nil)
+		if err != nil {
+			t.Fatalf("failed to create second delete request: %v", err)
+		}
+		secondDelRec := httptest.NewRecorder()
+		router.ServeHTTP(secondDelRec, secondDelReq)
+		if secondDelRec.Code != http.StatusNotFound {
+			t.Fatalf("expected: %d, got: %d", http.StatusNotFound, secondDelRec.Code)
+		}
+
+		var errRes ErrorEnvelope
+		if err := json.NewDecoder(secondDelRec.Body).Decode(&errRes); err != nil {
+			t.Fatalf("failed to decode error response body: %v", err)
+		}
+		if errRes.Error.Code != CodeResourceNotFound {
+			t.Fatalf("expected error code %q, got %q", CodeResourceNotFound, errRes.Error.Code)
+		}
+	})
+
+	t.Run("invalid id returns 400", func(t *testing.T) {
+		repo := wallet.NewInMemoryWalletRepo()
+		svc := wallet.NewService(repo)
+		router := NewRouter(svc)
+
+		delReq, err := http.NewRequest(http.MethodDelete, "/api/v1/wallets/abc", nil)
+		if err != nil {
+			t.Fatalf("failed to create delete request: %v", err)
+		}
+
+		delRec := httptest.NewRecorder()
+		router.ServeHTTP(delRec, delReq)
+		if delRec.Code != http.StatusBadRequest {
+			t.Fatalf("expected: %d, got: %d", http.StatusBadRequest, delRec.Code)
+		}
+
+		var errRes ErrorEnvelope
+		if err := json.NewDecoder(delRec.Body).Decode(&errRes); err != nil {
+			t.Fatalf("failed to decode error response body: %v", err)
+		}
+		if errRes.Error.Code != CodeValidationError {
+			t.Fatalf("expected error code %q, got %q", CodeValidationError, errRes.Error.Code)
+		}
+	})
+}
+
+// Helper testFunc
+func seedWallet(t *testing.T, router http.Handler, address string) WalletResponseEnvelope {
+	t.Helper()
+
+	body := fmt.Sprintf(`{"address":"%s","chainId":1,"label":"seed Wallet"}`, address)
+
+	req, err := http.NewRequest(http.MethodPost, "/api/v1/wallets", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("failed to create seed request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("failed to seed wallet, expected: %d, got: %d", http.StatusCreated, rec.Code)
+	}
+
+	var created WalletResponseEnvelope
+	if err = json.NewDecoder(rec.Body).Decode(&created); err != nil {
+		t.Fatalf("failed to decode seed response body: %v", err)
+	}
+
+	return created
 }

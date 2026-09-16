@@ -119,3 +119,36 @@ func (repo *PostgresWalletRepo) List(ctx context.Context, filter WalletFilter) (
 
 	return wallets, totalItems, nil
 }
+
+func (repo *PostgresWalletRepo) Update(ctx context.Context, id int64, newLabel string) (Wallet, error) {
+
+	query := `
+		UPDATE wallets SET label = $1 WHERE id = $2 RETURNING id, address, chain_id, label, created_at
+	`
+	var w Wallet
+	err := repo.db.QueryRowContext(ctx, query, newLabel, id).Scan(&w.ID, &w.Address, &w.ChainID, &w.Label, &w.CreatedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Wallet{}, ErrWalletNotFound
+		}
+		return Wallet{}, err
+	}
+
+	return w, nil
+}
+
+func (repo *PostgresWalletRepo) Delete(ctx context.Context, id int64) error {
+
+	query := `DELETE FROM wallets WHERE id = $1 RETURNING id`
+
+	var deletedID int64
+	err := repo.db.QueryRowContext(ctx, query, id).Scan(&deletedID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrWalletNotFound
+		}
+		return err
+	}
+
+	return nil
+}

@@ -2,6 +2,7 @@ package wallet
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -21,6 +22,10 @@ func NewInMemoryWalletRepo() *InMemoryWalletRepo {
 
 // Create implements [WalletRepository].
 func (repo *InMemoryWalletRepo) Create(ctx context.Context, w Wallet) (Wallet, error) {
+	if err := ctx.Err(); err != nil {
+		return Wallet{}, err
+	}
+
 	for _, existing := range repo.wallets {
 		if existing.Address == w.Address && existing.ChainID == w.ChainID {
 			return Wallet{}, ErrWalletDuplicate
@@ -38,6 +43,10 @@ func (repo *InMemoryWalletRepo) Create(ctx context.Context, w Wallet) (Wallet, e
 
 // GetByID implements [WalletRepository].
 func (repo *InMemoryWalletRepo) GetByID(ctx context.Context, id int64) (Wallet, error) {
+	if err := ctx.Err(); err != nil {
+		return Wallet{}, err
+	}
+
 	for _, w := range repo.wallets {
 		if w.ID == id {
 			return w, nil
@@ -91,4 +100,41 @@ func (repo *InMemoryWalletRepo) List(ctx context.Context, filter WalletFilter) (
 	}
 
 	return filtered[offset:end], totalItems, nil
+}
+
+func (repo *InMemoryWalletRepo) Update(ctx context.Context, id int64, newLabel string) (Wallet, error) {
+	if err := ctx.Err(); err != nil {
+		return Wallet{}, err
+	}
+
+	for i := range repo.wallets {
+		if repo.wallets[i].ID == id {
+			repo.wallets[i].Label = newLabel
+			return repo.wallets[i], nil
+		}
+	}
+
+	return Wallet{}, ErrWalletNotFound
+}
+
+func (repo *InMemoryWalletRepo) Delete(ctx context.Context, id int64) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	found := false
+
+	repo.wallets = slices.DeleteFunc(repo.wallets, func(w Wallet) bool {
+		if w.ID == id {
+			found = true
+			return true
+		}
+		return false
+	})
+
+	if !found {
+		return ErrWalletNotFound
+	}
+
+	return nil
 }
