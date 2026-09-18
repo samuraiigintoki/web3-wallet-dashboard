@@ -64,7 +64,7 @@ func NewHandler(walletSvc *wallet.Service) *Handler {
 	}
 }
 
-// Handler functionssss
+// Handler functions
 func (h *Handler) createWallet(w http.ResponseWriter, r *http.Request) {
 
 	var req CreateWalletRequest
