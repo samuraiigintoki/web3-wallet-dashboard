@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -26,7 +27,7 @@ func (repo *PostgresUserRepository) Create(ctx context.Context, u User) (User, e
 	err := repo.db.QueryRowContext(ctx, query, u.Email, u.PasswordHash).Scan(&u.ID, &u.CreatedAt)
 	if err != nil {
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && (pgErr.ConstraintName == "idx_users_email_lower" || strings.Contains(pgErr.ConstraintName, "email")) {
 			return User{}, ErrDuplicateEmail
 		}
 		return User{}, err
