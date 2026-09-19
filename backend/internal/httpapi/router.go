@@ -35,6 +35,6 @@ func NewRouter(walletSvc *wallet.Service, userServices ...*user.Service) http.Ha
 		mux.HandleFunc("POST /api/v1/auth/logout", h.logoutUser)
 		mux.Handle("GET /api/v1/users/me", requireAuth(http.HandlerFunc(h.getCurrentUser)))
 	}
-	
+
 	return mux
 }
