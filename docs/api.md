@@ -2,7 +2,7 @@
 
 ## Status
 
-This document is the living REST API design. `GET /health`, `POST /api/v1/wallets`, `GET /api/v1/wallets`, `GET /api/v1/wallets/{id}`, `PATCH /api/v1/wallets/{id}`, and `DELETE /api/v1/wallets/{id}` are implemented. Additional routes remain planned.
+This document is the living REST API design. `GET /health`, `POST /api/v1/wallets`, `GET /api/v1/wallets`, `GET /api/v1/wallets/{id}`, `PATCH /api/v1/wallets/{id}`, `DELETE /api/v1/wallets/{id}`, `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, and `GET /api/v1/users/me` are implemented. Additional routes remain planned.
 
 ## Design principles
 
@@ -39,7 +39,7 @@ Content-Type: application/json
 
 ## Authentication
 
-The final mechanism—secure cookie-based session or bearer token—will be selected before authentication implementation.
+Authentication uses stateful bearer tokens passed via the `Authorization: Bearer <token>` header. Sessions are stored as SHA-256 hashes in PostgreSQL (`user_sessions`) with a fixed 7-day TTL and instant revocation on logout (see `docs/auth.md`).
 
 Protected routes require an authenticated application user. Browser-wallet connection does not replace application authentication, and saving an address does not prove control of its private key.
 
@@ -77,8 +77,11 @@ The first implementation may use offset pagination. Cursor pagination can be con
 |---|---|---|---|
 | `400 Bad Request` | `INVALID_JSON` | Malformed JSON syntax, unknown fields, field type mismatch, body > 1MB | None |
 | `400 Bad Request` | `VALIDATION_ERROR` | Invalid path or query parameter: non-integer `id`/`page`/`pageSize`/`chainId`; `page` > 10000; `pageSize` > 100; negative `chainId` | Parse errors: none. Bounds errors: `{"details": {"<field>": "<message>"}}` |
+| `401 Unauthorized` | `INVALID_CREDENTIALS` | Unknown email or incorrect password during login (timing-safe, identical body) | None |
+| `401 Unauthorized` | `UNAUTHENTICATED` | Missing, malformed, expired, or non-existent session token | None |
 | `404 Not Found` | `RESOURCE_NOT_FOUND` | Resource matching requested ID does not exist | None |
 | `409 Conflict` | `RESOURCE_CONFLICT` | Duplicate `(address, chainId)` record | None |
+| `409 Conflict` | `USER_CONFLICT` | Duplicate registration email (`idx_users_email_lower`) | None |
 | `422 Unprocessable Entity` | `VALIDATION_ERROR` | Domain rule failure (address length/prefix/hex, label length, chainId <= 0) | `{"details": {"<field>": "<message>"}}` |
 | `500 Internal Server Error` | `INTERNAL_SERVER_ERROR` | Unhandled internal server error | None |
 
@@ -138,10 +141,11 @@ RPC readiness must be designed carefully: a temporary provider failure should be
 
 ### `POST /api/v1/auth/register`
 
+**Status:** Implemented — PostgreSQL persistence
+
 **Authentication:** Public
 
 Request:
-
 ```json
 {
   "email": "user@example.com",
@@ -150,20 +154,30 @@ Request:
 ```
 
 Behavior:
-
-- Normalize email.
-- Validate password policy.
-- Store only an approved password hash, never plaintext.
-- Reject duplicate accounts consistently.
+- Normalize email (trimmed and lowercased).
+- Hard validation: email must contain `@`, password length <= 72 bytes (pre-bcrypt check).
+- Store cost-10 bcrypt password hash, never plaintext.
+- Duplicate email rejected with `409 USER_CONFLICT`.
+- Does not expose password or hash in response.
 
 Success: `201 Created`.
+```json
+{
+  "data": {
+    "id": 1,
+    "email": "user@example.com",
+    "createdAt": "2026-09-18T10:00:00Z"
+  }
+}
+```
 
 ### `POST /api/v1/auth/login`
+
+**Status:** Implemented — PostgreSQL persistence
 
 **Authentication:** Public
 
 Request:
-
 ```json
 {
   "email": "user@example.com",
@@ -171,32 +185,56 @@ Request:
 }
 ```
 
-Behavior depends on the selected authentication mechanism. Authentication failures should not reveal whether the email exists.
+Behavior:
+- Generates 32-byte `crypto/rand` token (base64url encoded).
+- Stores `sha256(token)` in `user_sessions` with 7-day TTL.
+- Constant-time unknown-email verification via dummy bcrypt hash prevents timing oracle.
+- Returns identical 401 `INVALID_CREDENTIALS` for both unknown email and wrong password.
 
 Success: `200 OK`.
-
-### `POST /api/v1/auth/logout`
-
-**Authentication:** Required
-
-Invalidates the current session or token state where applicable.
-
-Success: `204 No Content`.
-
-### `GET /api/v1/users/me`
-
-**Authentication:** Required
-
-Returns the authenticated application user's public profile.
-
-Example response:
-
 ```json
 {
   "data": {
-    "id": "user-id",
+    "token": "dGVzdC10b2tlbi1yYW5kb20tMzItYnl0ZXM",
+    "expiresAt": "2026-09-25T10:00:00Z"
+  }
+}
+```
+
+### `POST /api/v1/auth/logout`
+
+**Status:** Implemented — PostgreSQL persistence
+
+**Authentication:** Required (`Authorization: Bearer <token>`)
+
+Behavior:
+- Hashes token from header and deletes session row (`DELETE FROM user_sessions WHERE token_hash = $1`).
+- Instantly revokes session across all requests.
+
+Success: `200 OK`.
+```json
+{
+  "data": {
+    "message": "logged out"
+  }
+}
+```
+
+### `GET /api/v1/users/me`
+
+**Status:** Implemented — PostgreSQL persistence
+
+**Authentication:** Required (`Authorization: Bearer <token>`)
+
+Returns the authenticated application user's profile.
+
+Success: `200 OK`.
+```json
+{
+  "data": {
+    "id": 1,
     "email": "user@example.com",
-    "createdAt": "2026-08-18T00:00:00Z"
+    "createdAt": "2026-09-18T10:00:00Z"
   }
 }
 ```
@@ -627,9 +665,9 @@ Rate limiting is planned for authentication and RPC-backed routes. It should be 
 
 ## Open API decisions
 
-1. Cookie session or bearer-token authentication.
+1. Cookie session or bearer-token authentication (Resolved: Bearer token with server-side SHA-256 session hash and instant revocation; see `docs/auth.md`).
 2. UUID or another public resource identifier format.
-3. Exact error-code catalog (partially resolved: `INVALID_JSON` for 400 and `VALIDATION_ERROR` for 422 implemented for wallet routes).
+3. Exact error-code catalog (Resolved for B3: added `INVALID_CREDENTIALS`, `UNAUTHENTICATED`, `USER_CONFLICT`).
 4. Whether contract-state reads are always direct RPC reads or may use a short cache.
 5. Whether large EVM integers are always decimal strings.
 6. Whether transaction-receipt lookup needs a dedicated API route.
