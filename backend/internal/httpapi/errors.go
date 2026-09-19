@@ -1,7 +1,12 @@
 package httpapi
 
-const CodeInvalidJSON = "INVALID_JSON"
-const CodeValidationError = "VALIDATION_ERROR"
-const CodeResourceConflict = "RESOURCE_CONFLICT"
-const CodeInternalError = "INTERNAL_SERVER_ERROR"
-const CodeResourceNotFound = "RESOURCE_NOT_FOUND"
+const (
+	CodeInvalidJSON        = "INVALID_JSON"
+	CodeValidationError    = "VALIDATION_ERROR"
+	CodeResourceConflict   = "RESOURCE_CONFLICT"
+	CodeInternalError      = "INTERNAL_SERVER_ERROR"
+	CodeResourceNotFound   = "RESOURCE_NOT_FOUND"
+	CodeInvalidCredentials = "INVALID_CREDENTIALS"
+	CodeUnauthenticated    = "UNAUTHENTICATED"
+	CodeUserConflict       = "USER_CONFLICT"
+)

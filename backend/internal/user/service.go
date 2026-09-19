@@ -24,7 +24,7 @@ func NewService(repo UserRepository) *Service {
 const (
 	SessionTTL       = 7 * 24 * time.Hour
 	MaxPasswordBytes = 72
-	dummyHash = "$2a$10$wN1Qj0Y2k4fG9K1N7l7K5.xQ9V7h7O4T4U6p4Y2Z5X1W8R3S2T1U"
+	dummyHash        = "$2a$10$wN1Qj0Y2k4fG9K1N7l7K5.xQ9V7h7O4T4U6p4Y2Z5X1W8R3S2T1U"
 )
 
 func (s *Service) Register(ctx context.Context, email string, password string) (User, error) {
