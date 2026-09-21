@@ -155,7 +155,7 @@ Request:
 
 Behavior:
 - Normalize email (trimmed and lowercased).
-- Hard validation: email must contain `@`, password length <= 72 bytes (pre-bcrypt check).
+- Hard validation: email must contain `@` (simple MVP rule), password length <= 72 bytes (pre-bcrypt check).
 - Store cost-10 bcrypt password hash, never plaintext.
 - Duplicate email rejected with `409 USER_CONFLICT`.
 - Does not expose password or hash in response.
@@ -170,6 +170,22 @@ Success: `201 Created`.
   }
 }
 ```
+
+Errors:
+- `400 Bad Request`: `INVALID_JSON` (Malformed body or unknown fields)
+- `409 Conflict`: `USER_CONFLICT` (Email already registered)
+- `422 Unprocessable Entity`: `VALIDATION_ERROR` with structured field details.
+  ```json
+  {
+    "error": {
+      "code": "VALIDATION_ERROR",
+      "message": "validation failed",
+      "details": {
+        "password": "password exceeds maximum allowed length of 72 bytes"
+      }
+    }
+  }
+  ```
 
 ### `POST /api/v1/auth/login`
 
@@ -210,6 +226,7 @@ Success: `200 OK`.
 Behavior:
 - Hashes token from header and deletes session row (`DELETE FROM user_sessions WHERE token_hash = $1`).
 - Instantly revokes session across all requests.
+- Idempotent: repeating logout or calling with an already-revoked session succeeds with 200 (no-op delete).
 
 Success: `200 OK`.
 ```json
@@ -219,6 +236,9 @@ Success: `200 OK`.
   }
 }
 ```
+
+Errors:
+- `401 Unauthorized`: `UNAUTHENTICATED` (Missing or malformed Authorization header)
 
 ### `GET /api/v1/users/me`
 
