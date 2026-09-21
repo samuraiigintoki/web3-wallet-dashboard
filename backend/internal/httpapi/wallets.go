@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/user"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
 )
 
@@ -55,16 +56,18 @@ type UpdateWalletRequest struct {
 // Handler struct
 type Handler struct {
 	walletSvc *wallet.Service
+	userSvc   *user.Service
 }
 
 // Handler constructor
-func NewHandler(walletSvc *wallet.Service) *Handler {
+func NewHandler(walletSvc *wallet.Service, userSvc *user.Service) *Handler {
 	return &Handler{
 		walletSvc: walletSvc,
+		userSvc:   userSvc,
 	}
 }
 
-// Handler functionssss
+// Handler functions
 func (h *Handler) createWallet(w http.ResponseWriter, r *http.Request) {
 
 	var req CreateWalletRequest

@@ -9,13 +9,17 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/user"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
 )
 
 func TestCreateWalletEndpoint(t *testing.T) {
 	repo := wallet.NewInMemoryWalletRepo()
-	svc := wallet.NewService(repo)
-	router := NewRouter(svc)
+	walletSvc := wallet.NewService(repo)
+	userRepo := user.NewInMemoryRepository()
+	userSvc := user.NewService(userRepo)
+
+	router := NewRouter(walletSvc, userSvc)
 
 	tests := []struct {
 		name           string
@@ -164,8 +168,11 @@ func TestCreateWalletEndpoint(t *testing.T) {
 
 func TestGetWalletEndpoint(t *testing.T) {
 	repo := wallet.NewInMemoryWalletRepo()
-	svc := wallet.NewService(repo)
-	router := NewRouter(svc)
+	walletSvc := wallet.NewService(repo)
+	userRepo := user.NewInMemoryRepository()
+	userSvc := user.NewService(userRepo)
+
+	router := NewRouter(walletSvc, userSvc)
 
 	seedWallet := `{"address":"0x0000000000000000000000000000000000000001","chainId":1,"label":"seed Wallet"}`
 
@@ -258,8 +265,11 @@ func TestGetWalletEndpoint(t *testing.T) {
 
 func TestListWalletsEndpoint(t *testing.T) {
 	repo := wallet.NewInMemoryWalletRepo()
-	svc := wallet.NewService(repo)
-	router := NewRouter(svc)
+	walletSvc := wallet.NewService(repo)
+	userRepo := user.NewInMemoryRepository()
+	userSvc := user.NewService(userRepo)
+
+	router := NewRouter(walletSvc, userSvc)
 
 	// case 1: empty list (no seed)
 	{
@@ -580,8 +590,11 @@ func TestUpdateWallet(t *testing.T) {
 
 	t.Run("updates label and preserves createdAt", func(t *testing.T) {
 		repo := wallet.NewInMemoryWalletRepo()
-		svc := wallet.NewService(repo)
-		router := NewRouter(svc)
+		walletSvc := wallet.NewService(repo)
+		userRepo := user.NewInMemoryRepository()
+		userSvc := user.NewService(userRepo)
+
+		router := NewRouter(walletSvc, userSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 
@@ -636,8 +649,11 @@ func TestUpdateWallet(t *testing.T) {
 
 	t.Run("null label is treated as absent", func(t *testing.T) {
 		repo := wallet.NewInMemoryWalletRepo()
-		svc := wallet.NewService(repo)
-		router := NewRouter(svc)
+		walletSvc := wallet.NewService(repo)
+		userRepo := user.NewInMemoryRepository()
+		userSvc := user.NewService(userRepo)
+
+		router := NewRouter(walletSvc, userSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 
@@ -671,8 +687,11 @@ func TestUpdateWallet(t *testing.T) {
 
 	t.Run("no-op when label absent", func(t *testing.T) {
 		repo := wallet.NewInMemoryWalletRepo()
-		svc := wallet.NewService(repo)
-		router := NewRouter(svc)
+		walletSvc := wallet.NewService(repo)
+		userRepo := user.NewInMemoryRepository()
+		userSvc := user.NewService(userRepo)
+
+		router := NewRouter(walletSvc, userSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 
@@ -706,8 +725,11 @@ func TestUpdateWallet(t *testing.T) {
 
 	t.Run("whitespace label returns 422", func(t *testing.T) {
 		repo := wallet.NewInMemoryWalletRepo()
-		svc := wallet.NewService(repo)
-		router := NewRouter(svc)
+		walletSvc := wallet.NewService(repo)
+		userRepo := user.NewInMemoryRepository()
+		userSvc := user.NewService(userRepo)
+
+		router := NewRouter(walletSvc, userSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 
@@ -738,8 +760,11 @@ func TestUpdateWallet(t *testing.T) {
 
 	t.Run("missing id returns 404", func(t *testing.T) {
 		repo := wallet.NewInMemoryWalletRepo()
-		svc := wallet.NewService(repo)
-		router := NewRouter(svc)
+		walletSvc := wallet.NewService(repo)
+		userRepo := user.NewInMemoryRepository()
+		userSvc := user.NewService(userRepo)
+
+		router := NewRouter(walletSvc, userSvc)
 
 		// no seed => id 999999 never existed
 		patchBody := `{"label":"x"}`
@@ -766,8 +791,11 @@ func TestUpdateWallet(t *testing.T) {
 
 	t.Run("invalid id returns 400", func(t *testing.T) {
 		repo := wallet.NewInMemoryWalletRepo()
-		svc := wallet.NewService(repo)
-		router := NewRouter(svc)
+		walletSvc := wallet.NewService(repo)
+		userRepo := user.NewInMemoryRepository()
+		userSvc := user.NewService(userRepo)
+
+		router := NewRouter(walletSvc, userSvc)
 
 		patchBody := `{"label":"x"}`
 		patchReq, err := http.NewRequest(http.MethodPatch, "/api/v1/wallets/abc", strings.NewReader(patchBody))
@@ -793,8 +821,11 @@ func TestUpdateWallet(t *testing.T) {
 
 	t.Run("unknown field returns 400", func(t *testing.T) {
 		repo := wallet.NewInMemoryWalletRepo()
-		svc := wallet.NewService(repo)
-		router := NewRouter(svc)
+		walletSvc := wallet.NewService(repo)
+		userRepo := user.NewInMemoryRepository()
+		userSvc := user.NewService(userRepo)
+
+		router := NewRouter(walletSvc, userSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 		target := "/api/v1/wallets/" + strconv.Itoa(int(created.Data.ID))
@@ -823,8 +854,11 @@ func TestUpdateWallet(t *testing.T) {
 
 	t.Run("empty body returns 400", func(t *testing.T) {
 		repo := wallet.NewInMemoryWalletRepo()
-		svc := wallet.NewService(repo)
-		router := NewRouter(svc)
+		walletSvc := wallet.NewService(repo)
+		userRepo := user.NewInMemoryRepository()
+		userSvc := user.NewService(userRepo)
+
+		router := NewRouter(walletSvc, userSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 		target := "/api/v1/wallets/" + strconv.Itoa(int(created.Data.ID))
@@ -852,8 +886,11 @@ func TestUpdateWallet(t *testing.T) {
 
 	t.Run("updates only the target row", func(t *testing.T) {
 		repo := wallet.NewInMemoryWalletRepo()
-		svc := wallet.NewService(repo)
-		router := NewRouter(svc)
+		walletSvc := wallet.NewService(repo)
+		userRepo := user.NewInMemoryRepository()
+		userSvc := user.NewService(userRepo)
+
+		router := NewRouter(walletSvc, userSvc)
 
 		first := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 		second := seedWallet(t, router, "0x0000000000000000000000000000000000000002")
@@ -900,8 +937,11 @@ func TestDeleteWallet(t *testing.T) {
 
 	t.Run("returns 204 with empty body", func(t *testing.T) {
 		repo := wallet.NewInMemoryWalletRepo()
-		svc := wallet.NewService(repo)
-		router := NewRouter(svc)
+		walletSvc := wallet.NewService(repo)
+		userRepo := user.NewInMemoryRepository()
+		userSvc := user.NewService(userRepo)
+
+		router := NewRouter(walletSvc, userSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 
@@ -935,8 +975,11 @@ func TestDeleteWallet(t *testing.T) {
 
 	t.Run("second delete returns 404", func(t *testing.T) {
 		repo := wallet.NewInMemoryWalletRepo()
-		svc := wallet.NewService(repo)
-		router := NewRouter(svc)
+		walletSvc := wallet.NewService(repo)
+		userRepo := user.NewInMemoryRepository()
+		userSvc := user.NewService(userRepo)
+
+		router := NewRouter(walletSvc, userSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 
@@ -973,8 +1016,11 @@ func TestDeleteWallet(t *testing.T) {
 
 	t.Run("invalid id returns 400", func(t *testing.T) {
 		repo := wallet.NewInMemoryWalletRepo()
-		svc := wallet.NewService(repo)
-		router := NewRouter(svc)
+		walletSvc := wallet.NewService(repo)
+		userRepo := user.NewInMemoryRepository()
+		userSvc := user.NewService(userRepo)
+
+		router := NewRouter(walletSvc, userSvc)
 
 		delReq, err := http.NewRequest(http.MethodDelete, "/api/v1/wallets/abc", nil)
 		if err != nil {

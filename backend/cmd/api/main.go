@@ -3,13 +3,16 @@ package main
 import (
 	"context"
 	"database/sql"
-	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/httpapi"
-	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
 	"log"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/httpapi"
+	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/user"
+	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 func main() {
@@ -35,9 +38,13 @@ func main() {
 		log.Fatalf("DB unreachable : %v", err)
 	}
 
-	repo := wallet.NewPostgresWalletRepo(db)
-	svc := wallet.NewService(repo)
-	handler := httpapi.NewRouter(svc)
+	walletRepo := wallet.NewPostgresWalletRepo(db)
+	walletSvc := wallet.NewService(walletRepo)
+
+	userRepo := user.NewPostgresUserRepository(db)
+	userSvc := user.NewService(userRepo)
+
+	handler := httpapi.NewRouter(walletSvc, userSvc)
 
 	addr := ":8080"
 	log.Printf("Starting HTTP Server on %s...", addr)
