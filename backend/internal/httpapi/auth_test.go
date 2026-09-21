@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,15 +14,35 @@ import (
 	"time"
 
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/user"
+	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
 )
+
+// errorUserRepo implements user.UserRepository to simulate database failures
+type errorUserRepo struct {
+	user.UserRepository
+}
+
+func (e *errorUserRepo) GetSessionByTokenHash(ctx context.Context, tokenHash string) (user.UserSession, error) {
+	return user.UserSession{}, errors.New("database connection down")
+}
+
+func newTestRouter(uRepo user.UserRepository) http.Handler {
+	walletRepo := wallet.NewInMemoryWalletRepo()
+	walletSvc := wallet.NewService(walletRepo)
+
+	if uRepo == nil {
+		uRepo = user.NewInMemoryRepository()
+	}
+	userSvc := user.NewService(uRepo)
+
+	return NewRouter(walletSvc, userSvc)
+}
 
 func TestRequireAuth_Middleware(t *testing.T) {
 	ctx := context.Background()
 	userRepo := user.NewInMemoryRepository()
-	userSvc := user.NewService(userRepo)
-	router := NewRouter(nil, userSvc)
+	router := newTestRouter(userRepo)
 
-	// Seed user in repo
 	createdUser, err := userRepo.Create(ctx, user.User{
 		Email: "alice@example.com",
 	})
@@ -29,7 +50,6 @@ func TestRequireAuth_Middleware(t *testing.T) {
 		t.Fatalf("failed to seed user: %v", err)
 	}
 
-	// Seed valid session
 	validRawToken := "valid-test-token-12345"
 	validSum := sha256.Sum256([]byte(validRawToken))
 	validHash := base64.RawURLEncoding.EncodeToString(validSum[:])
@@ -42,7 +62,6 @@ func TestRequireAuth_Middleware(t *testing.T) {
 		t.Fatalf("failed to seed valid session: %v", err)
 	}
 
-	// Seed expired session
 	expiredRawToken := "expired-test-token-12345"
 	expiredSum := sha256.Sum256([]byte(expiredRawToken))
 	expiredHash := base64.RawURLEncoding.EncodeToString(expiredSum[:])
@@ -113,12 +132,26 @@ func TestRequireAuth_Middleware(t *testing.T) {
 			t.Fatalf("expected error code %s, got body: %s", CodeUnauthenticated, rec.Body.String())
 		}
 	})
+
+	t.Run("Database Error Returns 500 INTERNAL_SERVER_ERROR", func(t *testing.T) {
+		errRouter := newTestRouter(&errorUserRepo{UserRepository: user.NewInMemoryRepository()})
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil)
+		req.Header.Set("Authorization", "Bearer some-token")
+		rec := httptest.NewRecorder()
+
+		errRouter.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("expected 500 Internal Server Error, got: %d", rec.Code)
+		}
+		if !strings.Contains(rec.Body.String(), CodeInternalError) {
+			t.Fatalf("expected error code %s, got body: %s", CodeInternalError, rec.Body.String())
+		}
+	})
 }
 
 func TestRegisterHandler(t *testing.T) {
-	userRepo := user.NewInMemoryRepository()
-	userSvc := user.NewService(userRepo)
-	router := NewRouter(nil, userSvc)
+	router := newTestRouter(nil)
 
 	t.Run("201 Created Valid Payload", func(t *testing.T) {
 		body := `{"email":"new@example.com","password":"validpassword"}`
@@ -157,7 +190,7 @@ func TestRegisterHandler(t *testing.T) {
 		}
 	})
 
-	t.Run("422 Validation Error 73-byte Password", func(t *testing.T) {
+	t.Run("422 Validation Error 73-byte Password with Details Map", func(t *testing.T) {
 		payload, err := json.Marshal(RegisterRequest{
 			Email:    "longpass@example.com",
 			Password: strings.Repeat("a", 73),
@@ -178,6 +211,9 @@ func TestRegisterHandler(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), CodeValidationError) {
 			t.Fatalf("expected %s in body, got: %s", CodeValidationError, rec.Body.String())
 		}
+		if !strings.Contains(rec.Body.String(), "password") {
+			t.Fatalf("expected details map to contain 'password' field, got: %s", rec.Body.String())
+		}
 	})
 
 	t.Run("400 Bad Request Invalid JSON", func(t *testing.T) {
@@ -188,7 +224,7 @@ func TestRegisterHandler(t *testing.T) {
 		router.ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusBadRequest {
-			t.Fatalf("expected 400 Bad Request, got: %d, body: %s", rec.Code, rec.Body.String())
+			t.Fatalf("expected 400 Bad Request, got: %d", rec.Code)
 		}
 		if !strings.Contains(rec.Body.String(), CodeInvalidJSON) {
 			t.Fatalf("expected %s in body, got: %s", CodeInvalidJSON, rec.Body.String())
@@ -200,9 +236,10 @@ func TestLoginHandler_Identical401(t *testing.T) {
 	ctx := context.Background()
 	userRepo := user.NewInMemoryRepository()
 	userSvc := user.NewService(userRepo)
-	router := NewRouter(nil, userSvc)
+	walletRepo := wallet.NewInMemoryWalletRepo()
+	walletSvc := wallet.NewService(walletRepo)
+	router := NewRouter(walletSvc, userSvc)
 
-	// Seed registered user
 	_, err := userSvc.Register(ctx, "registered@example.com", "correctpassword")
 	if err != nil {
 		t.Fatalf("failed to register user: %v", err)
@@ -230,7 +267,6 @@ func TestLoginHandler_Identical401(t *testing.T) {
 	}
 	bodyWrong := recWrong.Body.Bytes()
 
-	// Byte-identical check to prevent user enumeration
 	if !bytes.Equal(bodyUnknown, bodyWrong) {
 		t.Fatalf("expected identical 401 response bodies for unknown email and wrong password.\nUnknown: %s\nWrong:   %s", string(bodyUnknown), string(bodyWrong))
 	}
@@ -264,9 +300,10 @@ func TestLogoutHandler(t *testing.T) {
 	ctx := context.Background()
 	userRepo := user.NewInMemoryRepository()
 	userSvc := user.NewService(userRepo)
-	router := NewRouter(nil, userSvc)
+	walletRepo := wallet.NewInMemoryWalletRepo()
+	walletSvc := wallet.NewService(walletRepo)
+	router := NewRouter(walletSvc, userSvc)
 
-	// Register and login
 	_, err := userSvc.Register(ctx, "logoutuser@example.com", "mypassword")
 	if err != nil {
 		t.Fatalf("failed to register user: %v", err)

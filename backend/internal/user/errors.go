@@ -1,11 +1,22 @@
 package user
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 var (
 	ErrDuplicateEmail     = errors.New("user: email already registered")
 	ErrNotFound           = errors.New("user: not found")
 	ErrInvalidCredentials = errors.New("user: invalid credentials")
-	ErrValidation         = errors.New("user: validation failed")
-	ErrUnauthenticated    = errors.New("user: unauthenticated") //session not found error
+	ErrUnauthenticated    = errors.New("user: unauthenticated")
 )
+
+type ValidationError struct {
+	Field   string
+	Message string
+}
+
+func (e *ValidationError) Error() string {
+	return fmt.Sprintf("%s: %s", e.Field, e.Message)
+}

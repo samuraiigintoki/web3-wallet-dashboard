@@ -20,11 +20,15 @@ func TestRegister_PasswordLength(t *testing.T) {
 		t.Fatalf("expected nil error for 72-byte password, got: %v", err)
 	}
 
-	// Case B: 73-byte string -> ErrValidation
+	// Case B: 73-byte string -> ValidationError on password field
 	pass73 := strings.Repeat("a", 73)
 	_, err = s.Register(ctx, "user73@example.com", pass73)
-	if !errors.Is(err, ErrValidation) {
-		t.Fatalf("expected ErrValidation for 73-byte password, got: %v", err)
+	var valErr *ValidationError
+	if !errors.As(err, &valErr) {
+		t.Fatalf("expected ValidationError for 73-byte password, got: %v", err)
+	}
+	if valErr.Field != "password" {
+		t.Fatalf("expected ValidationError field to be 'password', got: %s", valErr.Field)
 	}
 }
 
@@ -59,23 +63,36 @@ func TestLogin_TimingFloor(t *testing.T) {
 	repo := NewInMemoryRepository()
 	s := NewService(repo)
 
-	email := "timing@example.com"
-	_, err := s.Register(ctx, email, "correct-password")
+	_, err := s.Register(ctx, "registered@example.com", "validpassword")
 	if err != nil {
-		t.Fatalf("unexpected register error: %v", err)
+		t.Fatalf("unexpected error registering user: %v", err)
 	}
 
-	start := time.Now()
-	_, _, err = s.Login(ctx, email, "wrong-password")
-	duration := time.Since(start)
+	t.Run("Unknown_Email_path", func(t *testing.T) {
+		start := time.Now()
+		_, _, err := s.Login(ctx, "unknown@example.com", "any-password")
+		elapsed := time.Since(start)
 
-	if !errors.Is(err, ErrInvalidCredentials) {
-		t.Fatalf("expected ErrInvalidCredentials, got: %v", err)
-	}
+		if !errors.Is(err, ErrInvalidCredentials) {
+			t.Fatalf("expected ErrInvalidCredentials, got: %v", err)
+		}
+		if elapsed < 10*time.Millisecond {
+			t.Fatalf("unknown email login was too fast (%v), expected >= 10ms timing floor", elapsed)
+		}
+	})
 
-	if duration < 10*time.Millisecond {
-		t.Fatalf("login verification was too fast (%v), expected >= 10ms timing floor", duration)
-	}
+	t.Run("Wrong_Password_path", func(t *testing.T) {
+		start := time.Now()
+		_, _, err := s.Login(ctx, "registered@example.com", "wrong-password")
+		elapsed := time.Since(start)
+
+		if !errors.Is(err, ErrInvalidCredentials) {
+			t.Fatalf("expected ErrInvalidCredentials, got: %v", err)
+		}
+		if elapsed < 10*time.Millisecond {
+			t.Fatalf("wrong password login was too fast (%v), expected >= 10ms timing floor", elapsed)
+		}
+	})
 }
 
 func TestLogin_UnknownEmailAndWrongPassword_IdenticalError(t *testing.T) {

@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -10,7 +9,6 @@ import (
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/user"
 )
 
-// DTOs
 type RegisterRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
@@ -48,25 +46,19 @@ type MessageResponseEnvelope struct {
 	Data MessageResponse `json:"data"`
 }
 
-// decodeJSON reads and decodes JSON from r.Body with size limiting and unknown field rejection.
-func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
-	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	return dec.Decode(dst)
-}
-
 func (h *Handler) registerUser(w http.ResponseWriter, r *http.Request) {
 	var req RegisterRequest
-	if err := decodeJSON(w, r, &req); err != nil {
+	if err := decodeJSONBody(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, CodeInvalidJSON, "invalid request body", nil)
 		return
 	}
 
 	u, err := h.userSvc.Register(r.Context(), req.Email, req.Password)
 	if err != nil {
-		if errors.Is(err, user.ErrValidation) {
-			writeError(w, http.StatusUnprocessableEntity, CodeValidationError, "validation failed", nil)
+		var valErr *user.ValidationError
+		if errors.As(err, &valErr) {
+			details := map[string]string{valErr.Field: valErr.Message}
+			writeError(w, http.StatusUnprocessableEntity, CodeValidationError, "validation failed", details)
 			return
 		}
 		if errors.Is(err, user.ErrDuplicateEmail) {
@@ -88,7 +80,7 @@ func (h *Handler) registerUser(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) loginUser(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
-	if err := decodeJSON(w, r, &req); err != nil {
+	if err := decodeJSONBody(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, CodeInvalidJSON, "invalid request body", nil)
 		return
 	}

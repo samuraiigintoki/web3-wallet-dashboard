@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -13,10 +14,8 @@ type authContextKey struct{}
 var userCtxKey = authContextKey{}
 
 func UserFromContext(ctx context.Context) (user.User, bool) {
-
 	val := ctx.Value(userCtxKey)
 	u, ok := val.(user.User)
-
 	return u, ok
 }
 
@@ -37,7 +36,11 @@ func RequireAuth(userSvc *user.Service) func(http.Handler) http.Handler {
 
 			u, err := userSvc.ValidateSession(r.Context(), token)
 			if err != nil {
-				writeError(w, http.StatusUnauthorized, CodeUnauthenticated, "unauthenticated", nil)
+				if errors.Is(err, user.ErrUnauthenticated) {
+					writeError(w, http.StatusUnauthorized, CodeUnauthenticated, "unauthenticated", nil)
+				} else {
+					writeError(w, http.StatusInternalServerError, CodeInternalError, "internal error", nil)
+				}
 				return
 			}
 
