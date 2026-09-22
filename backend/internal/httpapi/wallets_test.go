@@ -1159,13 +1159,13 @@ func TestCreateWallet_UnsupportedChain_DetailsMap(t *testing.T) {
 		t.Fatalf("expected 422, got %d", rec.Code)
 	}
 
-		var resp ErrorEnvelope
-		if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
-			t.Fatalf("decode: %v", err)
-		}
-		if resp.Error.Details["chainId"] != "unsupported chain id" {
-			t.Fatalf("expected error.details.chainId='unsupported chain id', got %q", resp.Error.Details["chainId"])
-		}
+	var resp ErrorEnvelope
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Error.Details["chainId"] != "unsupported chain id" {
+		t.Fatalf("expected error.details.chainId='unsupported chain id', got %q", resp.Error.Details["chainId"])
+	}
 }
 
 func TestListWallets_ChainFilterTrio(t *testing.T) {
