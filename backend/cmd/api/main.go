@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/chain"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/httpapi"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/user"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
@@ -38,13 +39,16 @@ func main() {
 		log.Fatalf("DB unreachable : %v", err)
 	}
 
+	chainRepo := chain.NewPostgresRepository(db)
+	chainSvc := chain.NewService(chainRepo)
+
 	walletRepo := wallet.NewPostgresWalletRepo(db)
-	walletSvc := wallet.NewService(walletRepo)
+	walletSvc := wallet.NewService(walletRepo, chainSvc)
 
 	userRepo := user.NewPostgresUserRepository(db)
 	userSvc := user.NewService(userRepo)
 
-	handler := httpapi.NewRouter(walletSvc, userSvc)
+	handler := httpapi.NewRouter(walletSvc, userSvc, chainSvc)
 
 	addr := ":8080"
 	log.Printf("Starting HTTP Server on %s...", addr)
@@ -52,7 +56,7 @@ func main() {
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           handler,
-		ReadHeaderTimeout: 5 * time.Second, // to mitigate Slowloris Dos attack
+		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
 

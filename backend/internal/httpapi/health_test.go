@@ -6,17 +6,24 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/chain"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/user"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
 )
 
 func TestHealthEndpointSuccess(t *testing.T) {
-	repo := wallet.NewInMemoryWalletRepo()
-	walletSvc := wallet.NewService(repo)
+	walletRepo := wallet.NewInMemoryWalletRepo()
+
+	chainRepo := chain.NewInMemoryRepository()
+	chainRepo.Seed(chain.Chain{ChainID: 1, Name: "Ethereum", Symbol: "ETH", Enabled: true})
+	chainSvc := chain.NewService(chainRepo)
+
+	walletSvc := wallet.NewService(walletRepo, chainSvc)
+
 	userRepo := user.NewInMemoryRepository()
 	userSvc := user.NewService(userRepo)
 
-	router := NewRouter(walletSvc, userSvc)
+	router := NewRouter(walletSvc, userSvc, chainSvc)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 
@@ -44,11 +51,18 @@ func TestHealthEndpointSuccess(t *testing.T) {
 }
 
 func TestHealthEndpointMethodNotAllowed(t *testing.T) {
-	repo := wallet.NewInMemoryWalletRepo()
-	walletSvc := wallet.NewService(repo)
+	walletRepo := wallet.NewInMemoryWalletRepo()
+
+	chainRepo := chain.NewInMemoryRepository()
+	chainRepo.Seed(chain.Chain{ChainID: 1, Name: "Ethereum", Symbol: "ETH", Enabled: true})
+	chainSvc := chain.NewService(chainRepo)
+
+	walletSvc := wallet.NewService(walletRepo, chainSvc)
+
 	userRepo := user.NewInMemoryRepository()
 	userSvc := user.NewService(userRepo)
-	router := NewRouter(walletSvc, userSvc)
+
+	router := NewRouter(walletSvc, userSvc, chainSvc)
 
 	req := httptest.NewRequest(http.MethodPost, "/health", nil)
 	rec := httptest.NewRecorder()

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/chain"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/user"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
 )
@@ -26,16 +27,21 @@ func (e *errorUserRepo) GetSessionByTokenHash(ctx context.Context, tokenHash str
 	return user.UserSession{}, errors.New("database connection down")
 }
 
-func newTestRouter(uRepo user.UserRepository) http.Handler {
+func newTestRouter(userRepo user.UserRepository) http.Handler {
 	walletRepo := wallet.NewInMemoryWalletRepo()
-	walletSvc := wallet.NewService(walletRepo)
 
-	if uRepo == nil {
-		uRepo = user.NewInMemoryRepository()
+	chainRepo := chain.NewInMemoryRepository()
+	chainRepo.Seed(chain.Chain{ChainID: 1, Name: "Ethereum", Symbol: "ETH", Enabled: true})
+	chainSvc := chain.NewService(chainRepo)
+
+	walletSvc := wallet.NewService(walletRepo, chainSvc)
+
+	if userRepo == nil {
+		userRepo = user.NewInMemoryRepository()
 	}
-	userSvc := user.NewService(uRepo)
+	userSvc := user.NewService(userRepo)
 
-	return NewRouter(walletSvc, userSvc)
+	return NewRouter(walletSvc, userSvc, chainSvc)
 }
 
 func TestRequireAuth_Middleware(t *testing.T) {
@@ -234,11 +240,18 @@ func TestRegisterHandler(t *testing.T) {
 
 func TestLoginHandler_Identical401(t *testing.T) {
 	ctx := context.Background()
+	walletRepo := wallet.NewInMemoryWalletRepo()
+
+	chainRepo := chain.NewInMemoryRepository()
+	chainRepo.Seed(chain.Chain{ChainID: 1, Name: "Ethereum", Symbol: "ETH", Enabled: true})
+	chainSvc := chain.NewService(chainRepo)
+
+	walletSvc := wallet.NewService(walletRepo, chainSvc)
+
 	userRepo := user.NewInMemoryRepository()
 	userSvc := user.NewService(userRepo)
-	walletRepo := wallet.NewInMemoryWalletRepo()
-	walletSvc := wallet.NewService(walletRepo)
-	router := NewRouter(walletSvc, userSvc)
+
+	router := NewRouter(walletSvc, userSvc, chainSvc)
 
 	_, err := userSvc.Register(ctx, "registered@example.com", "correctpassword")
 	if err != nil {
@@ -298,11 +311,18 @@ func TestLoginHandler_Identical401(t *testing.T) {
 
 func TestLogoutHandler(t *testing.T) {
 	ctx := context.Background()
+	walletRepo := wallet.NewInMemoryWalletRepo()
+
+	chainRepo := chain.NewInMemoryRepository()
+	chainRepo.Seed(chain.Chain{ChainID: 1, Name: "Ethereum", Symbol: "ETH", Enabled: true})
+	chainSvc := chain.NewService(chainRepo)
+
+	walletSvc := wallet.NewService(walletRepo, chainSvc)
+
 	userRepo := user.NewInMemoryRepository()
 	userSvc := user.NewService(userRepo)
-	walletRepo := wallet.NewInMemoryWalletRepo()
-	walletSvc := wallet.NewService(walletRepo)
-	router := NewRouter(walletSvc, userSvc)
+
+	router := NewRouter(walletSvc, userSvc, chainSvc)
 
 	_, err := userSvc.Register(ctx, "logoutuser@example.com", "mypassword")
 	if err != nil {

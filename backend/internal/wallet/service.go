@@ -9,12 +9,14 @@ import (
 )
 
 type Service struct {
-	repo WalletRepository
+	repo      WalletRepository
+	validator ChainValidator
 }
 
-func NewService(repo WalletRepository) *Service {
+func NewService(repo WalletRepository, validator ChainValidator) *Service {
 	return &Service{
-		repo: repo,
+		repo:      repo,
+		validator: validator,
 	}
 }
 
@@ -61,6 +63,18 @@ func (s *Service) Create(ctx context.Context, address string, chainID int64, lab
 		return Wallet{}, &ValidationError{
 			Field:   "chainId",
 			Message: "invalid chainId",
+		}
+	}
+
+	// chainSupport validations
+	supported, err := s.validator.IsSupported(ctx, chainID)
+	if err != nil {
+		return Wallet{}, fmt.Errorf("check chain support: %w", err)
+	}
+	if !supported {
+		return Wallet{}, &ValidationError{
+			Field:   "chainId",
+			Message: "unsupported chain id",
 		}
 	}
 
@@ -111,6 +125,19 @@ func (s *Service) List(ctx context.Context, filter WalletFilter) ([]Wallet, int6
 		}
 	}
 
+	if filter.ChainID > 0 {
+		supported, err := s.validator.IsSupported(ctx, filter.ChainID)
+		if err != nil {
+			return nil, 0, fmt.Errorf("check chain support: %w", err)
+		}
+		if !supported {
+			return nil, 0, &ValidationError{
+				Field:   "chainId",
+				Message: "unsupported chain id",
+			}
+		}
+	}
+
 	return s.repo.List(ctx, filter)
 }
 
@@ -134,7 +161,7 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 	return s.repo.Delete(ctx, id)
 }
 
-// /// Helper Validation Function
+// Helper Validation Function
 func validateLabel(label string) (string, error) {
 
 	trimmedLabel := strings.TrimSpace(label)

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/chain"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/user"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
 )
@@ -57,13 +58,15 @@ type UpdateWalletRequest struct {
 type Handler struct {
 	walletSvc *wallet.Service
 	userSvc   *user.Service
+	chainSvc  *chain.Service
 }
 
 // Handler constructor
-func NewHandler(walletSvc *wallet.Service, userSvc *user.Service) *Handler {
+func NewHandler(walletSvc *wallet.Service, userSvc *user.Service, chainSvc *chain.Service) *Handler {
 	return &Handler{
 		walletSvc: walletSvc,
 		userSvc:   userSvc,
+		chainSvc:  chainSvc,
 	}
 }
 
@@ -181,7 +184,11 @@ func (h *Handler) listWallets(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var vErr *wallet.ValidationError
 		if errors.As(err, &vErr) {
-			writeError(w, http.StatusBadRequest, CodeValidationError, vErr.Message, map[string]string{vErr.Field: vErr.Message})
+			status := http.StatusBadRequest
+			if vErr.Field == "chainId" {
+				status = http.StatusUnprocessableEntity
+			}
+			writeError(w, status, CodeValidationError, vErr.Message, map[string]string{vErr.Field: vErr.Message})
 			return
 		}
 

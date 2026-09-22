@@ -1,16 +1,24 @@
 package wallet
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
 )
 
+// stubChainValidator satisfies wallet.ChainValidator for tests.
+type stubChainValidator struct{}
+
+func (stubChainValidator) IsSupported(_ context.Context, _ int64) (bool, error) {
+	return true, nil
+}
+
 func TestService_Create_SequentialAndDuplicate(t *testing.T) {
 	ctx := t.Context()
 
 	repo := NewInMemoryWalletRepo()
-	svc := NewService(repo)
+	svc := NewService(repo, stubChainValidator{})
 
 	wallet1, err := svc.Create(ctx, "0x0000000000000000000000000000000000000001", 1, "first")
 	gotID := wallet1.ID
@@ -61,7 +69,7 @@ func TestService_Create_Validation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := NewInMemoryWalletRepo()
-			svc := NewService(repo)
+			svc := NewService(repo, stubChainValidator{})
 
 			_, err := svc.Create(ctx, tt.address, tt.chainID, tt.label)
 
