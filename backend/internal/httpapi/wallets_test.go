@@ -1135,6 +1135,158 @@ func TestDeleteWallet(t *testing.T) {
 	})
 }
 
+func TestCreateWallet_UnsupportedChain_DetailsMap(t *testing.T) {
+	walletRepo := wallet.NewInMemoryWalletRepo()
+	chainRepo := chain.NewInMemoryRepository()
+	chainRepo.Seed(
+		chain.Chain{ChainID: 1, Name: "Ethereum", Symbol: "ETH", Enabled: true},
+		chain.Chain{ChainID: 137, Name: "Polygon", Symbol: "POL", Enabled: true},
+		chain.Chain{ChainID: 11155111, Name: "Sepolia", Symbol: "ETH", Enabled: true},
+	)
+	chainSvc := chain.NewService(chainRepo)
+	walletSvc := wallet.NewService(walletRepo, chainSvc)
+	userRepo := user.NewInMemoryRepository()
+	userSvc := user.NewService(userRepo)
+	router := NewRouter(walletSvc, userSvc, chainSvc)
+
+	body := `{"address":"0x0000000000000000000000000000000000000099","chainId":999999,"label":"bad chain"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/wallets", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", rec.Code)
+	}
+
+		var resp ErrorEnvelope
+		if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if resp.Error.Details["chainId"] != "unsupported chain id" {
+			t.Fatalf("expected error.details.chainId='unsupported chain id', got %q", resp.Error.Details["chainId"])
+		}
+}
+
+func TestListWallets_ChainFilterTrio(t *testing.T) {
+	walletRepo := wallet.NewInMemoryWalletRepo()
+	chainRepo := chain.NewInMemoryRepository()
+	chainRepo.Seed(
+		chain.Chain{ChainID: 1, Name: "Ethereum", Symbol: "ETH", Enabled: true},
+		chain.Chain{ChainID: 137, Name: "Polygon", Symbol: "POL", Enabled: true},
+		chain.Chain{ChainID: 11155111, Name: "Sepolia", Symbol: "ETH", Enabled: true},
+	)
+	chainSvc := chain.NewService(chainRepo)
+	walletSvc := wallet.NewService(walletRepo, chainSvc)
+	userRepo := user.NewInMemoryRepository()
+	userSvc := user.NewService(userRepo)
+	router := NewRouter(walletSvc, userSvc, chainSvc)
+
+	// Seed one wallet on chain 1 and one on chain 137
+	seedWalletOnChain := func(t *testing.T, addr string, chainID int64) {
+		t.Helper()
+		b := `{"address":"` + addr + `","chainId":` + strconv.FormatInt(chainID, 10) + `,"label":"test"}`
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/wallets", strings.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("seed wallet %s on chain %d: expected 201, got %d", addr, chainID, rec.Code)
+		}
+	}
+
+	seedWalletOnChain(t, "0x0000000000000000000000000000000000000001", 1)
+	seedWalletOnChain(t, "0x0000000000000000000000000000000000000137", 137)
+
+	t.Run("unsupported chainId returns 422 with details", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/wallets?chainId=999999", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("expected 422, got %d", rec.Code)
+		}
+
+		var resp ErrorEnvelope
+		if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if resp.Error.Details["chainId"] != "unsupported chain id" {
+			t.Fatalf("expected error.details.chainId='unsupported chain id', got %q", resp.Error.Details["chainId"])
+		}
+	})
+
+	t.Run("supported chainId filters correctly", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/wallets?chainId=137", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rec.Code)
+		}
+
+		var body WalletListEnvelope
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+
+		if len(body.Data) == 0 {
+			t.Fatal("expected at least one wallet on chain 137")
+		}
+		for _, w := range body.Data {
+			if w.ChainID != 137 {
+				t.Fatalf("expected all wallets chainId=137, got %d", w.ChainID)
+			}
+		}
+	})
+
+	t.Run("chainId=0 returns unfiltered list", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/wallets?chainId=0", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rec.Code)
+		}
+
+		var body WalletListEnvelope
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+
+		if len(body.Data) < 2 {
+			t.Fatalf("expected at least 2 wallets unfiltered, got %d", len(body.Data))
+		}
+
+		seen := map[int64]bool{}
+		for _, w := range body.Data {
+			seen[w.ChainID] = true
+		}
+		if !seen[1] || !seen[137] {
+			t.Fatalf("expected mixed chain ids, got %v", seen)
+		}
+	})
+
+	t.Run("no chainId param returns unfiltered list", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/wallets", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rec.Code)
+		}
+
+		var body WalletListEnvelope
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+
+		if len(body.Data) < 2 {
+			t.Fatalf("expected at least 2 wallets unfiltered, got %d", len(body.Data))
+		}
+	})
+}
+
 // Helper testFunc
 func seedWallet(t *testing.T, router http.Handler, address string) WalletResponseEnvelope {
 	t.Helper()
