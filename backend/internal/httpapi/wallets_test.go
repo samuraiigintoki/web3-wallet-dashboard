@@ -9,17 +9,24 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/chain"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/user"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
 )
 
 func TestCreateWalletEndpoint(t *testing.T) {
-	repo := wallet.NewInMemoryWalletRepo()
-	walletSvc := wallet.NewService(repo)
+	walletRepo := wallet.NewInMemoryWalletRepo()
+
+	chainRepo := chain.NewInMemoryRepository()
+	chainRepo.Seed(chain.Chain{ChainID: 1, Name: "Ethereum", Symbol: "ETH", Enabled: true})
+	chainSvc := chain.NewService(chainRepo)
+
+	walletSvc := wallet.NewService(walletRepo, chainSvc)
+
 	userRepo := user.NewInMemoryRepository()
 	userSvc := user.NewService(userRepo)
 
-	router := NewRouter(walletSvc, userSvc)
+	router := NewRouter(walletSvc, userSvc, chainSvc)
 
 	tests := []struct {
 		name           string
@@ -167,12 +174,18 @@ func TestCreateWalletEndpoint(t *testing.T) {
 }
 
 func TestGetWalletEndpoint(t *testing.T) {
-	repo := wallet.NewInMemoryWalletRepo()
-	walletSvc := wallet.NewService(repo)
+	walletRepo := wallet.NewInMemoryWalletRepo()
+
+	chainRepo := chain.NewInMemoryRepository()
+	chainRepo.Seed(chain.Chain{ChainID: 1, Name: "Ethereum", Symbol: "ETH", Enabled: true})
+	chainSvc := chain.NewService(chainRepo)
+
+	walletSvc := wallet.NewService(walletRepo, chainSvc)
+
 	userRepo := user.NewInMemoryRepository()
 	userSvc := user.NewService(userRepo)
 
-	router := NewRouter(walletSvc, userSvc)
+	router := NewRouter(walletSvc, userSvc, chainSvc)
 
 	seedWallet := `{"address":"0x0000000000000000000000000000000000000001","chainId":1,"label":"seed Wallet"}`
 
@@ -264,12 +277,20 @@ func TestGetWalletEndpoint(t *testing.T) {
 }
 
 func TestListWalletsEndpoint(t *testing.T) {
-	repo := wallet.NewInMemoryWalletRepo()
-	walletSvc := wallet.NewService(repo)
+	walletRepo := wallet.NewInMemoryWalletRepo()
+
+	chainRepo := chain.NewInMemoryRepository()
+	chainRepo.Seed(chain.Chain{ChainID: 1, Name: "Ethereum", Symbol: "ETH", Enabled: true})
+	chainRepo.Seed(chain.Chain{ChainID: 11155111, Name: "Sepolia", Symbol: "ETH", Enabled: true})
+	chainRepo.Seed(chain.Chain{ChainID: 137, Name: "Polygon", Symbol: "POL", Enabled: true})
+	chainSvc := chain.NewService(chainRepo)
+
+	walletSvc := wallet.NewService(walletRepo, chainSvc)
+
 	userRepo := user.NewInMemoryRepository()
 	userSvc := user.NewService(userRepo)
 
-	router := NewRouter(walletSvc, userSvc)
+	router := NewRouter(walletSvc, userSvc, chainSvc)
 
 	// case 1: empty list (no seed)
 	{
@@ -589,12 +610,18 @@ func TestListWalletsEndpoint(t *testing.T) {
 func TestUpdateWallet(t *testing.T) {
 
 	t.Run("updates label and preserves createdAt", func(t *testing.T) {
-		repo := wallet.NewInMemoryWalletRepo()
-		walletSvc := wallet.NewService(repo)
+		walletRepo := wallet.NewInMemoryWalletRepo()
+
+		chainRepo := chain.NewInMemoryRepository()
+		chainRepo.Seed(chain.Chain{ChainID: 1, Name: "Ethereum", Symbol: "ETH", Enabled: true})
+		chainSvc := chain.NewService(chainRepo)
+
+		walletSvc := wallet.NewService(walletRepo, chainSvc)
+
 		userRepo := user.NewInMemoryRepository()
 		userSvc := user.NewService(userRepo)
 
-		router := NewRouter(walletSvc, userSvc)
+		router := NewRouter(walletSvc, userSvc, chainSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 
@@ -648,12 +675,18 @@ func TestUpdateWallet(t *testing.T) {
 	})
 
 	t.Run("null label is treated as absent", func(t *testing.T) {
-		repo := wallet.NewInMemoryWalletRepo()
-		walletSvc := wallet.NewService(repo)
+		walletRepo := wallet.NewInMemoryWalletRepo()
+
+		chainRepo := chain.NewInMemoryRepository()
+		chainRepo.Seed(chain.Chain{ChainID: 1, Name: "Ethereum", Symbol: "ETH", Enabled: true})
+		chainSvc := chain.NewService(chainRepo)
+
+		walletSvc := wallet.NewService(walletRepo, chainSvc)
+
 		userRepo := user.NewInMemoryRepository()
 		userSvc := user.NewService(userRepo)
 
-		router := NewRouter(walletSvc, userSvc)
+		router := NewRouter(walletSvc, userSvc, chainSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 
@@ -686,12 +719,18 @@ func TestUpdateWallet(t *testing.T) {
 	})
 
 	t.Run("no-op when label absent", func(t *testing.T) {
-		repo := wallet.NewInMemoryWalletRepo()
-		walletSvc := wallet.NewService(repo)
+		walletRepo := wallet.NewInMemoryWalletRepo()
+
+		chainRepo := chain.NewInMemoryRepository()
+		chainRepo.Seed(chain.Chain{ChainID: 1, Name: "Ethereum", Symbol: "ETH", Enabled: true})
+		chainSvc := chain.NewService(chainRepo)
+
+		walletSvc := wallet.NewService(walletRepo, chainSvc)
+
 		userRepo := user.NewInMemoryRepository()
 		userSvc := user.NewService(userRepo)
 
-		router := NewRouter(walletSvc, userSvc)
+		router := NewRouter(walletSvc, userSvc, chainSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 
@@ -724,12 +763,18 @@ func TestUpdateWallet(t *testing.T) {
 	})
 
 	t.Run("whitespace label returns 422", func(t *testing.T) {
-		repo := wallet.NewInMemoryWalletRepo()
-		walletSvc := wallet.NewService(repo)
+		walletRepo := wallet.NewInMemoryWalletRepo()
+
+		chainRepo := chain.NewInMemoryRepository()
+		chainRepo.Seed(chain.Chain{ChainID: 1, Name: "Ethereum", Symbol: "ETH", Enabled: true})
+		chainSvc := chain.NewService(chainRepo)
+
+		walletSvc := wallet.NewService(walletRepo, chainSvc)
+
 		userRepo := user.NewInMemoryRepository()
 		userSvc := user.NewService(userRepo)
 
-		router := NewRouter(walletSvc, userSvc)
+		router := NewRouter(walletSvc, userSvc, chainSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 
@@ -759,13 +804,18 @@ func TestUpdateWallet(t *testing.T) {
 	})
 
 	t.Run("missing id returns 404", func(t *testing.T) {
-		repo := wallet.NewInMemoryWalletRepo()
-		walletSvc := wallet.NewService(repo)
+		walletRepo := wallet.NewInMemoryWalletRepo()
+
+		chainRepo := chain.NewInMemoryRepository()
+		chainRepo.Seed(chain.Chain{ChainID: 1, Name: "Ethereum", Symbol: "ETH", Enabled: true})
+		chainSvc := chain.NewService(chainRepo)
+
+		walletSvc := wallet.NewService(walletRepo, chainSvc)
+
 		userRepo := user.NewInMemoryRepository()
 		userSvc := user.NewService(userRepo)
 
-		router := NewRouter(walletSvc, userSvc)
-
+		router := NewRouter(walletSvc, userSvc, chainSvc)
 		// no seed => id 999999 never existed
 		patchBody := `{"label":"x"}`
 		patchReq, err := http.NewRequest(http.MethodPatch, "/api/v1/wallets/999999", strings.NewReader(patchBody))
@@ -790,12 +840,18 @@ func TestUpdateWallet(t *testing.T) {
 	})
 
 	t.Run("invalid id returns 400", func(t *testing.T) {
-		repo := wallet.NewInMemoryWalletRepo()
-		walletSvc := wallet.NewService(repo)
+		walletRepo := wallet.NewInMemoryWalletRepo()
+
+		chainRepo := chain.NewInMemoryRepository()
+		chainRepo.Seed(chain.Chain{ChainID: 1, Name: "Ethereum", Symbol: "ETH", Enabled: true})
+		chainSvc := chain.NewService(chainRepo)
+
+		walletSvc := wallet.NewService(walletRepo, chainSvc)
+
 		userRepo := user.NewInMemoryRepository()
 		userSvc := user.NewService(userRepo)
 
-		router := NewRouter(walletSvc, userSvc)
+		router := NewRouter(walletSvc, userSvc, chainSvc)
 
 		patchBody := `{"label":"x"}`
 		patchReq, err := http.NewRequest(http.MethodPatch, "/api/v1/wallets/abc", strings.NewReader(patchBody))
@@ -820,12 +876,18 @@ func TestUpdateWallet(t *testing.T) {
 	})
 
 	t.Run("unknown field returns 400", func(t *testing.T) {
-		repo := wallet.NewInMemoryWalletRepo()
-		walletSvc := wallet.NewService(repo)
+		walletRepo := wallet.NewInMemoryWalletRepo()
+
+		chainRepo := chain.NewInMemoryRepository()
+		chainRepo.Seed(chain.Chain{ChainID: 1, Name: "Ethereum", Symbol: "ETH", Enabled: true})
+		chainSvc := chain.NewService(chainRepo)
+
+		walletSvc := wallet.NewService(walletRepo, chainSvc)
+
 		userRepo := user.NewInMemoryRepository()
 		userSvc := user.NewService(userRepo)
 
-		router := NewRouter(walletSvc, userSvc)
+		router := NewRouter(walletSvc, userSvc, chainSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 		target := "/api/v1/wallets/" + strconv.Itoa(int(created.Data.ID))
@@ -853,12 +915,18 @@ func TestUpdateWallet(t *testing.T) {
 	})
 
 	t.Run("empty body returns 400", func(t *testing.T) {
-		repo := wallet.NewInMemoryWalletRepo()
-		walletSvc := wallet.NewService(repo)
+		walletRepo := wallet.NewInMemoryWalletRepo()
+
+		chainRepo := chain.NewInMemoryRepository()
+		chainRepo.Seed(chain.Chain{ChainID: 1, Name: "Ethereum", Symbol: "ETH", Enabled: true})
+		chainSvc := chain.NewService(chainRepo)
+
+		walletSvc := wallet.NewService(walletRepo, chainSvc)
+
 		userRepo := user.NewInMemoryRepository()
 		userSvc := user.NewService(userRepo)
 
-		router := NewRouter(walletSvc, userSvc)
+		router := NewRouter(walletSvc, userSvc, chainSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 		target := "/api/v1/wallets/" + strconv.Itoa(int(created.Data.ID))
@@ -885,12 +953,18 @@ func TestUpdateWallet(t *testing.T) {
 	})
 
 	t.Run("updates only the target row", func(t *testing.T) {
-		repo := wallet.NewInMemoryWalletRepo()
-		walletSvc := wallet.NewService(repo)
+		walletRepo := wallet.NewInMemoryWalletRepo()
+
+		chainRepo := chain.NewInMemoryRepository()
+		chainRepo.Seed(chain.Chain{ChainID: 1, Name: "Ethereum", Symbol: "ETH", Enabled: true})
+		chainSvc := chain.NewService(chainRepo)
+
+		walletSvc := wallet.NewService(walletRepo, chainSvc)
+
 		userRepo := user.NewInMemoryRepository()
 		userSvc := user.NewService(userRepo)
 
-		router := NewRouter(walletSvc, userSvc)
+		router := NewRouter(walletSvc, userSvc, chainSvc)
 
 		first := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 		second := seedWallet(t, router, "0x0000000000000000000000000000000000000002")
@@ -936,12 +1010,18 @@ func TestUpdateWallet(t *testing.T) {
 func TestDeleteWallet(t *testing.T) {
 
 	t.Run("returns 204 with empty body", func(t *testing.T) {
-		repo := wallet.NewInMemoryWalletRepo()
-		walletSvc := wallet.NewService(repo)
+		walletRepo := wallet.NewInMemoryWalletRepo()
+
+		chainRepo := chain.NewInMemoryRepository()
+		chainRepo.Seed(chain.Chain{ChainID: 1, Name: "Ethereum", Symbol: "ETH", Enabled: true})
+		chainSvc := chain.NewService(chainRepo)
+
+		walletSvc := wallet.NewService(walletRepo, chainSvc)
+
 		userRepo := user.NewInMemoryRepository()
 		userSvc := user.NewService(userRepo)
 
-		router := NewRouter(walletSvc, userSvc)
+		router := NewRouter(walletSvc, userSvc, chainSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 
@@ -974,12 +1054,18 @@ func TestDeleteWallet(t *testing.T) {
 	})
 
 	t.Run("second delete returns 404", func(t *testing.T) {
-		repo := wallet.NewInMemoryWalletRepo()
-		walletSvc := wallet.NewService(repo)
+		walletRepo := wallet.NewInMemoryWalletRepo()
+
+		chainRepo := chain.NewInMemoryRepository()
+		chainRepo.Seed(chain.Chain{ChainID: 1, Name: "Ethereum", Symbol: "ETH", Enabled: true})
+		chainSvc := chain.NewService(chainRepo)
+
+		walletSvc := wallet.NewService(walletRepo, chainSvc)
+
 		userRepo := user.NewInMemoryRepository()
 		userSvc := user.NewService(userRepo)
 
-		router := NewRouter(walletSvc, userSvc)
+		router := NewRouter(walletSvc, userSvc, chainSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 
@@ -1015,12 +1101,18 @@ func TestDeleteWallet(t *testing.T) {
 	})
 
 	t.Run("invalid id returns 400", func(t *testing.T) {
-		repo := wallet.NewInMemoryWalletRepo()
-		walletSvc := wallet.NewService(repo)
+		walletRepo := wallet.NewInMemoryWalletRepo()
+
+		chainRepo := chain.NewInMemoryRepository()
+		chainRepo.Seed(chain.Chain{ChainID: 1, Name: "Ethereum", Symbol: "ETH", Enabled: true})
+		chainSvc := chain.NewService(chainRepo)
+
+		walletSvc := wallet.NewService(walletRepo, chainSvc)
+
 		userRepo := user.NewInMemoryRepository()
 		userSvc := user.NewService(userRepo)
 
-		router := NewRouter(walletSvc, userSvc)
+		router := NewRouter(walletSvc, userSvc, chainSvc)
 
 		delReq, err := http.NewRequest(http.MethodDelete, "/api/v1/wallets/abc", nil)
 		if err != nil {
@@ -1039,6 +1131,158 @@ func TestDeleteWallet(t *testing.T) {
 		}
 		if errRes.Error.Code != CodeValidationError {
 			t.Fatalf("expected error code %q, got %q", CodeValidationError, errRes.Error.Code)
+		}
+	})
+}
+
+func TestCreateWallet_UnsupportedChain_DetailsMap(t *testing.T) {
+	walletRepo := wallet.NewInMemoryWalletRepo()
+	chainRepo := chain.NewInMemoryRepository()
+	chainRepo.Seed(
+		chain.Chain{ChainID: 1, Name: "Ethereum", Symbol: "ETH", Enabled: true},
+		chain.Chain{ChainID: 137, Name: "Polygon", Symbol: "POL", Enabled: true},
+		chain.Chain{ChainID: 11155111, Name: "Sepolia", Symbol: "ETH", Enabled: true},
+	)
+	chainSvc := chain.NewService(chainRepo)
+	walletSvc := wallet.NewService(walletRepo, chainSvc)
+	userRepo := user.NewInMemoryRepository()
+	userSvc := user.NewService(userRepo)
+	router := NewRouter(walletSvc, userSvc, chainSvc)
+
+	body := `{"address":"0x0000000000000000000000000000000000000099","chainId":999999,"label":"bad chain"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/wallets", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", rec.Code)
+	}
+
+	var resp ErrorEnvelope
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Error.Details["chainId"] != "unsupported chain id" {
+		t.Fatalf("expected error.details.chainId='unsupported chain id', got %q", resp.Error.Details["chainId"])
+	}
+}
+
+func TestListWallets_ChainFilterTrio(t *testing.T) {
+	walletRepo := wallet.NewInMemoryWalletRepo()
+	chainRepo := chain.NewInMemoryRepository()
+	chainRepo.Seed(
+		chain.Chain{ChainID: 1, Name: "Ethereum", Symbol: "ETH", Enabled: true},
+		chain.Chain{ChainID: 137, Name: "Polygon", Symbol: "POL", Enabled: true},
+		chain.Chain{ChainID: 11155111, Name: "Sepolia", Symbol: "ETH", Enabled: true},
+	)
+	chainSvc := chain.NewService(chainRepo)
+	walletSvc := wallet.NewService(walletRepo, chainSvc)
+	userRepo := user.NewInMemoryRepository()
+	userSvc := user.NewService(userRepo)
+	router := NewRouter(walletSvc, userSvc, chainSvc)
+
+	// Seed one wallet on chain 1 and one on chain 137
+	seedWalletOnChain := func(t *testing.T, addr string, chainID int64) {
+		t.Helper()
+		b := `{"address":"` + addr + `","chainId":` + strconv.FormatInt(chainID, 10) + `,"label":"test"}`
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/wallets", strings.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("seed wallet %s on chain %d: expected 201, got %d", addr, chainID, rec.Code)
+		}
+	}
+
+	seedWalletOnChain(t, "0x0000000000000000000000000000000000000001", 1)
+	seedWalletOnChain(t, "0x0000000000000000000000000000000000000137", 137)
+
+	t.Run("unsupported chainId returns 422 with details", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/wallets?chainId=999999", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("expected 422, got %d", rec.Code)
+		}
+
+		var resp ErrorEnvelope
+		if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if resp.Error.Details["chainId"] != "unsupported chain id" {
+			t.Fatalf("expected error.details.chainId='unsupported chain id', got %q", resp.Error.Details["chainId"])
+		}
+	})
+
+	t.Run("supported chainId filters correctly", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/wallets?chainId=137", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rec.Code)
+		}
+
+		var body WalletListEnvelope
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+
+		if len(body.Data) == 0 {
+			t.Fatal("expected at least one wallet on chain 137")
+		}
+		for _, w := range body.Data {
+			if w.ChainID != 137 {
+				t.Fatalf("expected all wallets chainId=137, got %d", w.ChainID)
+			}
+		}
+	})
+
+	t.Run("chainId=0 returns unfiltered list", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/wallets?chainId=0", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rec.Code)
+		}
+
+		var body WalletListEnvelope
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+
+		if len(body.Data) < 2 {
+			t.Fatalf("expected at least 2 wallets unfiltered, got %d", len(body.Data))
+		}
+
+		seen := map[int64]bool{}
+		for _, w := range body.Data {
+			seen[w.ChainID] = true
+		}
+		if !seen[1] || !seen[137] {
+			t.Fatalf("expected mixed chain ids, got %v", seen)
+		}
+	})
+
+	t.Run("no chainId param returns unfiltered list", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/wallets", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rec.Code)
+		}
+
+		var body WalletListEnvelope
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+
+		if len(body.Data) < 2 {
+			t.Fatalf("expected at least 2 wallets unfiltered, got %d", len(body.Data))
 		}
 	})
 }

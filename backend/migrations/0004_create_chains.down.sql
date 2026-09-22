@@ -1,0 +1,4 @@
+ALTER TABLE IF EXISTS wallets
+    DROP CONSTRAINT IF EXISTS fk_wallets_chain_id;
+
+DROP TABLE IF EXISTS chains;

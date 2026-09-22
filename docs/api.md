@@ -2,7 +2,7 @@
 
 ## Status
 
-This document is the living REST API design. `GET /health`, `POST /api/v1/wallets`, `GET /api/v1/wallets`, `GET /api/v1/wallets/{id}`, `PATCH /api/v1/wallets/{id}`, `DELETE /api/v1/wallets/{id}`, `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, and `GET /api/v1/users/me` are implemented. Additional routes remain planned.
+This document is the living REST API design. `GET /health`, `POST /api/v1/wallets`, `GET /api/v1/wallets`, `GET /api/v1/wallets/{id}`, `PATCH /api/v1/wallets/{id}`, `DELETE /api/v1/wallets/{id}`, `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, `GET /api/v1/users/me` and `GET /api/v1/chains` are implemented. Additional routes remain planned.
 
 ## Design principles
 
@@ -76,13 +76,13 @@ The first implementation may use offset pagination. Cursor pagination can be con
 | Status | Code | Condition | Details Shape |
 |---|---|---|---|
 | `400 Bad Request` | `INVALID_JSON` | Malformed JSON syntax, unknown fields, field type mismatch, body > 1MB | None |
-| `400 Bad Request` | `VALIDATION_ERROR` | Invalid path or query parameter: non-integer `id`/`page`/`pageSize`/`chainId`; `page` > 10000; `pageSize` > 100; negative `chainId` | Parse errors: none. Bounds errors: `{"details": {"<field>": "<message>"}}` |
+| `400 Bad Request` | `VALIDATION_ERROR`, `INVALID_JSON` | Syntactic request errors (e.g., malformed JSON syntax, unknown JSON field, non-integer query parameter values, page > 10000, pageSize > 100) |
 | `401 Unauthorized` | `INVALID_CREDENTIALS` | Unknown email or incorrect password during login (timing-safe, identical body) | None |
 | `401 Unauthorized` | `UNAUTHENTICATED` | Missing, malformed, expired, or non-existent session token | None |
 | `404 Not Found` | `RESOURCE_NOT_FOUND` | Resource matching requested ID does not exist | None |
 | `409 Conflict` | `RESOURCE_CONFLICT` | Duplicate `(address, chainId)` record | None |
 | `409 Conflict` | `USER_CONFLICT` | Duplicate registration email (`idx_users_email_lower`) | None |
-| `422 Unprocessable Entity` | `VALIDATION_ERROR` | Domain rule failure (address length/prefix/hex, label length, chainId <= 0) | `{"details": {"<field>": "<message>"}}` |
+| `422 Unprocessable Entity` | `VALIDATION_ERROR` | Semantic domain validation failures (e.g., malformed address format, empty label, label > 50 chars, unsupported or disabled chainId, negative chainId) |
 | `500 Internal Server Error` | `INTERNAL_SERVER_ERROR` | Unhandled internal server error | None |
 
 *Note on 405 Method Not Allowed: Method mismatch rejections (e.g. `POST /health`) are handled natively by `http.ServeMux` and return `405 Method Not Allowed` in `text/plain` format.*
@@ -281,7 +281,7 @@ Request:
 Validation:
 
 - Address: non-empty after trimming, starts with 0x, exactly 42 characters total.
-- Chain ID: positive integer (> 0).
+- Chain ID: positive integer (> 0). Non-positive → 422 VALIDATION_ERROR with details {"chainId": "invalid chainId"}. Positive but absent from the chain catalog, or disabled → 422 VALIDATION_ERROR with details {"chainId": "unsupported chain id"}.
 - Label: non-empty after trimming, maximum 50 Unicode characters (runes).
 - Duplicate (address, chainId) rejected with 409 Conflict.
 - Request body size bounded to 1 MB maximum.
@@ -308,7 +308,11 @@ Query parameters:
 
 - `page` — optional integer. Default `1`. Maximum `10000`. Omitted, `0`, or negative uses the default. Non-integer or greater than `10000` → `400` `VALIDATION_ERROR`.
 - `pageSize` — optional integer. Default `20`. Maximum `100`. Omitted, `0`, or negative uses the default. Non-integer or greater than `100` → `400` `VALIDATION_ERROR`.
-- `chainId` — optional integer. Omitted or `0` means no chain filter. Non-integer or negative → `400` `VALIDATION_ERROR`.
+- `chainId` (optional integer query filter):
+  - Passing a non-integer value returns `400 Bad Request` with `VALIDATION_ERROR` (e.g., `?chainId=abc`).
+  - Passing a negative number returns `422 Unprocessable Entity` with details `{"chainId": "invalid chainId"}` (e.g., `?chainId=-5`).
+  - Passing an integer that does not exist in the chain catalog or is disabled returns `422 Unprocessable Entity` with details `{"chainId": "unsupported chain id"}` (e.g., `?chainId=999999`).
+  - Omit or pass `0` to completely skip the filter and list wallets across all chains.
 - `search` — optional string. Trimmed; case-insensitive substring match on `label` or `address`. Empty after trim means no search filter. `%` and `_` are literal characters, not SQL wildcards. Send `%` as `%25`. A raw `search=%` is an invalid URL escape and is dropped (same as omitting `search`).
 
 Sort: `createdAt` descending, then `id` descending.
@@ -437,6 +441,44 @@ Invalid or non-positive `id` → `400` `VALIDATION_ERROR`.
 
 **Accepted MVP risk:** no auth until the auth milestone (B6) — any caller can
 `DELETE` any wallet by id. Recorded and accepted, not accidental.
+
+## Chain routes
+
+### GET /api/v1/chains
+
+**Status:** Implemented — PostgreSQL persistence
+**Authentication:** Public (unauthenticated)
+
+Returns a list of all blockchain networks currently supported and enabled in the system.
+
+- **Behavior:** Returns only chains where `enabled = true`, ordered by `chainId` ascending.
+- **Contract:** Returns a flat envelope JSON array under the `"data"` field. This collection is unpaginated (query parameters `page` and `pageSize` are ignored). An empty system will safely return `"data": []`, never `null`.
+
+#### Response: `200 OK`
+```json
+{
+  "data": [
+    {
+      "chainId": 1,
+      "name": "Ethereum Mainnet",
+      "symbol": "ETH",
+      "isTestnet": false
+    },
+    {
+      "chainId": 137,
+      "name": "Polygon",
+      "symbol": "POL",
+      "isTestnet": false
+    },
+    {
+      "chainId": 11155111,
+      "name": "Sepolia",
+      "symbol": "ETH",
+      "isTestnet": true
+    }
+  ]
+}
+```
 
 
 ## Tracked-contract routes

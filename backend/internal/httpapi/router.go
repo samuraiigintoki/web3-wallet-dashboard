@@ -3,16 +3,20 @@ package httpapi
 import (
 	"net/http"
 
+	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/chain"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/user"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
 )
 
-func NewRouter(walletSvc *wallet.Service, userSvc *user.Service) http.Handler {
+func NewRouter(walletSvc *wallet.Service, userSvc *user.Service, chainSvc *chain.Service) http.Handler {
 	mux := http.NewServeMux()
-	h := NewHandler(walletSvc, userSvc)
+	h := NewHandler(walletSvc, userSvc, chainSvc)
 
 	// health
 	mux.HandleFunc("GET /health", healthHandler)
+
+	// public: chains (no auth)
+	mux.HandleFunc("GET /api/v1/chains", h.listChains)
 
 	// wallets
 	mux.HandleFunc("POST /api/v1/wallets", h.createWallet)
