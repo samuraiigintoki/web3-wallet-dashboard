@@ -281,7 +281,7 @@ Request:
 Validation:
 
 - Address: non-empty after trimming, starts with 0x, exactly 42 characters total.
-- Chain ID: positive integer (> 0).
+- Chain ID: positive integer (> 0). Non-positive → 422 VALIDATION_ERROR with details {"chainId": "invalid chainId"}. Positive but absent from the chain catalog, or disabled → 422 VALIDATION_ERROR with details {"chainId": "unsupported chain id"}.
 - Label: non-empty after trimming, maximum 50 Unicode characters (runes).
 - Duplicate (address, chainId) rejected with 409 Conflict.
 - Request body size bounded to 1 MB maximum.
@@ -460,27 +460,21 @@ Returns a list of all blockchain networks currently supported and enabled in the
   "data": [
     {
       "chainId": 1,
-      "name": "Ethereum",
+      "name": "Ethereum Mainnet",
       "symbol": "ETH",
-      "isTestnet": false,
-      "enabled": true,
-      "createdAt": "2023-11-01T00:00:00Z"
+      "isTestnet": false
     },
     {
       "chainId": 137,
       "name": "Polygon",
       "symbol": "POL",
-      "isTestnet": false,
-      "enabled": true,
-      "createdAt": "2023-11-01T00:00:00Z"
+      "isTestnet": false
     },
     {
       "chainId": 11155111,
       "name": "Sepolia",
       "symbol": "ETH",
-      "isTestnet": true,
-      "enabled": true,
-      "createdAt": "2023-11-01T00:00:00Z"
+      "isTestnet": true
     }
   ]
 }
