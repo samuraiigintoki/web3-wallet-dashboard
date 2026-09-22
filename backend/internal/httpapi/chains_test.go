@@ -34,11 +34,12 @@ func TestListChainsEndpoint(t *testing.T) {
 			t.Fatalf("expected 200, got %d", rec.Code)
 		}
 
-		var body struct {
-			Data []chain.Chain `json:"data"`
-		}
-		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
-			t.Fatalf("decode: %v", err)
+		respBytes := rec.Body.Bytes()
+
+		// 1. DTO decode
+		var body ChainResponseEnvelope
+		if err := json.Unmarshal(respBytes, &body); err != nil {
+			t.Fatalf("decode DTO envelope: %v", err)
 		}
 
 		if len(body.Data) != 2 {
@@ -54,6 +55,32 @@ func TestListChainsEndpoint(t *testing.T) {
 		if body.Data[0].ChainID >= body.Data[1].ChainID {
 			t.Fatalf("expected ascending order, got %d then %d",
 				body.Data[0].ChainID, body.Data[1].ChainID)
+		}
+
+		// 2. Regression guard: key-set assertion (prevents domain field leak)
+		var rawBody struct {
+			Data []map[string]any `json:"data"`
+		}
+		if err := json.Unmarshal(respBytes, &rawBody); err != nil {
+			t.Fatalf("decode raw map for key-set check: %v", err)
+		}
+
+		allowedKeys := map[string]bool{
+			"chainId":   true,
+			"name":      true,
+			"symbol":    true,
+			"isTestnet": true,
+		}
+
+		for _, item := range rawBody.Data {
+			if len(item) != 4 {
+				t.Fatalf("expected exactly 4 keys per chain object, got %d: %v", len(item), item)
+			}
+			for k := range item {
+				if !allowedKeys[k] {
+					t.Fatalf("unexpected leaked key %q in response: %v", k, item)
+				}
+			}
 		}
 	})
 
