@@ -219,6 +219,11 @@ Indexes:
 
 - `(chain_id, indexing_enabled)`
 
+Deferred from the initial implementation:
+
+- `contract_version` is deferred to the Week-5 ABI client; it is intentionally absent from `0005_create_contracts`.
+- The `(chain_id, indexing_enabled)` index is deferred to Week 6.
+
 Reason for global normalization:
 
 Multiple users may track the same contract. The system should index one deployment once rather than start one duplicate indexer stream per user.

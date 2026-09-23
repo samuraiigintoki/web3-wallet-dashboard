@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/chain"
+	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/contract"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/user"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
 )
@@ -41,7 +42,9 @@ func newTestRouter(userRepo user.UserRepository) http.Handler {
 	}
 	userSvc := user.NewService(userRepo)
 
-	return NewRouter(walletSvc, userSvc, chainSvc)
+	contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
+
+	return NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
 }
 
 func TestRequireAuth_Middleware(t *testing.T) {
@@ -251,7 +254,9 @@ func TestLoginHandler_Identical401(t *testing.T) {
 	userRepo := user.NewInMemoryRepository()
 	userSvc := user.NewService(userRepo)
 
-	router := NewRouter(walletSvc, userSvc, chainSvc)
+	contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
+
+	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
 
 	_, err := userSvc.Register(ctx, "registered@example.com", "correctpassword")
 	if err != nil {
@@ -322,7 +327,9 @@ func TestLogoutHandler(t *testing.T) {
 	userRepo := user.NewInMemoryRepository()
 	userSvc := user.NewService(userRepo)
 
-	router := NewRouter(walletSvc, userSvc, chainSvc)
+	contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
+
+	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
 
 	_, err := userSvc.Register(ctx, "logoutuser@example.com", "mypassword")
 	if err != nil {

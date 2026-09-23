@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/chain"
+	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/contract"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/user"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
 )
@@ -26,7 +27,9 @@ func TestCreateWalletEndpoint(t *testing.T) {
 	userRepo := user.NewInMemoryRepository()
 	userSvc := user.NewService(userRepo)
 
-	router := NewRouter(walletSvc, userSvc, chainSvc)
+	contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
+
+	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
 
 	tests := []struct {
 		name           string
@@ -185,7 +188,9 @@ func TestGetWalletEndpoint(t *testing.T) {
 	userRepo := user.NewInMemoryRepository()
 	userSvc := user.NewService(userRepo)
 
-	router := NewRouter(walletSvc, userSvc, chainSvc)
+	contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
+
+	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
 
 	seedWallet := `{"address":"0x0000000000000000000000000000000000000001","chainId":1,"label":"seed Wallet"}`
 
@@ -290,7 +295,9 @@ func TestListWalletsEndpoint(t *testing.T) {
 	userRepo := user.NewInMemoryRepository()
 	userSvc := user.NewService(userRepo)
 
-	router := NewRouter(walletSvc, userSvc, chainSvc)
+	contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
+
+	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
 
 	// case 1: empty list (no seed)
 	{
@@ -621,7 +628,9 @@ func TestUpdateWallet(t *testing.T) {
 		userRepo := user.NewInMemoryRepository()
 		userSvc := user.NewService(userRepo)
 
-		router := NewRouter(walletSvc, userSvc, chainSvc)
+		contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
+
+		router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 
@@ -686,7 +695,9 @@ func TestUpdateWallet(t *testing.T) {
 		userRepo := user.NewInMemoryRepository()
 		userSvc := user.NewService(userRepo)
 
-		router := NewRouter(walletSvc, userSvc, chainSvc)
+		contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
+
+		router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 
@@ -730,7 +741,9 @@ func TestUpdateWallet(t *testing.T) {
 		userRepo := user.NewInMemoryRepository()
 		userSvc := user.NewService(userRepo)
 
-		router := NewRouter(walletSvc, userSvc, chainSvc)
+		contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
+
+		router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 
@@ -774,7 +787,9 @@ func TestUpdateWallet(t *testing.T) {
 		userRepo := user.NewInMemoryRepository()
 		userSvc := user.NewService(userRepo)
 
-		router := NewRouter(walletSvc, userSvc, chainSvc)
+		contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
+
+		router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 
@@ -815,7 +830,10 @@ func TestUpdateWallet(t *testing.T) {
 		userRepo := user.NewInMemoryRepository()
 		userSvc := user.NewService(userRepo)
 
-		router := NewRouter(walletSvc, userSvc, chainSvc)
+		contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
+
+		router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
+
 		// no seed => id 999999 never existed
 		patchBody := `{"label":"x"}`
 		patchReq, err := http.NewRequest(http.MethodPatch, "/api/v1/wallets/999999", strings.NewReader(patchBody))
@@ -851,7 +869,9 @@ func TestUpdateWallet(t *testing.T) {
 		userRepo := user.NewInMemoryRepository()
 		userSvc := user.NewService(userRepo)
 
-		router := NewRouter(walletSvc, userSvc, chainSvc)
+		contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
+
+		router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
 
 		patchBody := `{"label":"x"}`
 		patchReq, err := http.NewRequest(http.MethodPatch, "/api/v1/wallets/abc", strings.NewReader(patchBody))
@@ -887,7 +907,9 @@ func TestUpdateWallet(t *testing.T) {
 		userRepo := user.NewInMemoryRepository()
 		userSvc := user.NewService(userRepo)
 
-		router := NewRouter(walletSvc, userSvc, chainSvc)
+		contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
+
+		router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 		target := "/api/v1/wallets/" + strconv.Itoa(int(created.Data.ID))
@@ -926,7 +948,9 @@ func TestUpdateWallet(t *testing.T) {
 		userRepo := user.NewInMemoryRepository()
 		userSvc := user.NewService(userRepo)
 
-		router := NewRouter(walletSvc, userSvc, chainSvc)
+		contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
+
+		router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 		target := "/api/v1/wallets/" + strconv.Itoa(int(created.Data.ID))
@@ -964,7 +988,9 @@ func TestUpdateWallet(t *testing.T) {
 		userRepo := user.NewInMemoryRepository()
 		userSvc := user.NewService(userRepo)
 
-		router := NewRouter(walletSvc, userSvc, chainSvc)
+		contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
+
+		router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
 
 		first := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 		second := seedWallet(t, router, "0x0000000000000000000000000000000000000002")
@@ -1021,7 +1047,9 @@ func TestDeleteWallet(t *testing.T) {
 		userRepo := user.NewInMemoryRepository()
 		userSvc := user.NewService(userRepo)
 
-		router := NewRouter(walletSvc, userSvc, chainSvc)
+		contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
+
+		router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 
@@ -1065,7 +1093,9 @@ func TestDeleteWallet(t *testing.T) {
 		userRepo := user.NewInMemoryRepository()
 		userSvc := user.NewService(userRepo)
 
-		router := NewRouter(walletSvc, userSvc, chainSvc)
+		contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
+
+		router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 
@@ -1112,7 +1142,9 @@ func TestDeleteWallet(t *testing.T) {
 		userRepo := user.NewInMemoryRepository()
 		userSvc := user.NewService(userRepo)
 
-		router := NewRouter(walletSvc, userSvc, chainSvc)
+		contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
+
+		router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
 
 		delReq, err := http.NewRequest(http.MethodDelete, "/api/v1/wallets/abc", nil)
 		if err != nil {
@@ -1147,7 +1179,9 @@ func TestCreateWallet_UnsupportedChain_DetailsMap(t *testing.T) {
 	walletSvc := wallet.NewService(walletRepo, chainSvc)
 	userRepo := user.NewInMemoryRepository()
 	userSvc := user.NewService(userRepo)
-	router := NewRouter(walletSvc, userSvc, chainSvc)
+	contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
+
+	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
 
 	body := `{"address":"0x0000000000000000000000000000000000000099","chainId":999999,"label":"bad chain"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/wallets", strings.NewReader(body))
@@ -1180,7 +1214,9 @@ func TestListWallets_ChainFilterTrio(t *testing.T) {
 	walletSvc := wallet.NewService(walletRepo, chainSvc)
 	userRepo := user.NewInMemoryRepository()
 	userSvc := user.NewService(userRepo)
-	router := NewRouter(walletSvc, userSvc, chainSvc)
+	contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
+
+	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
 
 	// Seed one wallet on chain 1 and one on chain 137
 	seedWalletOnChain := func(t *testing.T, addr string, chainID int64) {

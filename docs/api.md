@@ -2,7 +2,7 @@
 
 ## Status
 
-This document is the living REST API design. `GET /health`, `POST /api/v1/wallets`, `GET /api/v1/wallets`, `GET /api/v1/wallets/{id}`, `PATCH /api/v1/wallets/{id}`, `DELETE /api/v1/wallets/{id}`, `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, `GET /api/v1/users/me` and `GET /api/v1/chains` are implemented. Additional routes remain planned.
+This document is the living REST API design. `GET /health`, `POST /api/v1/wallets`, `GET /api/v1/wallets`, `GET /api/v1/wallets/{id}`, `PATCH /api/v1/wallets/{id}`, `DELETE /api/v1/wallets/{id}`, `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, `GET /api/v1/users/me`, `GET /api/v1/chains`, `POST /api/v1/contracts`, `GET /api/v1/contracts`, `GET /api/v1/contracts/{id}`, `PATCH /api/v1/contracts/{id}` and `DELETE /api/v1/contracts/{id}` are implemented. Additional routes remain planned.
 
 ## Design principles
 
@@ -76,13 +76,14 @@ The first implementation may use offset pagination. Cursor pagination can be con
 | Status | Code | Condition | Details Shape |
 |---|---|---|---|
 | `400 Bad Request` | `INVALID_JSON` | Malformed JSON syntax, unknown fields, field type mismatch, body > 1MB | None |
-| `400 Bad Request` | `VALIDATION_ERROR`, `INVALID_JSON` | Syntactic request errors (e.g., malformed JSON syntax, unknown JSON field, non-integer query parameter values, page > 10000, pageSize > 100) |
+| `400 Bad Request` | `VALIDATION_ERROR` | Syntactic failures with no field to name: non-integer query parameters (`page`, `pageSize`, `chainId`), a path `id` that is not a positive integer, or an `enabled` value other than the literal `true` / `false` (including empty) | None |
+| `400 Bad Request` | `VALIDATION_ERROR` | Query-parameter caps, which do name a field: `page` > 10000, `pageSize` > 100 | `{"<field>": "<message>"}` (e.g. `{"page": "page must not exceed 10000"}`) |
 | `401 Unauthorized` | `INVALID_CREDENTIALS` | Unknown email or incorrect password during login (timing-safe, identical body) | None |
 | `401 Unauthorized` | `UNAUTHENTICATED` | Missing, malformed, expired, or non-existent session token | None |
 | `404 Not Found` | `RESOURCE_NOT_FOUND` | Resource matching requested ID does not exist | None |
-| `409 Conflict` | `RESOURCE_CONFLICT` | Duplicate `(address, chainId)` record | None |
+| `409 Conflict` | `RESOURCE_CONFLICT` | Duplicate `(address, chainId)` wallet record, or duplicate per-user tracking of the same `(address, chainId)` contract | None |
 | `409 Conflict` | `USER_CONFLICT` | Duplicate registration email (`idx_users_email_lower`) | None |
-| `422 Unprocessable Entity` | `VALIDATION_ERROR` | Semantic domain validation failures (e.g., malformed address format, empty label, label > 50 chars, unsupported or disabled chainId, negative chainId) |
+| `422 Unprocessable Entity` | `VALIDATION_ERROR` | Semantic domain validation failures (e.g., malformed address format, empty label, label > 50 chars, unsupported or disabled chainId, negative chainId) | `{"<field>": "<message>"}` (e.g. `{"chainId": "unsupported chain id"}`) |
 | `500 Internal Server Error` | `INTERNAL_SERVER_ERROR` | Unhandled internal server error | None |
 
 *Note on 405 Method Not Allowed: Method mismatch rejections (e.g. `POST /health`) are handled natively by `http.ServeMux` and return `405 Method Not Allowed` in `text/plain` format.*
@@ -483,9 +484,21 @@ Returns a list of all blockchain networks currently supported and enabled in the
 
 ## Tracked-contract routes
 
-The database separates a globally identified contract deployment from a user's tracking relationship. API responses may present them as one resource.
+A tracked contract is a global deployment record plus the authenticated user's tracking relationship to it. The database separates the two; API responses present them as one resource.
+
+**Status:** Implemented — PostgreSQL persistence.
+
+**Authentication:** Required on all five routes below. A missing, malformed, expired, or unknown bearer token returns `401 UNAUTHENTICATED`.
+
+**Visibility rule: 404, never 403.** A contract the caller does not track is indistinguishable from one that does not exist. Both produce `404 RESOURCE_NOT_FOUND` with a byte-identical body, so the API never reveals whether a deployment exists or belongs to another user.
+
+**Deployment reuse.** One global record exists per `(chainId, address)`. When a second user tracks the same deployment, the existing record is reused: the response carries the same `id` and the `startBlock` stored on first create. Each user keeps their own `label` and `enabled`.
+
+**Sort:** `createdAt` descending, then `id` descending.
 
 ### `POST /api/v1/contracts`
+
+**Status:** Implemented — PostgreSQL persistence
 
 **Authentication:** Required
 
@@ -500,57 +513,155 @@ Request:
 }
 ```
 
-Behavior:
+Validation:
 
-- Validate address, chain, and start block.
-- Create or reuse the global contract deployment record.
-- Create the authenticated user's tracking relationship.
-- Optionally perform a bounded compatibility check against the known `MultiSigWallet` ABI.
+- `address`: non-empty after trimming, `0x`-prefixed, exactly 42 characters, hexadecimal. Stored lowercased as the canonical form, so `0xABC…` and `0xabc…` resolve to the same deployment.
+- `chainId`: positive integer that is present and enabled in the chain catalog. Non-positive → `422 Unprocessable Entity` with details `{"chainId": "invalid chainId"}`. Positive but absent from the catalog or disabled → `422` with details `{"chainId": "unsupported chain id"}`.
+- `label`: non-empty after trimming, maximum 50 Unicode characters (runes).
+- `startBlock`: required integer, `>= 0`. Negative → `422` with details `{"startBlock": "start block must be non-negative"}`.
+- Request body bounded to 1 MB. Unknown fields, malformed JSON, or a field type mismatch → `400 INVALID_JSON`.
+- Tracking the same `(address, chainId)` twice as the same user → `409 RESOURCE_CONFLICT`.
+
+Reuse truth: `startBlock` is honored on first create; reuse returns the stored value.
 
 Success: `201 Created`.
 
+```json
+{
+  "data": {
+    "id": 1,
+    "address": "0x0000000000000000000000000000000000000002",
+    "chainId": 11155111,
+    "label": "Team multisig",
+    "enabled": true,
+    "startBlock": 1234567,
+    "createdAt": "2026-09-23T19:36:21Z"
+  }
+}
+```
+
+A new tracking starts with `enabled: true`. `createdAt` is RFC3339 from `time.Time` (UTC if the value is UTC).
+
 ### `GET /api/v1/contracts`
+
+**Status:** Implemented — PostgreSQL persistence
 
 **Authentication:** Required
 
 Query parameters:
 
-- `page`
-- `pageSize`
-- `chainId`
-- `enabled`
-- `search`
+- `page` — optional integer. Default `1`. Maximum `10000`. Omitted, `0`, or negative uses the default. Non-integer → `400 VALIDATION_ERROR`. Greater than `10000` → `400 VALIDATION_ERROR` with details `{"page": "page must not exceed 10000"}`.
+- `pageSize` — optional integer. Default `20`. Maximum `100`. Omitted, `0`, or negative uses the default. Non-integer → `400 VALIDATION_ERROR`. Greater than `100` → `400 VALIDATION_ERROR` with details `{"pageSize": "pageSize must not exceed 100"}`.
+- `chainId` — optional integer. Non-integer → `400 VALIDATION_ERROR`. Negative → `422` with details `{"chainId": "invalid chainId"}`. Absent from the catalog or disabled → `422` with details `{"chainId": "unsupported chain id"}`. Omit or pass `0` to skip the filter entirely.
+- `enabled` — optional. Only the exact literals `true` and `false` are accepted. Any other value — `1`, `0`, `TRUE`, `False`, `banana`, or an empty value such as `?enabled=` — → `400 VALIDATION_ERROR` with no details. Omitted entirely, the filter is off and both enabled and disabled trackings are returned.
+- `search` — optional string. Trimmed; case-insensitive literal substring match on `label` or `address`. `%` and `_` are literal characters, not SQL wildcards.
 
-Returns contracts tracked by the authenticated user.
+Sort: `createdAt` descending, then `id` descending.
+
+A page past the last page returns `200` with `"data": []` and the true `totalItems` / `totalPages`.
+
+Only the authenticated user's own trackings are returned. `totalItems` counts that user's matches, not the global number of deployments.
+
+Success: `200 OK`.
+
+```json
+{
+  "data": [
+    {
+      "id": 2,
+      "address": "0x00000000000000000000000000000000000000bb",
+      "chainId": 1,
+      "label": "beta tracked contract",
+      "enabled": true,
+      "startBlock": 19000000,
+      "createdAt": "2026-09-23T12:00:00Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "pageSize": 20,
+    "totalItems": 1,
+    "totalPages": 1
+  }
+}
+```
 
 ### `GET /api/v1/contracts/{contractId}`
 
+**Status:** Implemented — PostgreSQL persistence
+
 **Authentication:** Required
 
-Returns saved metadata and indexing status for one visible contract.
+Returns the saved metadata for one tracked contract. `indexingStatus` is not part of the response: indexing status is deferred to Week 6, and this route gains that field only when the indexer ships.
+
+`404 RESOURCE_NOT_FOUND` when the caller does not track the id — including when the id exists only for another user, and when it does not exist at all. The two cases return byte-identical bodies.
+
+Invalid or non-positive `contractId` → `400 VALIDATION_ERROR`.
+
+Success: `200 OK`, `data` shaped like the `POST` example.
 
 ### `PATCH /api/v1/contracts/{contractId}`
 
+**Status:** Implemented — PostgreSQL persistence
+
 **Authentication:** Required
 
-Initially mutable user-specific fields:
+Updates the user-specific fields of a tracked contract. `label` and `enabled` are the only mutable fields.
+
+Request:
 
 ```json
 {
   "label": "Treasury multisig",
-  "enabled": true
+  "enabled": false
 }
 ```
 
-Changing chain, address, or deployment block requires explicit migration behavior and is not an ordinary label update.
+Behavior:
+
+- Both fields are optional and independent. Absent, or explicitly `null`, leaves that field unchanged.
+- `{}` (both absent) is a no-op: the record is returned unchanged with `200 OK`, and nothing is written.
+- `label` present but empty or whitespace-only after trimming → `422 VALIDATION_ERROR` with details `{"label": "cannot be empty"}`. Longer than 50 runes → `422` with details `{"label": "must be 50 characters or less"}`.
+- `enabled` present must be a JSON boolean.
+- Unknown fields (including `address`, `chainId`, or `startBlock`) → `400 INVALID_JSON`. Changing address, chain, or start block is not a label-style update; create a new tracking instead.
+- `createdAt` is never modified, on any path including the no-op case. The row's internal `updated_at` is bumped on a real update but is not exposed in any response.
+
+Ordering, in this order:
+
+1. Invalid or non-positive `contractId` → `400 VALIDATION_ERROR`.
+2. Malformed JSON, unknown fields, or wrong types → `400 INVALID_JSON`. This fires identically for existing and non-existent ids, so a bad body cannot probe for existence.
+3. A record the caller does not track → `404 RESOURCE_NOT_FOUND`, which takes precedence over any field validation.
+4. Field validation (`label`, `enabled`) → `422 VALIDATION_ERROR`.
+
+Success: `200 OK`.
+
+```json
+{
+  "data": {
+    "id": 1,
+    "address": "0x0000000000000000000000000000000000000002",
+    "chainId": 11155111,
+    "label": "Treasury multisig",
+    "enabled": false,
+    "startBlock": 1234567,
+    "createdAt": "2026-09-23T19:36:21Z"
+  }
+}
+```
 
 ### `DELETE /api/v1/contracts/{contractId}`
 
+**Status:** Implemented — PostgreSQL persistence
+
 **Authentication:** Required
 
-Removes the user's tracking relationship. Shared global contract and indexed records must not be deleted merely because one user stops tracking them.
+Removes the authenticated user's tracking relationship. The global contract deployment is not deleted, and other users tracking the same deployment are unaffected. Indexed records are likewise not deleted by this route.
 
-Success: `204 No Content`.
+Success: `204 No Content`, with an empty response body.
+
+`404 RESOURCE_NOT_FOUND` when the caller does not track the id — including a second `DELETE` of an id already removed, and an id tracked only by another user. This endpoint is not idempotent: a repeated delete returns `404`, not another `204`. A client that loses the response to a successful `204` and retries must treat the resulting `404` as confirmation the tracking is already gone, not as a new failure.
+
+Invalid or non-positive `contractId` → `400 VALIDATION_ERROR`.
 
 ## Contract-state routes
 
@@ -663,6 +774,8 @@ Returns one decoded indexed event with chain identifiers and decoded payload.
 ## Indexing-status routes
 
 ### `GET /api/v1/contracts/{contractId}/indexing-status`
+
+**Status:** Planned — deferred to Week 6
 
 **Authentication:** Required
 

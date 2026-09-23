@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/chain"
+	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/contract"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/httpapi"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/user"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
@@ -48,7 +49,10 @@ func main() {
 	userRepo := user.NewPostgresUserRepository(db)
 	userSvc := user.NewService(userRepo)
 
-	handler := httpapi.NewRouter(walletSvc, userSvc, chainSvc)
+	contractRepo := contract.NewPostgresRepository(db)
+	contractSvc := contract.NewService(contractRepo, chainSvc)
+
+	handler := httpapi.NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
 
 	addr := ":8080"
 	log.Printf("Starting HTTP Server on %s...", addr)
