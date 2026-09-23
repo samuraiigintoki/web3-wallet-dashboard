@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/chain"
+	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/contract"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/user"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
 )
@@ -56,17 +57,19 @@ type UpdateWalletRequest struct {
 
 // Handler struct
 type Handler struct {
-	walletSvc *wallet.Service
-	userSvc   *user.Service
-	chainSvc  *chain.Service
+	walletSvc   *wallet.Service
+	userSvc     *user.Service
+	chainSvc    *chain.Service
+	contractSvc *contract.Service
 }
 
 // Handler constructor
-func NewHandler(walletSvc *wallet.Service, userSvc *user.Service, chainSvc *chain.Service) *Handler {
+func NewHandler(walletSvc *wallet.Service, userSvc *user.Service, chainSvc *chain.Service, contractSvc *contract.Service) *Handler {
 	return &Handler{
-		walletSvc: walletSvc,
-		userSvc:   userSvc,
-		chainSvc:  chainSvc,
+		walletSvc:   walletSvc,
+		userSvc:     userSvc,
+		chainSvc:    chainSvc,
+		contractSvc: contractSvc,
 	}
 }
 
