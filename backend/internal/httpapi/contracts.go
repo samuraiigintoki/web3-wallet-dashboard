@@ -313,7 +313,7 @@ func contractToResponse(tc *contract.TrackedContract) ContractResponse {
 func (h *Handler) currentUser(w http.ResponseWriter, r *http.Request) (user.User, bool) {
 	u, ok := UserFromContext(r.Context())
 	if !ok {
-		writeError(w, http.StatusInternalServerError, CodeInternalError, "internal server error", nil)
+		writeError(w, http.StatusUnauthorized, CodeUnauthenticated, "unauthenticated", nil)
 		return user.User{}, false
 	}
 	return u, true

@@ -908,3 +908,23 @@ func TestDeleteContractEndpoint(t *testing.T) {
 		assertErrorCode(t, rec, http.StatusUnauthorized, CodeUnauthenticated)
 	})
 }
+
+func TestCurrentUser_IdenticalHouse401(t *testing.T) {
+	chainSvc := chain.NewService(chain.NewInMemoryRepository())
+	h := NewHandler(wallet.NewService(wallet.NewInMemoryWalletRepo(), chainSvc),
+		user.NewService(user.NewInMemoryRepository()), chainSvc,
+		contract.NewService(contract.NewInMemoryRepository(), chainSvc))
+
+	rec := httptest.NewRecorder()
+	u, ok := h.currentUser(rec, httptest.NewRequest(http.MethodGet, "/api/v1/contracts", nil))
+	if ok || u != (user.User{}) {
+		t.Fatalf("want ok=false with zero user, got ok=%t user=%+v", ok, u)
+	}
+
+	house := httptest.NewRecorder()
+	writeError(house, http.StatusUnauthorized, CodeUnauthenticated, "unauthenticated", nil)
+	if rec.Code != house.Code || rec.Body.String() != house.Body.String() {
+		t.Fatalf("fallback must equal the house 401:\ngot  %d %s\nwant %d %s",
+			rec.Code, rec.Body.String(), house.Code, house.Body.String())
+	}
+}
