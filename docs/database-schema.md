@@ -241,7 +241,7 @@ Proposed columns:
 | `label` | `VARCHAR(100)` | User-specific label |
 | `enabled` | `BOOLEAN` | Whether shown for that user |
 | `created_at` | `TIMESTAMPTZ` | Not null |
-| `updated_at` | `TIMESTAMPTZ` | Not null |
+| `updated_at` | `TIMESTAMPTZ` | Not null. Bumped to `NOW()` on every accepted PATCH; an all-nil update is no-opped in the service before the repository runs. Never exposed in API responses — exposure deferred to the Week 6 indexer work. |
 
 Primary or unique key:
 
