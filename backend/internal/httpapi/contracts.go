@@ -305,11 +305,11 @@ func contractToResponse(tc *contract.TrackedContract) ContractResponse {
 	}
 }
 
-// currentUser returns the authenticated user attached by RequireAuth. Every
-// contract route is mounted behind that middleware, so a missing user means the
-// route was registered without it — a wiring bug, not a client state. Hence 500
-// rather than 401: there is no client input that can produce this. Note that
-// getCurrentUser in auth.go answers 401 for the same impossible case; unify later.
+// currentUser returns the authenticated user attached by RequireAuth. Contract
+// and wallet routes are both mounted behind that middleware, so this is the
+// shared house 401 fallback for the two route groups: a request that reaches a
+// handler without a user gets the same UNAUTHENTICATED body the middleware
+// produces for a missing, malformed, expired, or unknown bearer token.
 func (h *Handler) currentUser(w http.ResponseWriter, r *http.Request) (user.User, bool) {
 	u, ok := UserFromContext(r.Context())
 	if !ok {
