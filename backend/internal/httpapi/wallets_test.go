@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -29,7 +30,7 @@ func TestCreateWalletEndpoint(t *testing.T) {
 
 	contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
+	router := newAuthedRouter(t, walletSvc, userSvc, chainSvc, contractSvc)
 
 	tests := []struct {
 		name           string
@@ -190,7 +191,7 @@ func TestGetWalletEndpoint(t *testing.T) {
 
 	contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
+	router := newAuthedRouter(t, walletSvc, userSvc, chainSvc, contractSvc)
 
 	seedWallet := `{"address":"0x0000000000000000000000000000000000000001","chainId":1,"label":"seed Wallet"}`
 
@@ -297,7 +298,7 @@ func TestListWalletsEndpoint(t *testing.T) {
 
 	contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
+	router := newAuthedRouter(t, walletSvc, userSvc, chainSvc, contractSvc)
 
 	// case 1: empty list (no seed)
 	{
@@ -630,7 +631,7 @@ func TestUpdateWallet(t *testing.T) {
 
 		contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-		router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
+		router := newAuthedRouter(t, walletSvc, userSvc, chainSvc, contractSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 
@@ -697,7 +698,7 @@ func TestUpdateWallet(t *testing.T) {
 
 		contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-		router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
+		router := newAuthedRouter(t, walletSvc, userSvc, chainSvc, contractSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 
@@ -743,7 +744,7 @@ func TestUpdateWallet(t *testing.T) {
 
 		contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-		router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
+		router := newAuthedRouter(t, walletSvc, userSvc, chainSvc, contractSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 
@@ -789,7 +790,7 @@ func TestUpdateWallet(t *testing.T) {
 
 		contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-		router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
+		router := newAuthedRouter(t, walletSvc, userSvc, chainSvc, contractSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 
@@ -832,7 +833,7 @@ func TestUpdateWallet(t *testing.T) {
 
 		contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-		router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
+		router := newAuthedRouter(t, walletSvc, userSvc, chainSvc, contractSvc)
 
 		// no seed => id 999999 never existed
 		patchBody := `{"label":"x"}`
@@ -871,7 +872,7 @@ func TestUpdateWallet(t *testing.T) {
 
 		contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-		router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
+		router := newAuthedRouter(t, walletSvc, userSvc, chainSvc, contractSvc)
 
 		patchBody := `{"label":"x"}`
 		patchReq, err := http.NewRequest(http.MethodPatch, "/api/v1/wallets/abc", strings.NewReader(patchBody))
@@ -909,7 +910,7 @@ func TestUpdateWallet(t *testing.T) {
 
 		contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-		router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
+		router := newAuthedRouter(t, walletSvc, userSvc, chainSvc, contractSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 		target := "/api/v1/wallets/" + strconv.Itoa(int(created.Data.ID))
@@ -950,7 +951,7 @@ func TestUpdateWallet(t *testing.T) {
 
 		contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-		router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
+		router := newAuthedRouter(t, walletSvc, userSvc, chainSvc, contractSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 		target := "/api/v1/wallets/" + strconv.Itoa(int(created.Data.ID))
@@ -990,7 +991,7 @@ func TestUpdateWallet(t *testing.T) {
 
 		contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-		router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
+		router := newAuthedRouter(t, walletSvc, userSvc, chainSvc, contractSvc)
 
 		first := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 		second := seedWallet(t, router, "0x0000000000000000000000000000000000000002")
@@ -1049,7 +1050,7 @@ func TestDeleteWallet(t *testing.T) {
 
 		contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-		router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
+		router := newAuthedRouter(t, walletSvc, userSvc, chainSvc, contractSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 
@@ -1095,7 +1096,7 @@ func TestDeleteWallet(t *testing.T) {
 
 		contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-		router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
+		router := newAuthedRouter(t, walletSvc, userSvc, chainSvc, contractSvc)
 
 		created := seedWallet(t, router, "0x0000000000000000000000000000000000000001")
 
@@ -1144,7 +1145,7 @@ func TestDeleteWallet(t *testing.T) {
 
 		contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-		router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
+		router := newAuthedRouter(t, walletSvc, userSvc, chainSvc, contractSvc)
 
 		delReq, err := http.NewRequest(http.MethodDelete, "/api/v1/wallets/abc", nil)
 		if err != nil {
@@ -1181,7 +1182,7 @@ func TestCreateWallet_UnsupportedChain_DetailsMap(t *testing.T) {
 	userSvc := user.NewService(userRepo)
 	contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
+	router := newAuthedRouter(t, walletSvc, userSvc, chainSvc, contractSvc)
 
 	body := `{"address":"0x0000000000000000000000000000000000000099","chainId":999999,"label":"bad chain"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/wallets", strings.NewReader(body))
@@ -1216,7 +1217,7 @@ func TestListWallets_ChainFilterTrio(t *testing.T) {
 	userSvc := user.NewService(userRepo)
 	contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
+	router := newAuthedRouter(t, walletSvc, userSvc, chainSvc, contractSvc)
 
 	// Seed one wallet on chain 1 and one on chain 137
 	seedWalletOnChain := func(t *testing.T, addr string, chainID int64) {
@@ -1347,4 +1348,229 @@ func seedWallet(t *testing.T, router http.Handler, address string) WalletRespons
 	}
 
 	return created
+}
+
+// authedRouter wraps the router and attaches a bearer token to every request.
+// Wallet routes moved behind RequireAuth with migration 0006, so the suite needs
+// a real session; minting it through the public register and login endpoints
+// keeps the token path (hash at rest, expiry lookup) in the loop rather than
+// stubbing the middleware.
+type authedRouter struct {
+	router http.Handler
+	token  string
+}
+
+func newAuthedRouter(t *testing.T, walletSvc *wallet.Service, userSvc *user.Service, chainSvc *chain.Service, contractSvc *contract.Service) http.Handler {
+	t.Helper()
+
+	plain := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
+	creds := `{"email":"wallet-suite@example.com","password":"password123"}`
+
+	registerRec := httptest.NewRecorder()
+	plain.ServeHTTP(registerRec, httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(creds)))
+	if registerRec.Code != http.StatusCreated {
+		t.Fatalf("register wallet suite user: expected %d, got %d body=%s", http.StatusCreated, registerRec.Code, registerRec.Body.String())
+	}
+
+	loginRec := httptest.NewRecorder()
+	plain.ServeHTTP(loginRec, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(creds)))
+	if loginRec.Code != http.StatusOK {
+		t.Fatalf("login wallet suite user: expected %d, got %d body=%s", http.StatusOK, loginRec.Code, loginRec.Body.String())
+	}
+
+	var env LoginResponseEnvelope
+	if err := json.NewDecoder(loginRec.Body).Decode(&env); err != nil {
+		t.Fatalf("decode login envelope: %v", err)
+	}
+	if env.Data.Token == "" {
+		t.Fatal("login wallet suite user returned an empty token")
+	}
+
+	return &authedRouter{router: plain, token: env.Data.Token}
+}
+
+func (a *authedRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("Authorization") == "" {
+		r.Header.Set("Authorization", "Bearer "+a.token)
+	}
+	a.router.ServeHTTP(w, r)
+}
+
+// Ownership suite.
+//
+// Everything above this line runs as a single user: authedRouter mints one
+// session and attaches it to every request. The two tests below need two
+// accounts, because each ownership invariant is a statement about what user B
+// observes when user A owns the row.
+
+// walletOwnershipHarness wires the in-memory router and mints two real sessions
+// through the public register and login routes. Passing an empty token to do
+// sends no Authorization header, which is how the tokenless case stays reachable.
+type walletOwnershipHarness struct {
+	router http.Handler
+	tokenA string
+	tokenB string
+}
+
+func newWalletOwnershipHarness(t *testing.T) *walletOwnershipHarness {
+	t.Helper()
+
+	chainRepo := chain.NewInMemoryRepository()
+	chainRepo.Seed(chain.Chain{ChainID: 1, Name: "Ethereum", Symbol: "ETH", Enabled: true})
+	chainSvc := chain.NewService(chainRepo)
+
+	walletSvc := wallet.NewService(wallet.NewInMemoryWalletRepo(), chainSvc)
+	userSvc := user.NewService(user.NewInMemoryRepository())
+	contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
+
+	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
+
+	return &walletOwnershipHarness{
+		router: router,
+		tokenA: mintWalletSession(t, router, "wallet-owner-a@example.com"),
+		tokenB: mintWalletSession(t, router, "wallet-owner-b@example.com"),
+	}
+}
+
+// mintWalletSession registers and logs in one actor, so the tests use the same
+// token path (hash at rest, expiry lookup) the middleware enforces in full.
+func mintWalletSession(t *testing.T, router http.Handler, email string) string {
+	t.Helper()
+
+	creds := fmt.Sprintf(`{"email":%q,"password":"password123"}`, email)
+
+	registerRec := httptest.NewRecorder()
+	router.ServeHTTP(registerRec, httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(creds)))
+	if registerRec.Code != http.StatusCreated {
+		t.Fatalf("register %s: expected %d, got %d body=%s", email, http.StatusCreated, registerRec.Code, registerRec.Body.String())
+	}
+
+	loginRec := httptest.NewRecorder()
+	router.ServeHTTP(loginRec, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(creds)))
+	if loginRec.Code != http.StatusOK {
+		t.Fatalf("login %s: expected %d, got %d body=%s", email, http.StatusOK, loginRec.Code, loginRec.Body.String())
+	}
+
+	var env LoginResponseEnvelope
+	if err := json.NewDecoder(loginRec.Body).Decode(&env); err != nil {
+		t.Fatalf("decode login envelope for %s: %v", email, err)
+	}
+	if env.Data.Token == "" {
+		t.Fatalf("login %s returned an empty token", email)
+	}
+
+	return env.Data.Token
+}
+
+func (h *walletOwnershipHarness) do(t *testing.T, method, path, body, token string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	var req *http.Request
+	if body == "" {
+		req = httptest.NewRequest(method, path, nil)
+	} else {
+		req = httptest.NewRequest(method, path, strings.NewReader(body))
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	rec := httptest.NewRecorder()
+	h.router.ServeHTTP(rec, req)
+	return rec
+}
+
+func (h *walletOwnershipHarness) create(t *testing.T, token, address string, chainID int64, label string) WalletResponse {
+	t.Helper()
+
+	body := fmt.Sprintf(`{"address":%q,"chainId":%d,"label":%q}`, address, chainID, label)
+	rec := h.do(t, http.MethodPost, "/api/v1/wallets", body, token)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("seed wallet %s: expected %d, got %d body=%s", address, http.StatusCreated, rec.Code, rec.Body.String())
+	}
+
+	var env WalletResponseEnvelope
+	if err := json.NewDecoder(rec.Body).Decode(&env); err != nil {
+		t.Fatalf("decode seeded wallet: %v", err)
+	}
+
+	return env.Data
+}
+
+// A whitespace-only label is a 422 only for a row the caller owns. The service
+// resolves the scoped lookup first, so a foreign or missing id is 404 whatever
+// the body says. Both directions are pinned: 404 for the two unowned ids and
+// 422 for the owned one, so a future reorder that turns 404 into 422 (or 422
+// into 404) fails here rather than in review.
+func TestUpdateWallet_OwnershipResolvesBeforeLabelValidation(t *testing.T) {
+	h := newWalletOwnershipHarness(t)
+
+	owned := h.create(t, h.tokenA, "0x00000000000000000000000000000000000000a1", 1, "owned by A")
+	foreign := h.create(t, h.tokenB, "0x00000000000000000000000000000000000000b2", 1, "owned by B")
+
+	const whitespaceLabel = `{"label":"   "}`
+
+	t.Run("foreign id with whitespace label is 404", func(t *testing.T) {
+		rec := h.do(t, http.MethodPatch, "/api/v1/wallets/"+strconv.Itoa(int(foreign.ID)), whitespaceLabel, h.tokenA)
+		assertErrorCode(t, rec, http.StatusNotFound, CodeResourceNotFound)
+	})
+
+	t.Run("missing id with whitespace label is 404", func(t *testing.T) {
+		rec := h.do(t, http.MethodPatch, "/api/v1/wallets/999999999", whitespaceLabel, h.tokenA)
+		assertErrorCode(t, rec, http.StatusNotFound, CodeResourceNotFound)
+	})
+
+	t.Run("owned id with whitespace label is 422", func(t *testing.T) {
+		rec := h.do(t, http.MethodPatch, "/api/v1/wallets/"+strconv.Itoa(int(owned.ID)), whitespaceLabel, h.tokenA)
+		assertValidationDetails(t, rec, http.StatusUnprocessableEntity, "label")
+	})
+}
+
+// A foreign id and an id that never existed are the same answer, byte for byte,
+// on every wallet route. Any difference lets a caller enumerate other users'
+// ids, and an id that exists but belongs to someone else must never surface as
+// 403. The all-nil PATCH is included because it is the one body that would
+// otherwise short-circuit before the scoped lookup runs.
+func TestWalletNotFoundBodiesAreIdentical(t *testing.T) {
+	h := newWalletOwnershipHarness(t)
+
+	foreign := h.create(t, h.tokenB, "0x00000000000000000000000000000000000000b3", 1, "owned by B")
+
+	const missingID = "999999999"
+
+	routes := []struct {
+		name   string
+		method string
+		body   string
+	}{
+		{"GET", http.MethodGet, ""},
+		{"PATCH", http.MethodPatch, `{"label":"renamed by A"}`},
+		{"DELETE", http.MethodDelete, ""},
+	}
+
+	for _, route := range routes {
+		t.Run(route.name, func(t *testing.T) {
+			foreignRec := h.do(t, route.method, "/api/v1/wallets/"+strconv.Itoa(int(foreign.ID)), route.body, h.tokenA)
+			missingRec := h.do(t, route.method, "/api/v1/wallets/"+missingID, route.body, h.tokenA)
+
+			assertErrorCode(t, foreignRec, http.StatusNotFound, CodeResourceNotFound)
+			assertErrorCode(t, missingRec, http.StatusNotFound, CodeResourceNotFound)
+
+			if !bytes.Equal(foreignRec.Body.Bytes(), missingRec.Body.Bytes()) {
+				t.Errorf("expected byte identical 404 bodies:\nforeign id: %s\nmissing id: %s", foreignRec.Body.String(), missingRec.Body.String())
+			}
+		})
+	}
+
+	t.Run("all nil PATCH on a foreign id is 404", func(t *testing.T) {
+		rec := h.do(t, http.MethodPatch, "/api/v1/wallets/"+strconv.Itoa(int(foreign.ID)), `{}`, h.tokenA)
+		assertErrorCode(t, rec, http.StatusNotFound, CodeResourceNotFound)
+	})
+
+	t.Run("owner still reads the untouched row", func(t *testing.T) {
+		rec := h.do(t, http.MethodGet, "/api/v1/wallets/"+strconv.Itoa(int(foreign.ID)), "", h.tokenB)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected %d for the owner, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+		}
+	})
 }
