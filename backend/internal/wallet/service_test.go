@@ -20,7 +20,7 @@ func TestService_Create_SequentialAndDuplicate(t *testing.T) {
 	repo := NewInMemoryWalletRepo()
 	svc := NewService(repo, stubChainValidator{})
 
-	wallet1, err := svc.Create(ctx, "0x0000000000000000000000000000000000000001", 1, "first")
+	wallet1, err := svc.Create(ctx, 1, "0x0000000000000000000000000000000000000001", 1, "first")
 	gotID := wallet1.ID
 	if err != nil {
 		t.Fatalf("unexpected error creating wallet: %v", err)
@@ -30,7 +30,7 @@ func TestService_Create_SequentialAndDuplicate(t *testing.T) {
 		t.Errorf("expected wallet ID: %d, got: %d", 1, gotID)
 	}
 
-	wallet2, err := svc.Create(ctx, "0x0000000000000000000000000000000000000002", 1, "second")
+	wallet2, err := svc.Create(ctx, 1, "0x0000000000000000000000000000000000000002", 1, "second")
 	gotSecondID := wallet2.ID
 
 	if err != nil {
@@ -41,7 +41,7 @@ func TestService_Create_SequentialAndDuplicate(t *testing.T) {
 		t.Errorf("expected wallet ID: %d, got: %d", 2, gotSecondID)
 	}
 
-	_, err = svc.Create(ctx, "0x0000000000000000000000000000000000000001", 1, "duplicate")
+	_, err = svc.Create(ctx, 1, "0x0000000000000000000000000000000000000001", 1, "duplicate")
 	if !errors.Is(err, ErrWalletDuplicate) {
 		t.Errorf("expected ErrWalletDuplicate, got: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestService_Create_Validation(t *testing.T) {
 			repo := NewInMemoryWalletRepo()
 			svc := NewService(repo, stubChainValidator{})
 
-			_, err := svc.Create(ctx, tt.address, tt.chainID, tt.label)
+			_, err := svc.Create(ctx, 1, tt.address, tt.chainID, tt.label)
 
 			var vErr *ValidationError
 			if !errors.As(err, &vErr) {
