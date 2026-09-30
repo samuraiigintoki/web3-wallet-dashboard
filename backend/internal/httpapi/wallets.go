@@ -76,13 +76,18 @@ func NewHandler(walletSvc *wallet.Service, userSvc *user.Service, chainSvc *chai
 // Handler functions
 func (h *Handler) createWallet(w http.ResponseWriter, r *http.Request) {
 
+	u, ok := h.currentUser(w, r)
+	if !ok {
+		return
+	}
+
 	var req CreateWalletRequest
 	if err := decodeJSONBody(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, CodeInvalidJSON, "invalid request body", nil)
 		return
 	}
 
-	createdWallet, err := h.walletSvc.Create(r.Context(), req.Address, req.ChainID, req.Label)
+	createdWallet, err := h.walletSvc.Create(r.Context(), u.ID, req.Address, req.ChainID, req.Label)
 	if err != nil {
 		var vErr *wallet.ValidationError
 		if errors.As(err, &vErr) {
@@ -111,6 +116,12 @@ func (h *Handler) createWallet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getWallet(w http.ResponseWriter, r *http.Request) {
+
+	u, ok := h.currentUser(w, r)
+	if !ok {
+		return
+	}
+
 	idStr := r.PathValue("id")
 
 	id, err := strconv.ParseInt(idStr, 10, 64)
@@ -119,7 +130,7 @@ func (h *Handler) getWallet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	foundWallet, err := h.walletSvc.GetByID(r.Context(), id)
+	foundWallet, err := h.walletSvc.GetByID(r.Context(), u.ID, id)
 	if err != nil {
 		if errors.Is(err, wallet.ErrWalletNotFound) {
 			writeError(w, http.StatusNotFound, CodeResourceNotFound, "wallet not found", nil)
@@ -142,6 +153,12 @@ func (h *Handler) getWallet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listWallets(w http.ResponseWriter, r *http.Request) {
+
+	u, ok := h.currentUser(w, r)
+	if !ok {
+		return
+	}
+
 	queryParams := r.URL.Query()
 
 	pageStr := queryParams.Get("page")
@@ -182,7 +199,7 @@ func (h *Handler) listWallets(w http.ResponseWriter, r *http.Request) {
 		filter.Search = searchStr
 	}
 
-	wallets, totalItems, err := h.walletSvc.List(r.Context(), filter)
+	wallets, totalItems, err := h.walletSvc.List(r.Context(), u.ID, filter)
 
 	if err != nil {
 		var vErr *wallet.ValidationError
@@ -239,6 +256,12 @@ func (h *Handler) listWallets(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) updateWallet(w http.ResponseWriter, r *http.Request) {
+
+	u, ok := h.currentUser(w, r)
+	if !ok {
+		return
+	}
+
 	idStr := r.PathValue("id")
 
 	id, err := strconv.ParseInt(idStr, 10, 64)
@@ -253,7 +276,7 @@ func (h *Handler) updateWallet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updatedWallet, err := h.walletSvc.UpdateLabel(r.Context(), id, req.Label)
+	updatedWallet, err := h.walletSvc.UpdateLabel(r.Context(), u.ID, id, req.Label)
 	if err != nil {
 		var vErr *wallet.ValidationError
 		if errors.As(err, &vErr) {
@@ -283,6 +306,11 @@ func (h *Handler) updateWallet(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) deleteWallet(w http.ResponseWriter, r *http.Request) {
 
+	u, ok := h.currentUser(w, r)
+	if !ok {
+		return
+	}
+
 	idStr := r.PathValue("id")
 
 	id, err := strconv.ParseInt(idStr, 10, 64)
@@ -291,7 +319,7 @@ func (h *Handler) deleteWallet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.walletSvc.Delete(r.Context(), id)
+	err = h.walletSvc.Delete(r.Context(), u.ID, id)
 	if err != nil {
 		if errors.Is(err, wallet.ErrWalletNotFound) {
 			writeError(w, http.StatusNotFound, CodeResourceNotFound, "wallet not found", nil)

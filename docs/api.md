@@ -9,7 +9,7 @@ This document is the living REST API design. `GET /health`, `POST /api/v1/wallet
 - Use JSON over HTTPS.
 - Version application routes under `/api/v1`.
 - Keep liveness and readiness endpoints outside authenticated API routes.
-- Authenticate protected routes (planned for auth milestone).
+- Authenticate protected routes (done: contract and wallet routes require a bearer token; a missing, malformed, expired, or unknown token returns `401 UNAUTHENTICATED`).
 - Enforce record ownership in services and repository queries.
 - Use consistent errors, pagination, filtering, and request identifiers.
 - Keep browser-wallet contract writes out of the Go API. Users sign state-changing transactions in their browser wallet.
@@ -81,7 +81,7 @@ The first implementation may use offset pagination. Cursor pagination can be con
 | `401 Unauthorized` | `INVALID_CREDENTIALS` | Unknown email or incorrect password during login (timing-safe, identical body) | None |
 | `401 Unauthorized` | `UNAUTHENTICATED` | Missing, malformed, expired, or non-existent session token | None |
 | `404 Not Found` | `RESOURCE_NOT_FOUND` | Resource matching requested ID does not exist | None |
-| `409 Conflict` | `RESOURCE_CONFLICT` | Duplicate `(address, chainId)` wallet record, or duplicate per-user tracking of the same `(address, chainId)` contract | None |
+| `409 Conflict` | `RESOURCE_CONFLICT` | Duplicate `(address, chainId)` wallet record for the requesting user, or duplicate per-user tracking of the same `(address, chainId)` contract | None |
 | `409 Conflict` | `USER_CONFLICT` | Duplicate registration email (`idx_users_email_lower`) | None |
 | `422 Unprocessable Entity` | `VALIDATION_ERROR` | Semantic domain validation failures (e.g., malformed address format, empty label, label > 50 chars, unsupported or disabled chainId, negative chainId) | `{"<field>": "<message>"}` (e.g. `{"chainId": "unsupported chain id"}`) |
 | `500 Internal Server Error` | `INTERNAL_SERVER_ERROR` | Unhandled internal server error | None |
@@ -268,7 +268,7 @@ A saved wallet is an off-chain address record. It does not prove control of the 
 
 **Status:** Implemented — PostgreSQL persistence
 
-**Authentication:** Public (unauthenticated for MVP slice)
+**Authentication:** Required (Authorization: Bearer <token>)
 
 Request:
 
@@ -303,7 +303,11 @@ Success: `201 Created`.
 
 **Status:** Implemented — PostgreSQL persistence
 
-**Authentication:** Public (unauthenticated for MVP slice)
+**Authentication:** Required (Authorization: Bearer <token>)
+
+Returns only the requesting user's wallets. The owner comes from the bearer
+token and never from the request, so another user's rows are absent from every
+page and from `totalItems`.
 
 Query parameters:
 
@@ -349,9 +353,11 @@ Success: `200 OK`.
 
 **Status:** Implemented — PostgreSQL persistence
 
-**Authentication:** Public (unauthenticated for MVP slice)
+**Authentication:** Required (Authorization: Bearer <token>)
 
-Returns one saved wallet by database identity ID.
+Returns one saved wallet by database identity ID. The wallet must belong to
+the requesting user. A foreign id is reported exactly as a missing id,
+`404` `RESOURCE_NOT_FOUND`.
 
 Success: `200 OK`.
 
@@ -373,7 +379,7 @@ Success: `200 OK`.
 
 **Status:** Implemented — PostgreSQL persistence
 
-**Authentication:** Public (unauthenticated for MVP slice)
+**Authentication:** Required (Authorization: Bearer <token>)
 
 Updates the label of an existing saved wallet. This is the only mutable field.
 
@@ -418,14 +424,16 @@ Success: `200 OK`.
 body → `400` `INVALID_JSON`. Whitespace-only `label` → `422`
 `VALIDATION_ERROR`.
 
-**Accepted MVP risk:** no auth until the auth milestone (B6) — any caller can
-`PATCH` any wallet by id. Recorded and accepted, not accidental.
+**Ownership:** the id must belong to the requesting user. A foreign id is
+reported as `404 RESOURCE_NOT_FOUND`, byte for byte identical to a missing id,
+so ids cannot be probed across accounts. A foreign id is never a `403` and
+never a `422`.
 
 ### `DELETE /api/v1/wallets/{id}`
 
 **Status:** Implemented — PostgreSQL persistence
 
-**Authentication:** Public (unauthenticated for MVP slice)
+**Authentication:** Required (Authorization: Bearer <token>)
 
 Removes a saved-wallet record. It does not perform an on-chain action.
 
@@ -440,8 +448,9 @@ deleted, not as a new failure.
 
 Invalid or non-positive `id` → `400` `VALIDATION_ERROR`.
 
-**Accepted MVP risk:** no auth until the auth milestone (B6) — any caller can
-`DELETE` any wallet by id. Recorded and accepted, not accidental.
+**Ownership:** the id must belong to the requesting user. A foreign id is
+reported as `404 RESOURCE_NOT_FOUND`, byte for byte identical to a missing id,
+so ids cannot be probed across accounts.
 
 ## Chain routes
 
