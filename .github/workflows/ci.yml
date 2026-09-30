@@ -60,8 +60,21 @@ jobs:
         env:
           DATABASE_URL: postgres://wallet:wallet@localhost:5432/wallet?sslmode=disable
         run: go run ./cmd/migrate up
+      
+      - name: Verify Migration Rollback Cycle
+        env:
+          DATABASE_URL: postgres://wallet:wallet@localhost:5432/wallet?sslmode=disable
+        run: |
+          go run ./cmd/migrate down
+          go run ./cmd/migrate up
 
       - name: Run Tests with Race Detector
         env:
           DATABASE_URL: postgres://wallet:wallet@localhost:5432/wallet?sslmode=disable
         run: go test -race -count=1 -v ./...
+      
+      - name: Run Tests Without DATABASE_URL (skip mode)
+        shell: bash
+        run: |
+          go test -race -count=1 -v ./... 2>&1 | tee skip-mode.log
+          grep -q -- '--- SKIP' skip-mode.log
