@@ -89,6 +89,7 @@ The first implementation may use offset pagination. Cursor pagination can be con
 | `422 Unprocessable Entity` | `VALIDATION_ERROR` | Semantic domain validation failures (e.g., malformed address format, empty label, label > 50 chars, unsupported or disabled chainId, negative chainId) | `{"<field>": "<message>"}` (e.g. `{"chainId": "unsupported chain id"}`) |
 | `500 Internal Server Error` | `INTERNAL_SERVER_ERROR` | Unhandled internal server error | None |
 | `503 Service Unavailable` | `SERVICE_UNAVAILABLE` | PostgreSQL readiness check failed, timed out, or the request was canceled | None; message is the neutral `not ready` |
+| `429 Too Many Requests` | `RATE_LIMITED` | The caller exhausted its bucket on the global or the authentication tier | None; `Retry-After` carries the wait in whole seconds |
 
 *Note on 405 Method Not Allowed: Method mismatch rejections (e.g. `POST /health/live`) are handled natively by `http.ServeMux` and return `405 Method Not Allowed` in `text/plain` with an `Allow` header.*
 
@@ -103,7 +104,7 @@ The first implementation may use offset pagination. Cursor pagination can be con
 - `404 Not Found` — resource not found or not visible to the user
 - `409 Conflict` — duplicate or conflicting state
 - `422 Unprocessable Entity` — valid JSON with domain-invalid values
-- `429 Too Many Requests` — rate limit exceeded
+- `429 Too Many Requests` — rate limit exceeded (`RATE_LIMITED`, with `Retry-After`)
 - `500 internal Server Error` — unexpected application failure
 - `502 Bad Gateway` — upstream RPC failure where appropriate
 - `503 Service Unavailable` — required dependency unavailable
@@ -874,7 +875,26 @@ Exact limits may change after implementation measurements.
 
 ## Rate limiting
 
-Rate limiting is planned for authentication and RPC-backed routes. It should be added after route behavior is correct and tested, with limits documented rather than copied blindly.
+Implemented. Two tiers are applied as per-route wraps at routing time, so a route that is not wrapped is never limited.
+
+| Tier | Applies to | Limit | Burst |
+|---|---|---|---|
+| Global | Every `/api/v1` route | 60 requests per minute | 10 |
+| Authentication | `POST /api/v1/auth/login`, `POST /api/v1/auth/register` | 5 requests per minute | 2 |
+
+Both numbers are per key. `login` and `register` carry the authentication tier outside the global one, so a blocked brute-force attempt does not spend a global token.
+
+**Key.** Authenticated routes bucket per user id, read from the request context that `RequireAuth` populates, so callers behind one shared address do not spend each other's budget. Every route without a user in context, `login` and `register` included, buckets per client address with the source port dropped. The two namespaces are prefixed (`user:`, `ip:`).
+
+**Rejection.** A denied request returns `429` with the standard envelope, code `RATE_LIMITED`, and `Retry-After` in whole seconds, rounded up. `Retry-After` is set on the 429 only; no `X-RateLimit-*` headers are sent.
+
+**Exemption.** `GET /health`, `GET /health/live`, and `GET /health/ready` are infrastructure traffic and carry no wrap on either tier.
+
+**State.** Buckets are in-process, one per key, refilled from elapsed wall-clock time on each request. There is no shared store, so limits are per API instance and reset on restart. A key untouched for longer than the idle threshold is dropped and recreated on its next request; that bounds how stale a bucket may be, not how many exist, and a sweep ticker belongs to W4-B5.
+
+The numbers are code constants (`backend/cmd/api/ratelimit.go`), not configuration, until real traffic argues otherwise.
+
+**Not counted.** An unmatched path still returns the mux's plain-text 404 with no limiter, and a request rejected by `RequireAuth` returns 401 before the global limiter runs. Both stay open; the catch-all and method-not-allowed behavior remains a B7 candidate.
 
 ## Open API decisions
 

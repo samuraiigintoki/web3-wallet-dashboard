@@ -455,6 +455,18 @@ These decisions may later receive individual Architecture Decision Records in `d
 
 `GET /health/ready` checks the PostgreSQL pool on every request with a fixed two-second timeout derived from the request context. It does not cache results or inspect domain state and does not check EVM RPC. A successful ping returns `200 {"status":"ok"}`. A database error, timeout, or request cancellation returns `503` with the standard `SERVICE_UNAVAILABLE` envelope and neutral `not ready` message. The underlying cause is logged at error level with the request ID and is not returned to the caller.
 
+## Rate limiting
+
+Two tiers are constructed in `cmd/api`: a global tier at 60 requests per minute with a burst of 10, and an authentication tier at 5 requests per minute with a burst of 2. Both are hand-rolled stdlib token buckets, one bucket per key, refilled from elapsed wall-clock time on each request and protected by one mutex. `httpapi` declares the `RateLimiter` interface and owns the middleware; `cmd/api` owns the implementation, the same split as `databaseReadiness`.
+
+The tiers are applied at routing time rather than as one chain-wide middleware around the mux, and the key is the reason. An authenticated route takes its key from the user id that `RequireAuth` places in the request context, and `RequireAuth` runs inside the mux while composing the route. A limiter outside the mux would run before that, see no user, and bucket every authenticated caller under its client address, which is exactly the shared-address coupling the per-user key exists to avoid. So the global wrap sits inside `requireAuth` for authenticated route groups and outside it for public routes, where the key is the client address with the source port removed. The authentication wrap sits outside the global one on `login` and `register` only.
+
+Two consequences are accepted and recorded rather than hidden. A request that `RequireAuth` rejects returns 401 before the global limiter sees it, so invalid-token floods are counted only by whatever fronts the process. An unmatched path still returns the mux's plain-text 404 without touching a limiter, because W4-B2 deliberately preserved that behavior and the catch-all stays a B7 candidate.
+
+Denials write `429` with code `RATE_LIMITED`, the neutral message `too many requests`, and `Retry-After` in whole seconds rounded up. No `X-RateLimit-*` headers are sent. Health and readiness probes carry no wrap.
+
+Cleanup is lazy eviction on access only: a bucket older than the idle threshold is dropped and recreated full, which is safe because the threshold exceeds one full refill. No goroutine is added in this block. Lazy eviction bounds how stale a bucket may be, not how many buckets exist, so the in-memory map still grows with the number of distinct keys seen. W4-B5 is the block about building a background worker; the sweep ticker belongs there, reusing that worker rather than adding a second one here.
+
 ## Open decisions
 
 1. (Resolved for B3) Bearer-token authentication, not session cookies. See docs/auth.md.
