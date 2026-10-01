@@ -8,26 +8,34 @@ import (
 	"time"
 )
 
+// walletRecord keeps the owning user beside the wallet itself. The owner is a
+// query scope, not a Wallet field, so the domain type stays identical to the
+// response DTO shape.
+type walletRecord struct {
+	UserID int64
+	Wallet Wallet
+}
+
 type InMemoryWalletRepo struct {
-	wallets []Wallet
+	wallets []walletRecord
 	counter int64
 }
 
 func NewInMemoryWalletRepo() *InMemoryWalletRepo {
 	return &InMemoryWalletRepo{
-		wallets: make([]Wallet, 0),
+		wallets: make([]walletRecord, 0),
 		counter: 0,
 	}
 }
 
 // Create implements [WalletRepository].
-func (repo *InMemoryWalletRepo) Create(ctx context.Context, w Wallet) (Wallet, error) {
+func (repo *InMemoryWalletRepo) Create(ctx context.Context, userID int64, w Wallet) (Wallet, error) {
 	if err := ctx.Err(); err != nil {
 		return Wallet{}, err
 	}
 
 	for _, existing := range repo.wallets {
-		if existing.Address == w.Address && existing.ChainID == w.ChainID {
+		if existing.UserID == userID && existing.Wallet.Address == w.Address && existing.Wallet.ChainID == w.ChainID {
 			return Wallet{}, ErrWalletDuplicate
 		}
 	}
@@ -36,27 +44,27 @@ func (repo *InMemoryWalletRepo) Create(ctx context.Context, w Wallet) (Wallet, e
 	w.ID = repo.counter
 	w.CreatedAt = time.Now().UTC()
 
-	repo.wallets = append(repo.wallets, w)
+	repo.wallets = append(repo.wallets, walletRecord{UserID: userID, Wallet: w})
 
 	return w, nil
 }
 
 // GetByID implements [WalletRepository].
-func (repo *InMemoryWalletRepo) GetByID(ctx context.Context, id int64) (Wallet, error) {
+func (repo *InMemoryWalletRepo) GetByID(ctx context.Context, userID int64, id int64) (Wallet, error) {
 	if err := ctx.Err(); err != nil {
 		return Wallet{}, err
 	}
 
-	for _, w := range repo.wallets {
-		if w.ID == id {
-			return w, nil
+	for _, rec := range repo.wallets {
+		if rec.UserID == userID && rec.Wallet.ID == id {
+			return rec.Wallet, nil
 		}
 	}
 
 	return Wallet{}, ErrWalletNotFound
 }
 
-func (repo *InMemoryWalletRepo) List(ctx context.Context, filter WalletFilter) ([]Wallet, int64, error) {
+func (repo *InMemoryWalletRepo) List(ctx context.Context, userID int64, filter WalletFilter) ([]Wallet, int64, error) {
 	filtered := make([]Wallet, 0)
 	searchLower := strings.ToLower(filter.Search)
 
@@ -64,7 +72,13 @@ func (repo *InMemoryWalletRepo) List(ctx context.Context, filter WalletFilter) (
 		return nil, 0, err
 	}
 
-	for _, w := range repo.wallets {
+	for _, rec := range repo.wallets {
+		if rec.UserID != userID {
+			continue
+		}
+
+		w := rec.Wallet
+
 		if filter.ChainID > 0 && w.ChainID != filter.ChainID {
 			continue
 		}
@@ -102,30 +116,30 @@ func (repo *InMemoryWalletRepo) List(ctx context.Context, filter WalletFilter) (
 	return filtered[offset:end], totalItems, nil
 }
 
-func (repo *InMemoryWalletRepo) Update(ctx context.Context, id int64, newLabel string) (Wallet, error) {
+func (repo *InMemoryWalletRepo) Update(ctx context.Context, userID int64, id int64, newLabel string) (Wallet, error) {
 	if err := ctx.Err(); err != nil {
 		return Wallet{}, err
 	}
 
 	for i := range repo.wallets {
-		if repo.wallets[i].ID == id {
-			repo.wallets[i].Label = newLabel
-			return repo.wallets[i], nil
+		if repo.wallets[i].UserID == userID && repo.wallets[i].Wallet.ID == id {
+			repo.wallets[i].Wallet.Label = newLabel
+			return repo.wallets[i].Wallet, nil
 		}
 	}
 
 	return Wallet{}, ErrWalletNotFound
 }
 
-func (repo *InMemoryWalletRepo) Delete(ctx context.Context, id int64) error {
+func (repo *InMemoryWalletRepo) Delete(ctx context.Context, userID int64, id int64) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 
 	found := false
 
-	repo.wallets = slices.DeleteFunc(repo.wallets, func(w Wallet) bool {
-		if w.ID == id {
+	repo.wallets = slices.DeleteFunc(repo.wallets, func(rec walletRecord) bool {
+		if rec.UserID == userID && rec.Wallet.ID == id {
 			found = true
 			return true
 		}

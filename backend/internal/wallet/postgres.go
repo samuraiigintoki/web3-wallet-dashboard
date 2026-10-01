@@ -20,17 +20,17 @@ func NewPostgresWalletRepo(db *sql.DB) *PostgresWalletRepo {
 	}
 }
 
-func (repo *PostgresWalletRepo) Create(ctx context.Context, w Wallet) (Wallet, error) {
+func (repo *PostgresWalletRepo) Create(ctx context.Context, userID int64, w Wallet) (Wallet, error) {
 	query := `
-		INSERT INTO wallets (address, chain_id, label)
-		VALUES ($1,$2,$3)
+		INSERT INTO wallets (user_id, address, chain_id, label)
+		VALUES ($1,$2,$3,$4)
 		RETURNING id, created_at; 
 	`
 
-	err := repo.db.QueryRowContext(ctx, query, w.Address, w.ChainID, w.Label).Scan(&w.ID, &w.CreatedAt)
+	err := repo.db.QueryRowContext(ctx, query, userID, w.Address, w.ChainID, w.Label).Scan(&w.ID, &w.CreatedAt)
 	if err != nil {
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "unique_address_chain" {
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "uq_wallets_user_chain_address" {
 			return Wallet{}, ErrWalletDuplicate
 		}
 		return Wallet{}, err
@@ -39,14 +39,14 @@ func (repo *PostgresWalletRepo) Create(ctx context.Context, w Wallet) (Wallet, e
 	return w, nil
 }
 
-func (repo *PostgresWalletRepo) GetByID(ctx context.Context, id int64) (Wallet, error) {
+func (repo *PostgresWalletRepo) GetByID(ctx context.Context, userID int64, id int64) (Wallet, error) {
 
 	query := `
-		SELECT id, address, chain_id, label, created_at FROM wallets WHERE id = $1;
+		SELECT id, address, chain_id, label, created_at FROM wallets WHERE user_id = $1 AND id = $2;
 	`
 
 	var w Wallet
-	err := repo.db.QueryRowContext(ctx, query, id).Scan(&w.ID, &w.Address, &w.ChainID, &w.Label, &w.CreatedAt)
+	err := repo.db.QueryRowContext(ctx, query, userID, id).Scan(&w.ID, &w.Address, &w.ChainID, &w.Label, &w.CreatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Wallet{}, ErrWalletNotFound
@@ -57,10 +57,10 @@ func (repo *PostgresWalletRepo) GetByID(ctx context.Context, id int64) (Wallet, 
 	return w, nil
 }
 
-func (repo *PostgresWalletRepo) List(ctx context.Context, filter WalletFilter) ([]Wallet, int64, error) {
-	whereClauses := []string{"1=1"}
-	args := []any{}
-	argIndex := 1
+func (repo *PostgresWalletRepo) List(ctx context.Context, userID int64, filter WalletFilter) ([]Wallet, int64, error) {
+	whereClauses := []string{"user_id = $1"}
+	args := []any{userID}
+	argIndex := 2
 
 	if filter.ChainID > 0 {
 		whereClauses = append(whereClauses, fmt.Sprintf("chain_id = $%d", argIndex))
@@ -120,13 +120,13 @@ func (repo *PostgresWalletRepo) List(ctx context.Context, filter WalletFilter) (
 	return wallets, totalItems, nil
 }
 
-func (repo *PostgresWalletRepo) Update(ctx context.Context, id int64, newLabel string) (Wallet, error) {
+func (repo *PostgresWalletRepo) Update(ctx context.Context, userID int64, id int64, newLabel string) (Wallet, error) {
 
 	query := `
-		UPDATE wallets SET label = $1 WHERE id = $2 RETURNING id, address, chain_id, label, created_at
+		UPDATE wallets SET label = $1 WHERE user_id = $2 AND id = $3 RETURNING id, address, chain_id, label, created_at
 	`
 	var w Wallet
-	err := repo.db.QueryRowContext(ctx, query, newLabel, id).Scan(&w.ID, &w.Address, &w.ChainID, &w.Label, &w.CreatedAt)
+	err := repo.db.QueryRowContext(ctx, query, newLabel, userID, id).Scan(&w.ID, &w.Address, &w.ChainID, &w.Label, &w.CreatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Wallet{}, ErrWalletNotFound
@@ -137,12 +137,12 @@ func (repo *PostgresWalletRepo) Update(ctx context.Context, id int64, newLabel s
 	return w, nil
 }
 
-func (repo *PostgresWalletRepo) Delete(ctx context.Context, id int64) error {
+func (repo *PostgresWalletRepo) Delete(ctx context.Context, userID int64, id int64) error {
 
-	query := `DELETE FROM wallets WHERE id = $1 RETURNING id`
+	query := `DELETE FROM wallets WHERE user_id = $1 AND id = $2 RETURNING id`
 
 	var deletedID int64
-	err := repo.db.QueryRowContext(ctx, query, id).Scan(&deletedID)
+	err := repo.db.QueryRowContext(ctx, query, userID, id).Scan(&deletedID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrWalletNotFound

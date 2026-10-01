@@ -29,7 +29,7 @@ func (e *ValidationError) Error() string {
 	return fmt.Sprintf("%q: %q", e.Field, e.Message)
 }
 
-func (s *Service) Create(ctx context.Context, address string, chainID int64, label string) (Wallet, error) {
+func (s *Service) Create(ctx context.Context, userID int64, address string, chainID int64, label string) (Wallet, error) {
 	trimmedAddr := strings.ToLower(strings.TrimSpace(address))
 
 	// address validations
@@ -84,7 +84,7 @@ func (s *Service) Create(ctx context.Context, address string, chainID int64, lab
 		return Wallet{}, err
 	}
 
-	return s.repo.Create(ctx, Wallet{
+	return s.repo.Create(ctx, userID, Wallet{
 		Address: trimmedAddr,
 		ChainID: chainID,
 		Label:   trimmedLabel,
@@ -92,11 +92,11 @@ func (s *Service) Create(ctx context.Context, address string, chainID int64, lab
 
 }
 
-func (s *Service) GetByID(ctx context.Context, id int64) (Wallet, error) {
-	return s.repo.GetByID(ctx, id)
+func (s *Service) GetByID(ctx context.Context, userID int64, id int64) (Wallet, error) {
+	return s.repo.GetByID(ctx, userID, id)
 }
 
-func (s *Service) List(ctx context.Context, filter WalletFilter) ([]Wallet, int64, error) {
+func (s *Service) List(ctx context.Context, userID int64, filter WalletFilter) ([]Wallet, int64, error) {
 
 	filter.Search = strings.ToLower(strings.TrimSpace(filter.Search))
 
@@ -138,13 +138,21 @@ func (s *Service) List(ctx context.Context, filter WalletFilter) ([]Wallet, int6
 		}
 	}
 
-	return s.repo.List(ctx, filter)
+	return s.repo.List(ctx, userID, filter)
 }
 
-func (s *Service) UpdateLabel(ctx context.Context, id int64, label *string) (Wallet, error) {
+// UpdateLabel runs the owner-scoped lookup first, then the all-nil no-op, then
+// label validation. A wallet owned by another user, or one that does not
+// exist, is a 404 on every path, and a 404 never degrades into a 422.
+func (s *Service) UpdateLabel(ctx context.Context, userID int64, id int64, label *string) (Wallet, error) {
+
+	current, err := s.repo.GetByID(ctx, userID, id)
+	if err != nil {
+		return Wallet{}, err
+	}
 
 	if label == nil {
-		return s.GetByID(ctx, id)
+		return current, nil
 	}
 
 	rawLabel := *label
@@ -154,11 +162,11 @@ func (s *Service) UpdateLabel(ctx context.Context, id int64, label *string) (Wal
 		return Wallet{}, err
 	}
 
-	return s.repo.Update(ctx, id, validatedLabel)
+	return s.repo.Update(ctx, userID, id, validatedLabel)
 }
 
-func (s *Service) Delete(ctx context.Context, id int64) error {
-	return s.repo.Delete(ctx, id)
+func (s *Service) Delete(ctx context.Context, userID int64, id int64) error {
+	return s.repo.Delete(ctx, userID, id)
 }
 
 // Helper Validation Function

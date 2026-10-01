@@ -171,7 +171,7 @@ Proposed columns:
 | Column | Type | Constraints and notes |
 |---|---|---|
 | `id` | `UUID` | Primary key |
-| `user_id` | `UUID` | Foreign key to `users`, not null |
+| `user_id` | `BIGINT` | Foreign key to `users`, not null, `ON DELETE CASCADE`. Now enforced by `0006_add_wallets_user_id`. |
 | `chain_id` | `BIGint` | Positive, not null |
 | `address` | `VARCHAR(42)` | Canonical EVM address, not null |
 | `label` | `VARCHAR(100)` | User-visible label, not null or documented nullable |
@@ -180,13 +180,13 @@ Proposed columns:
 
 Constraints:
 
-- Unique `(user_id, chain_id, address)`
+- Unique `(user_id, chain_id, address)` as `uq_wallets_user_chain_address`, now enforced by `0006_add_wallets_user_id`. It replaces the single-tenant `unique_address_chain (address, chain_id)`.
 - Address validation in application code and optional database check
 
 Indexes:
 
-- `(user_id, created_at DESC)`
-- `(user_id, chain_id)`
+- `(user_id, created_at DESC, id DESC)` as `idx_wallets_user_created_id`, now enforced by `0006_add_wallets_user_id`. Every list query leads with the owner.
+- `(user_id, chain_id)` is proposed, not created yet.
 
 Important meaning:
 
@@ -241,7 +241,7 @@ Proposed columns:
 | `label` | `VARCHAR(100)` | User-specific label |
 | `enabled` | `BOOLEAN` | Whether shown for that user |
 | `created_at` | `TIMESTAMPTZ` | Not null |
-| `updated_at` | `TIMESTAMPTZ` | Not null. Bumped to `NOW()` on every accepted PATCH; an all-nil update is no-opped in the service before the repository runs. Never exposed in API responses — exposure deferred to the Week 6 indexer work. |
+| `updated_at` | `TIMESTAMPTZ` | Not null. Bumped to `NOW()` on every accepted PATCH. The scoped lookup runs first, so a foreign or missing id is a `404` before any no-op, and an all-nil update on an owned row does not bump. Never exposed in API responses; exposure deferred to the Week 6 indexer work. |
 
 Primary or unique key:
 
@@ -402,7 +402,7 @@ If any step fails, the transaction rolls back and the checkpoint does not advanc
 
 Initial policy:
 
-- Deleting a user may cascade to their `wallets` and `user_contracts` after authentication requirements are defined.
+- Deleting a user cascades to their `wallets` and `user_contracts`, now defined: `wallets.user_id` (`0006`) and `user_contracts.user_id` (`0005`) are `ON DELETE CASCADE`. Sessions cascade the same way (`user_sessions.user_id`, `0003`).
 - Deleting a `user_contracts` record must not delete shared chain data.
 - Contracts and indexed events should not be hard-deleted through ordinary user routes.
 - Operational retention for sessions and logs will be defined with authentication and deployment designs.
