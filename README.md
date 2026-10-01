@@ -137,6 +137,7 @@ go build ./...
 - [Project specification](docs/project-spec.md)
 - [Architecture & Boundaries](docs/architecture.md)
 - [REST API Specification](docs/api.md)
+- [OpenAPI 3.0.3 spec](docs/openapi.yaml)
 - [Database Schema](docs/database-schema.md)
 - [Contract Integration Requirements](docs/contract-requirements.md)
 - [Security Assumptions](docs/security-assumptions.md)

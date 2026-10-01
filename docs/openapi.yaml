@@ -1,0 +1,814 @@
+openapi: "3.0.3"
+
+info:
+  title: Web3 Wallet Dashboard API
+  version: "1.0.0"
+  description: |
+    REST API for the Web3 Wallet Dashboard Go backend.
+
+    Conventions:
+    - Successful single-resource responses wrap the payload in a "data" field.
+    - Successful list responses wrap the payload in "data" and add "pagination".
+    - Error responses always use { "error": { "code", "message", "details" } }.
+    - Protected routes require a bearer token sent as "Authorization: Bearer <token>".
+    - Request bodies are JSON only, capped at 1 MB, and unknown fields are rejected (400 INVALID_JSON).
+    - Fields marked required must be present; invalid values return 422 VALIDATION_ERROR.
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server (backend/cmd/api/main.go binds :8080).
+
+tags:
+  - name: meta
+    description: Liveness.
+  - name: auth
+    description: Register, login, logout.
+  - name: users
+    description: The authenticated user.
+  - name: chains
+    description: Supported chain metadata.
+  - name: wallets
+    description: Owner-scoped wallet CRUD.
+  - name: contracts
+    description: Owner-scoped tracked-contract CRUD.
+
+paths:
+  /health:
+    get:
+      tags: [meta]
+      operationId: health
+      summary: Liveness.
+      responses:
+        '200':
+          description: Service is up.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    example: ok
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/chains:
+    get:
+      tags: [chains]
+      operationId: listChains
+      summary: List supported chains.
+      responses:
+        '200':
+          description: Supported chains.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/chain'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/auth/register:
+    post:
+      tags: [auth]
+      operationId: register
+      summary: Create a user account.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/registerRequest'
+      responses:
+        '201':
+          description: User created.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/user'
+        '400':
+          $ref: '#/components/responses/InvalidJSON'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '409':
+          $ref: '#/components/responses/UserConflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Authenticate and receive a bearer token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/loginRequest'
+      responses:
+        '200':
+          description: Token issued.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/login'
+        '400':
+          $ref: '#/components/responses/InvalidJSON'
+        '401':
+          $ref: '#/components/responses/InvalidCredentials'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: Revoke the presented token.
+      description: >
+        Public route in the router, but the handler parses the bearer token
+        itself and returns 401 UNAUTHENTICATED when it is missing, malformed,
+        or empty.
+      responses:
+        '200':
+          description: Logged out.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/message'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/users/me:
+    get:
+      tags: [users]
+      operationId: me
+      summary: Current authenticated user.
+      security:
+        - httpBearer: []
+      responses:
+        '200':
+          description: Current user.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/user'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/wallets:
+    get:
+      tags: [wallets]
+      operationId: listWallets
+      summary: List the caller's wallets.
+      security:
+        - httpBearer: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/pageSize'
+        - $ref: '#/components/parameters/chainId'
+        - $ref: '#/components/parameters/search'
+      responses:
+        '200':
+          description: Wallets and pagination.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, pagination]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/wallet'
+                  pagination:
+                    $ref: '#/components/schemas/pagination'
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags: [wallets]
+      operationId: createWallet
+      summary: Create a wallet for the caller.
+      security:
+        - httpBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/walletCreate'
+      responses:
+        '201':
+          description: Wallet created.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/wallet'
+        '400':
+          $ref: '#/components/responses/InvalidJSON'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/wallets/{id}:
+    parameters:
+      - $ref: '#/components/parameters/id'
+    get:
+      tags: [wallets]
+      operationId: getWallet
+      summary: Get one of the caller's wallets.
+      security:
+        - httpBearer: []
+      responses:
+        '200':
+          description: Wallet.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/wallet'
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    patch:
+      tags: [wallets]
+      operationId: updateWallet
+      summary: Update the label of the caller's wallet.
+      security:
+        - httpBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/walletUpdate'
+      responses:
+        '200':
+          description: Updated wallet.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/wallet'
+        '400':
+          description: Malformed body (INVALID_JSON) or an invalid id (VALIDATION_ERROR).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [wallets]
+      operationId: deleteWallet
+      summary: Delete the caller's wallet.
+      security:
+        - httpBearer: []
+      responses:
+        '204':
+          description: Deleted.
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/contracts:
+    get:
+      tags: [contracts]
+      operationId: listContracts
+      summary: List the caller's tracked contracts.
+      security:
+        - httpBearer: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/pageSize'
+        - $ref: '#/components/parameters/chainId'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/enabled'
+      responses:
+        '200':
+          description: Contracts and pagination.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, pagination]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/contract'
+                  pagination:
+                    $ref: '#/components/schemas/pagination'
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags: [contracts]
+      operationId: createContract
+      summary: Track a contract for the caller.
+      security:
+        - httpBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/contractCreate'
+      responses:
+        '201':
+          description: Contract tracked.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/contract'
+        '400':
+          $ref: '#/components/responses/InvalidJSON'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/contracts/{id}:
+    parameters:
+      - $ref: '#/components/parameters/id'
+    get:
+      tags: [contracts]
+      operationId: getContract
+      summary: Get one of the caller's tracked contracts.
+      security:
+        - httpBearer: []
+      responses:
+        '200':
+          description: Contract.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/contract'
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    patch:
+      tags: [contracts]
+      operationId: updateContract
+      summary: Update the label and/or enabled flag.
+      security:
+        - httpBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/contractUpdate'
+      responses:
+        '200':
+          description: Updated contract.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/contract'
+        '400':
+          description: Malformed body (INVALID_JSON) or an invalid id (VALIDATION_ERROR).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [contracts]
+      operationId: deleteContract
+      summary: Delete the caller's tracked contract.
+      security:
+        - httpBearer: []
+      responses:
+        '204':
+          description: Deleted.
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  securitySchemes:
+    httpBearer:
+      type: http
+      scheme: bearer
+      description: Bearer token returned by POST /api/v1/auth/login.
+
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      description: Resource id.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    page:
+      name: page
+      in: query
+      required: false
+      description: Page number, default 1.
+      schema:
+        type: integer
+        minimum: 1
+    pageSize:
+      name: pageSize
+      in: query
+      required: false
+      description: Page size, default 20.
+      schema:
+        type: integer
+        minimum: 1
+    chainId:
+      name: chainId
+      in: query
+      required: false
+      description: Filter by chain. An unknown chain returns 422.
+      schema:
+        type: integer
+        format: int64
+    search:
+      name: search
+      in: query
+      required: false
+      description: Free-text filter.
+      schema:
+        type: string
+    enabled:
+      name: enabled
+      in: query
+      required: false
+      description: Filter by enabled. Must be the literal "true" or "false".
+      schema:
+        type: string
+        enum: ["true", "false"]
+
+  schemas:
+    user:
+      type: object
+      required: [id, email, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        email:
+          type: string
+          format: email
+        createdAt:
+          type: string
+          format: date-time
+    login:
+      type: object
+      required: [token, expiresAt]
+      properties:
+        token:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+    message:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+          example: logged out
+    chain:
+      type: object
+      required: [chainId, name, symbol, isTestnet]
+      properties:
+        chainId:
+          type: integer
+          format: int64
+        name:
+          type: string
+        symbol:
+          type: string
+        isTestnet:
+          type: boolean
+    wallet:
+      type: object
+      required: [id, address, chainId, label, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        address:
+          type: string
+        chainId:
+          type: integer
+          format: int64
+        label:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    contract:
+      type: object
+      required: [id, address, chainId, label, enabled, startBlock, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        address:
+          type: string
+        chainId:
+          type: integer
+          format: int64
+        label:
+          type: string
+        enabled:
+          type: boolean
+        startBlock:
+          type: integer
+          format: int64
+        createdAt:
+          type: string
+          format: date-time
+    pagination:
+      type: object
+      required: [page, pageSize, totalItems, totalPages]
+      properties:
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        totalItems:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+          format: int64
+    error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum:
+            - INVALID_JSON
+            - VALIDATION_ERROR
+            - RESOURCE_CONFLICT
+            - RESOURCE_NOT_FOUND
+            - INTERNAL_SERVER_ERROR
+            - INVALID_CREDENTIALS
+            - UNAUTHENTICATED
+            - USER_CONFLICT
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties:
+            type: string
+    registerRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+    loginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+    walletCreate:
+      type: object
+      required: [address, chainId, label]
+      properties:
+        address:
+          type: string
+        chainId:
+          type: integer
+          format: int64
+        label:
+          type: string
+    walletUpdate:
+      type: object
+      description: All fields optional. Omitted fields are left unchanged.
+      properties:
+        label:
+          type: string
+    contractCreate:
+      type: object
+      required: [address, chainId, label, startBlock]
+      properties:
+        address:
+          type: string
+        chainId:
+          type: integer
+          format: int64
+        label:
+          type: string
+        startBlock:
+          type: integer
+          format: int64
+    contractUpdate:
+      type: object
+      description: All fields optional. Omitted fields are left unchanged.
+      properties:
+        label:
+          type: string
+        enabled:
+          type: boolean
+
+  responses:
+    InvalidJSON:
+      description: Malformed JSON body, an unknown field, or a body over 1 MB.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/error'
+          example:
+            error:
+              code: INVALID_JSON
+              message: invalid request body
+    Validation400:
+      description: Malformed input, such as an invalid id or an invalid query value.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/error'
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: invalid request
+    Validation422:
+      description: A field is present but has an invalid value, for example a bad address or an unknown chainId.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/error'
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: invalid chainId
+              details:
+                chainId: unknown chain
+    Conflict:
+      description: The resource already exists for this user, for example the same address on the same chain.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/error'
+          example:
+            error:
+              code: RESOURCE_CONFLICT
+              message: already tracked
+    UserConflict:
+      description: The email is already registered.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/error'
+          example:
+            error:
+              code: USER_CONFLICT
+              message: email already registered
+    InvalidCredentials:
+      description: The email or password is wrong.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/error'
+          example:
+            error:
+              code: INVALID_CREDENTIALS
+              message: invalid credentials
+    Unauthorized:
+      description: Missing, malformed, expired, or unknown bearer token.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/error'
+          example:
+            error:
+              code: UNAUTHENTICATED
+              message: unauthenticated
+    NotFound:
+      description: The resource does not exist or is not owned by the caller.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/error'
+          example:
+            error:
+              code: RESOURCE_NOT_FOUND
+              message: not found
+    InternalError:
+      description: Unexpected server error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/error'
+          example:
+            error:
+              code: INTERNAL_SERVER_ERROR
+              message: internal server error
