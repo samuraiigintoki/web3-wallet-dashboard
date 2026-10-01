@@ -27,7 +27,7 @@ func TestListChainsEndpoint(t *testing.T) {
 		userSvc := user.NewService(userRepo)
 		contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-		router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc, testLogger())
+		router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc, testLogger(), &stubReadinessChecker{})
 
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/chains", nil)
 		rec := httptest.NewRecorder()
@@ -96,7 +96,7 @@ func TestListChainsEndpoint(t *testing.T) {
 		userSvc := user.NewService(userRepo)
 		contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-		router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc, testLogger())
+		router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc, testLogger(), &stubReadinessChecker{})
 
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/chains", nil)
 		rec := httptest.NewRecorder()
