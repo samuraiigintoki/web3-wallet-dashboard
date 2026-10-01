@@ -28,6 +28,18 @@ func (e *errorUserRepo) GetSessionByTokenHash(ctx context.Context, tokenHash str
 	return user.UserSession{}, errors.New("database connection down")
 }
 
+func (e *errorUserRepo) DeleteSessionsByUser(ctx context.Context, userID int64) (int64, error) {
+	return e.UserRepository.DeleteSessionsByUser(ctx, userID)
+}
+
+type errorRevokeAllUserRepo struct {
+	user.UserRepository
+}
+
+func (e *errorRevokeAllUserRepo) DeleteSessionsByUser(ctx context.Context, userID int64) (int64, error) {
+	return 0, errors.New("database connection down")
+}
+
 func newTestRouter(userRepo user.UserRepository) http.Handler {
 	walletRepo := wallet.NewInMemoryWalletRepo()
 
@@ -376,4 +388,94 @@ func TestLogoutHandler(t *testing.T) {
 	if recMeAfter.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401 Unauthorized on /api/v1/users/me after logout, got: %d", recMeAfter.Code)
 	}
+}
+
+func TestRevokeAllSessionsHandler(t *testing.T) {
+	ctx := context.Background()
+	repo := user.NewInMemoryRepository()
+	actor, err := repo.Create(ctx, user.User{Email: "revoke-all@example.com"})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	token := "revoke-all-valid-token"
+	sum := sha256.Sum256([]byte(token))
+	tokenHash := base64.RawURLEncoding.EncodeToString(sum[:])
+	if _, err := repo.CreateSession(ctx, user.UserSession{
+		UserID:    actor.ID,
+		TokenHash: tokenHash,
+		ExpiresAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	router := newTestRouter(repo)
+	doRevokeAll := func(token string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/revoke-all", nil)
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec
+	}
+
+	t.Run("missing token returns 401", func(t *testing.T) {
+		rec := doRevokeAll("")
+		if rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), CodeUnauthenticated) {
+			t.Fatalf("expected 401 %s, got %d body=%s", CodeUnauthenticated, rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("invalid token returns 401", func(t *testing.T) {
+		rec := doRevokeAll("invalid-token")
+		if rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), CodeUnauthenticated) {
+			t.Fatalf("expected 401 %s, got %d body=%s", CodeUnauthenticated, rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("valid token revokes every session and returns empty 204", func(t *testing.T) {
+		rec := doRevokeAll(token)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("expected 204 No Content, got %d body=%s", rec.Code, rec.Body.String())
+		}
+		if rec.Body.Len() != 0 {
+			t.Fatalf("expected an empty response body, got %q", rec.Body.String())
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		meRec := httptest.NewRecorder()
+		router.ServeHTTP(meRec, req)
+		if meRec.Code != http.StatusUnauthorized {
+			t.Fatalf("expected revoked token to return 401 on the next request, got %d body=%s", meRec.Code, meRec.Body.String())
+		}
+	})
+
+	t.Run("repository error returns 500", func(t *testing.T) {
+		baseRepo := user.NewInMemoryRepository()
+		failingActor, err := baseRepo.Create(ctx, user.User{Email: "revoke-all-error@example.com"})
+		if err != nil {
+			t.Fatalf("create user for error case: %v", err)
+		}
+		failingToken := "revoke-all-error-token"
+		failingSum := sha256.Sum256([]byte(failingToken))
+		failingHash := base64.RawURLEncoding.EncodeToString(failingSum[:])
+		if _, err := baseRepo.CreateSession(ctx, user.UserSession{
+			UserID:    failingActor.ID,
+			TokenHash: failingHash,
+			ExpiresAt: time.Now().Add(time.Hour),
+		}); err != nil {
+			t.Fatalf("create session for error case: %v", err)
+		}
+
+		failingRouter := newTestRouter(&errorRevokeAllUserRepo{UserRepository: baseRepo})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/revoke-all", nil)
+		req.Header.Set("Authorization", "Bearer "+failingToken)
+		rec := httptest.NewRecorder()
+		failingRouter.ServeHTTP(rec, req)
+		if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), CodeInternalError) {
+			t.Fatalf("expected 500 %s, got %d body=%s", CodeInternalError, rec.Code, rec.Body.String())
+		}
+	})
 }

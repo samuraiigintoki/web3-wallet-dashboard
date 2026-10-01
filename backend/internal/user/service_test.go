@@ -147,3 +147,39 @@ func TestValidateSession_Expired(t *testing.T) {
 		t.Fatalf("expected ErrUnauthenticated for expired session, got: %v", err)
 	}
 }
+
+func TestRevokeAll_RemovesOnlyTheUsersSessions(t *testing.T) {
+	ctx := context.Background()
+	repo := NewInMemoryRepository()
+	service := NewService(repo)
+
+	const userA int64 = 101
+	const userB int64 = 202
+	sessions := []UserSession{
+		{UserID: userA, TokenHash: "user-a-current", ExpiresAt: time.Now().Add(time.Hour)},
+		{UserID: userA, TokenHash: "user-a-other", ExpiresAt: time.Now().Add(time.Hour)},
+		{UserID: userB, TokenHash: "user-b-current", ExpiresAt: time.Now().Add(time.Hour)},
+	}
+	for _, session := range sessions {
+		if _, err := repo.CreateSession(ctx, session); err != nil {
+			t.Fatalf("create session %q: %v", session.TokenHash, err)
+		}
+	}
+
+	deleted, err := service.RevokeAll(ctx, userA)
+	if err != nil {
+		t.Fatalf("revoke all sessions: %v", err)
+	}
+	if deleted != 2 {
+		t.Fatalf("expected 2 deleted sessions for user A, got %d", deleted)
+	}
+
+	for _, tokenHash := range []string{"user-a-current", "user-a-other"} {
+		if _, err := repo.GetSessionByTokenHash(ctx, tokenHash); !errors.Is(err, ErrNotFound) {
+			t.Errorf("expected user A session %q to be deleted, got error %v", tokenHash, err)
+		}
+	}
+	if _, err := repo.GetSessionByTokenHash(ctx, "user-b-current"); err != nil {
+		t.Fatalf("expected user B session to remain, got error %v", err)
+	}
+}

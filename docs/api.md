@@ -4,7 +4,7 @@
 
 Machine-readable spec: [docs/openapi.yaml](openapi.yaml).
 
-This document is the living REST API design. `GET /health`, `POST /api/v1/wallets`, `GET /api/v1/wallets`, `GET /api/v1/wallets/{id}`, `PATCH /api/v1/wallets/{id}`, `DELETE /api/v1/wallets/{id}`, `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, `GET /api/v1/users/me`, `GET /api/v1/chains`, `POST /api/v1/contracts`, `GET /api/v1/contracts`, `GET /api/v1/contracts/{id}`, `PATCH /api/v1/contracts/{id}` and `DELETE /api/v1/contracts/{id}` are implemented. Additional routes remain planned.
+This document is the living REST API design. `GET /health`, `POST /api/v1/wallets`, `GET /api/v1/wallets`, `GET /api/v1/wallets/{id}`, `PATCH /api/v1/wallets/{id}`, `DELETE /api/v1/wallets/{id}`, `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, `POST /api/v1/auth/revoke-all`, `GET /api/v1/users/me`, `GET /api/v1/chains`, `POST /api/v1/contracts`, `GET /api/v1/contracts`, `GET /api/v1/contracts/{id}`, `PATCH /api/v1/contracts/{id}` and `DELETE /api/v1/contracts/{id}` are implemented. Additional routes remain planned.
 
 ## Design principles
 
@@ -242,6 +242,22 @@ Success: `200 OK`.
 
 Errors:
 - `401 Unauthorized`: `UNAUTHENTICATED` (Missing or malformed Authorization header)
+
+### `POST /api/v1/auth/revoke-all`
+
+**Status:** Implemented, backed by PostgreSQL.
+
+**Authentication:** Required (`Authorization: Bearer <token>`)
+
+Behavior:
+- Deletes every session belonging to the authenticated user, including the session used for this request.
+- Subsequent requests with any revoked token return `401 UNAUTHENTICATED`.
+
+Success: `204 No Content` with an empty body.
+
+Errors:
+- `401 Unauthorized`: `UNAUTHENTICATED` (Missing, malformed, expired, or unknown bearer token)
+- `500 Internal Server Error`: `INTERNAL_SERVER_ERROR` (Unexpected repository failure)
 
 ### `GET /api/v1/users/me`
 

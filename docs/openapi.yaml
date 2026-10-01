@@ -159,6 +159,24 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /api/v1/auth/revoke-all:
+    post:
+      tags: [auth]
+      operationId: revokeAllSessions
+      summary: Revoke all sessions for the authenticated user.
+      description: >
+        Deletes every session for the user associated with the bearer token,
+        including the token used for this request.
+      security:
+        - httpBearer: []
+      responses:
+        '204':
+          description: All sessions revoked.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/v1/users/me:
     get:
       tags: [users]

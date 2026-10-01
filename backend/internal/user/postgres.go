@@ -105,3 +105,19 @@ func (repo *PostgresUserRepository) DeleteSessionByTokenHash(ctx context.Context
 
 	return nil
 }
+
+func (repo *PostgresUserRepository) DeleteSessionsByUser(ctx context.Context, userID int64) (int64, error) {
+	const query = `DELETE FROM user_sessions WHERE user_id = $1`
+
+	result, err := repo.db.ExecContext(ctx, query, userID)
+	if err != nil {
+		return 0, err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+
+	return rowsAffected, nil
+}

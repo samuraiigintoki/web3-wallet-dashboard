@@ -125,3 +125,7 @@ func (s *Service) Logout(ctx context.Context, token string) error {
 	tokenHash := base64.RawURLEncoding.EncodeToString(sum[:])
 	return s.repo.DeleteSessionByTokenHash(ctx, tokenHash)
 }
+
+func (s *Service) RevokeAll(ctx context.Context, userID int64) (int64, error) {
+	return s.repo.DeleteSessionsByUser(ctx, userID)
+}
