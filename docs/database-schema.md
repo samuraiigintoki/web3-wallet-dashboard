@@ -2,7 +2,7 @@
 
 ## Status
 
-Initial schema defined. First migration `0001_create_wallets.up.sql` implemented for the unauthenticated wallet vertical slice. See `docs/adr/0001-wallet-id-and-schema-conventions.md` for MVP schema decisions.
+Schema for the implemented backend is managed by migrations 0001 through 0006: wallets (now user-owned, see `docs/adr/0003-wallet-ownership-retrofit.md`), users and sessions, supported chains, and tracked contracts. The Week-6 indexer tables remain proposed. See `docs/adr/0001-wallet-id-and-schema-conventions.md` for MVP schema decisions.
 
 ## Design goals
 
@@ -130,7 +130,7 @@ erDiagram
 
 Purpose: records applied database migrations to guarantee idempotent execution.
 
-Proposed columns:
+Columns (implemented):
 
 | Column | Type | Constraints and notes |
 | --- | --- | --- |
@@ -141,7 +141,7 @@ Proposed columns:
 
 Purpose: application identity and authentication record.
 
-Proposed columns:
+Columns (implemented):
 
 | Column | Type | Constraints and notes |
 |---|---|---|
@@ -166,7 +166,7 @@ Security:
 
 Purpose: user-owned saved EVM address metadata.
 
-Proposed columns:
+Columns (implemented):
 
 | Column | Type | Constraints and notes |
 |---|---|---|
@@ -197,7 +197,7 @@ Important meaning:
 
 Purpose: one global record for each supported `MultiSigWallet` deployment.
 
-Proposed columns:
+Columns (implemented):
 
 | Column | Type | Constraints and notes |
 |---|---|---|
@@ -232,7 +232,7 @@ Multiple users may track the same contract. The system should index one deployme
 
 Purpose: user-specific relationship to a globally identified tracked contract.
 
-Proposed columns:
+Columns (implemented):
 
 | Column | Type | Constraints and notes |
 |---|---|---|
