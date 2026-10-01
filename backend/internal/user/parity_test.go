@@ -21,8 +21,8 @@ type sessionRevocationRepository interface {
 }
 
 type sessionRevocationUsers struct {
-	owner   int64
-	other   int64
+	owner int64
+	other int64
 }
 
 type sessionRevocationObservation struct {
