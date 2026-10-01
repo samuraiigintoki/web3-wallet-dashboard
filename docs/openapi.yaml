@@ -21,7 +21,7 @@ servers:
 
 tags:
   - name: meta
-    description: Liveness.
+    description: Liveness and PostgreSQL readiness.
   - name: auth
     description: Register, login, logout.
   - name: users
@@ -34,26 +34,41 @@ tags:
     description: Owner-scoped tracked-contract CRUD.
 
 paths:
+  /health/live:
+    get:
+      tags: [meta]
+      operationId: healthLive
+      summary: Process liveness.
+      description: Returns success without checking PostgreSQL, RPC, or domain state.
+      responses:
+        '200':
+          $ref: '#/components/responses/HealthOK'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /health/ready:
+    get:
+      tags: [meta]
+      operationId: healthReady
+      summary: PostgreSQL readiness.
+      description: Pings PostgreSQL on every request with a two-second request-derived timeout. The database error is logged with the request ID and is not returned in the response.
+      responses:
+        '200':
+          $ref: '#/components/responses/HealthOK'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /health:
     get:
       tags: [meta]
       operationId: health
-      summary: Liveness.
+      summary: Liveness compatibility alias.
+      description: Identical to GET /health/live; does not check dependencies.
       responses:
         '200':
-          headers:
-            X-Request-ID:
-              $ref: '#/components/headers/X-Request-ID'
-          description: Service is up.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [status]
-                properties:
-                  status:
-                    type: string
-                    example: ok
+          $ref: '#/components/responses/HealthOK'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -630,6 +645,13 @@ components:
         enum: ["true", "false"]
 
   schemas:
+    health:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
     user:
       type: object
       required: [id, email, createdAt]
@@ -737,6 +759,7 @@ components:
             - RESOURCE_CONFLICT
             - RESOURCE_NOT_FOUND
             - INTERNAL_SERVER_ERROR
+            - SERVICE_UNAVAILABLE
             - INVALID_CREDENTIALS
             - UNAUTHENTICATED
             - USER_CONFLICT
@@ -805,6 +828,30 @@ components:
           type: boolean
 
   responses:
+    HealthOK:
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/X-Request-ID'
+      description: The process is live or the PostgreSQL readiness probe succeeded.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/health'
+          example:
+            status: ok
+    ServiceUnavailable:
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/X-Request-ID'
+      description: The PostgreSQL readiness check failed, timed out, or the request was canceled. The underlying cause is not exposed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/error'
+          example:
+            error:
+              code: SERVICE_UNAVAILABLE
+              message: not ready
     InvalidJSON:
       headers:
         X-Request-ID:

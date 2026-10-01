@@ -10,12 +10,14 @@ import (
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
 )
 
-func NewRouter(walletSvc *wallet.Service, userSvc *user.Service, chainSvc *chain.Service, contractSvc *contract.Service, logger *slog.Logger) http.Handler {
+func NewRouter(walletSvc *wallet.Service, userSvc *user.Service, chainSvc *chain.Service, contractSvc *contract.Service, logger *slog.Logger, readinessChecker ReadinessChecker) http.Handler {
 	mux := http.NewServeMux()
 	h := NewHandler(walletSvc, userSvc, chainSvc, contractSvc)
 
-	// health
+	// Liveness never consults dependencies; /health remains a compatibility alias.
+	mux.HandleFunc("GET /health/live", healthHandler)
 	mux.HandleFunc("GET /health", healthHandler)
+	mux.Handle("GET /health/ready", readyHandler(logger, readinessChecker, readinessTimeout))
 
 	// public: chains (no auth)
 	mux.HandleFunc("GET /api/v1/chains", h.listChains)

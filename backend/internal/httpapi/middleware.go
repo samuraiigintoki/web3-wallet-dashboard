@@ -118,7 +118,7 @@ func accessLogMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 				level = slog.LevelWarn
 			}
 			if response.writeErr != nil {
-				attributes = append(attributes, "writeError", response.writeErr.Error())
+				attributes = append(attributes, "write_error", response.writeErr.Error())
 				if level < slog.LevelWarn {
 					level = slog.LevelWarn
 				}
@@ -129,7 +129,7 @@ func accessLogMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 					attributes = append(attributes, "user_id", fields.userID)
 				}
 				if fields.requestIDGenerationError != "" {
-					attributes = append(attributes, "requestIDGenerationError", fields.requestIDGenerationError)
+					attributes = append(attributes, "request_id_generation_error", fields.requestIDGenerationError)
 					level = slog.LevelError
 				}
 				if fields.panicValue != "" {

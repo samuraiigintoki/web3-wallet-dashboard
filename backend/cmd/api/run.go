@@ -78,8 +78,7 @@ func run(ctx context.Context, logger *slog.Logger) (runErr error) {
 	contractRepo := contract.NewPostgresRepository(db)
 	contractSvc := contract.NewService(contractRepo, chainSvc)
 
-	handler := httpapi.NewRouter(walletSvc, userSvc, chainSvc, contractSvc, logger)
-	// B3 readiness is wired into the router before the listener is opened.
+	handler := httpapi.NewRouter(walletSvc, userSvc, chainSvc, contractSvc, logger, databaseReadiness{db: db})
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
