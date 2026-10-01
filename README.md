@@ -10,7 +10,7 @@ The project uses the existing Solidity `MultiSigWallet` as its contract foundati
 
 The Go backend features:
 
-- Standard-library HTTP server, router, and three-layer architecture (Handler -> Service -> Repository interface), with a GET /health liveness endpoint
+- Standard-library HTTP server, router, and three-layer architecture (Handler -> Service -> Repository interface), with `GET /health/live` liveness (`GET /health` compatibility alias) and PostgreSQL-backed `GET /health/ready` endpoints
 - Bearer-token authentication: register, login, logout, and users/me, with sessions stored as SHA-256 hashes
 - Full wallet CRUD (create, list, get, update label, delete), owner-scoped to the authenticated user
 - Supported-chain metadata (`GET /api/v1/chains`) with chainId validation on wallet and contract writes
@@ -102,22 +102,20 @@ go run ./cmd/api
 
 The API listens on `http://localhost:8080`.
 
-Verify the health endpoint from another terminal:
+Verify liveness and readiness from another terminal:
 
 ```bash
-curl -i http://localhost:8080/health
+curl -i http://localhost:8080/health/live
+curl -i http://localhost:8080/health       # compatibility alias
+curl -i http://localhost:8080/health/ready # requires a reachable PostgreSQL database
 ```
 
-Expected JSON body:
+When the database is reachable, all three return the JSON body `{"status":"ok"}` with `200 OK`. Readiness returns `503 Service Unavailable` with a neutral `not ready` message when PostgreSQL cannot be reached. The underlying database error is logged with the request ID and is not returned to clients.
 
-```json
-{"status":"ok"}
-```
-
-Only `GET` and `HEAD` are accepted for this route. For example, a `POST` request returns `405 Method Not Allowed`:
+The Go `GET` route patterns also accept `HEAD`. Unsupported methods return `405 Method Not Allowed` with an `Allow` header. For example:
 
 ```bash
-curl -i -X POST http://localhost:8080/health
+curl -i -X POST http://localhost:8080/health/live
 ```
 
 ## Run backend checks

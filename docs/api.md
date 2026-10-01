@@ -4,7 +4,7 @@
 
 Machine-readable spec: [docs/openapi.yaml](openapi.yaml).
 
-This document is the living REST API design. `GET /health`, `POST /api/v1/wallets`, `GET /api/v1/wallets`, `GET /api/v1/wallets/{id}`, `PATCH /api/v1/wallets/{id}`, `DELETE /api/v1/wallets/{id}`, `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, `POST /api/v1/auth/revoke-all`, `GET /api/v1/users/me`, `GET /api/v1/chains`, `POST /api/v1/contracts`, `GET /api/v1/contracts`, `GET /api/v1/contracts/{id}`, `PATCH /api/v1/contracts/{id}` and `DELETE /api/v1/contracts/{id}` are implemented. Additional routes remain planned.
+This document is the living REST API design. `GET /health/live` (`GET /health` is its compatibility alias), `GET /health/ready`, `POST /api/v1/wallets`, `GET /api/v1/wallets`, `GET /api/v1/wallets/{id}`, `PATCH /api/v1/wallets/{id}`, `DELETE /api/v1/wallets/{id}`, `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, `POST /api/v1/auth/revoke-all`, `GET /api/v1/users/me`, `GET /api/v1/chains`, `POST /api/v1/contracts`, `GET /api/v1/contracts`, `GET /api/v1/contracts/{id}`, `PATCH /api/v1/contracts/{id}` and `DELETE /api/v1/contracts/{id}` are implemented. Additional routes remain planned.
 
 ## Design principles
 
@@ -20,8 +20,9 @@ This document is the living REST API design. `GET /health`, `POST /api/v1/wallet
 ## Base paths
 
 ```text
-/health          Operational liveness
-/ready           Planned dependency readiness
+/health/live     Process liveness
+/health          Compatibility alias for liveness
+/health/ready    PostgreSQL readiness
 /api/v1          Versioned application API
 ```
 
@@ -87,8 +88,9 @@ The first implementation may use offset pagination. Cursor pagination can be con
 | `409 Conflict` | `USER_CONFLICT` | Duplicate registration email (`idx_users_email_lower`) | None |
 | `422 Unprocessable Entity` | `VALIDATION_ERROR` | Semantic domain validation failures (e.g., malformed address format, empty label, label > 50 chars, unsupported or disabled chainId, negative chainId) | `{"<field>": "<message>"}` (e.g. `{"chainId": "unsupported chain id"}`) |
 | `500 Internal Server Error` | `INTERNAL_SERVER_ERROR` | Unhandled internal server error | None |
+| `503 Service Unavailable` | `SERVICE_UNAVAILABLE` | PostgreSQL readiness check failed, timed out, or the request was canceled | None; message is the neutral `not ready` |
 
-*Note on 405 Method Not Allowed: Method mismatch rejections (e.g. `POST /health`) are handled natively by `http.ServeMux` and return `405 Method Not Allowed` in `text/plain` format.*
+*Note on 405 Method Not Allowed: Method mismatch rejections (e.g. `POST /health/live`) are handled natively by `http.ServeMux` and return `405 Method Not Allowed` in `text/plain` with an `Allow` header.*
 
 ## Common status codes
 
@@ -108,11 +110,11 @@ The first implementation may use offset pagination. Cursor pagination can be con
 
 ## Operational endpoints
 
-### `GET /health`
+### `GET /health/live`
 
 **Status:** Implemented
 
-Purpose: process liveness. It does not check PostgreSQL or EVM RPC.
+Purpose: process liveness only. This handler does not check PostgreSQL, EVM RPC, or domain state. The legacy `GET /health` path is an identical liveness alias.
 
 Response:
 
@@ -122,23 +124,32 @@ Response:
 }
 ```
 
-Expected status: `200 OK`.
+Expected status: `200 OK`. The Go `GET` route pattern also accepts `HEAD`; unsupported methods such as POST return `405 Method Not Allowed` with an `Allow` header.
 
-Unsupported methods return `405 Method Not Allowed`.
+### `GET /health`
 
-### `GET /ready`
+**Status:** Implemented — compatibility alias for `GET /health/live`
 
-**Status:** Planned
+Returns the same liveness response and performs no dependency checks.
 
-Purpose: indicate whether dependencies required to serve application traffic are ready.
+### `GET /health/ready`
 
-Potential checks:
+**Status:** Implemented — PostgreSQL connectivity
 
-- PostgreSQL connectivity
-- Required migrations applied
-- Configuration loaded
+Purpose: indicate whether the API's required PostgreSQL dependency is reachable. Every request pings PostgreSQL with a fixed two-second timeout derived from the request context; readiness is not cached. This probe does not inspect domain state or EVM RPC.
 
-RPC readiness must be designed carefully: a temporary provider failure should be reported without unnecessarily restarting an otherwise healthy API process.
+When the check succeeds, the endpoint returns `200 OK` with `{"status":"ok"}`. If the check fails, times out, or the request is canceled, it returns `503 Service Unavailable` with the standard error envelope and the neutral message `not ready`:
+
+```json
+{
+  "error": {
+    "code": "SERVICE_UNAVAILABLE",
+    "message": "not ready"
+  }
+}
+```
+
+The cause is logged at error level with the request ID and is never included in the response. The Go `GET` route pattern also accepts `HEAD`; unsupported methods such as POST return `405 Method Not Allowed` with an `Allow` header.
 
 ## Authentication routes
 

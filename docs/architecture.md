@@ -441,7 +441,7 @@ These decisions may later receive individual Architecture Decision Records in `d
 
 ## Known limitations
 
-- Only the health endpoint is implemented at the time this document is first written.
+- Readiness covers PostgreSQL connectivity only; EVM RPC availability and domain-state checks are intentionally excluded.
 - The Week-6 indexer tables (multisig_transactions, transaction_confirmations, contract_events, indexer_checkpoints) remain proposed; the user, wallet, chain, and contract tables are implemented in migrations 0001 through 0006.
 - The target testnet and RPC provider are not finalized.
 - Contract event coverage must be checked against the existing ABI.
@@ -449,13 +449,19 @@ These decisions may later receive individual Architecture Decision Records in `d
 - Indexed dashboard data may lag direct chain state.
 - Optional WebSocket behavior is not defined and is not required for the first working version.
 
+## Health and readiness
+
+`GET /health/live` reports process liveness and returns `200 {"status":"ok"}` without querying dependencies. The existing `GET /health` route is a compatibility alias. Both are public and pass through request access logging. The method-qualified Go `GET` patterns also accept `HEAD`; unsupported methods return `405` with `Allow`.
+
+`GET /health/ready` checks the PostgreSQL pool on every request with a fixed two-second timeout derived from the request context. It does not cache results or inspect domain state and does not check EVM RPC. A successful ping returns `200 {"status":"ok"}`. A database error, timeout, or request cancellation returns `503` with the standard `SERVICE_UNAVAILABLE` envelope and neutral `not ready` message. The underlying cause is logged at error level with the request ID and is not returned to the caller.
+
 ## Open decisions
 
 1. (Resolved for B3) Bearer-token authentication, not session cookies. See docs/auth.md.
 2. Target EVM testnet and RPC provider.
 3. Exact contract events and any required contract updates.
 4. Indexer confirmation depth and basic reorganization policy.
-5. Whether readiness checks include PostgreSQL and RPC connectivity.
+5. Whether readiness should include EVM RPC connectivity.
 6. Whether the API exposes normalized contract reads in addition to direct frontend reads.
 7. Whether optional real-time updates use WebSocket or server-sent events.
 8. Whether the indexer remains in the API process or uses a separate executable at deployment time.
@@ -472,7 +478,7 @@ The API process has one defined lifecycle: bind, serve, drain, close, exit.
 
 4. Forced close. If the grace window expires, `http.Server.Close` terminates the remaining connections, the event is logged, and the exit code is 1.
 
-5. Close. The database pool is closed exactly once, after the drain, from the same function that opened it. A clean drain exits with code 0.
+5. Close. The database pool remains available while the HTTP server drains so in-flight readiness checks can finish, then it is closed exactly once from the function that opened it. A clean drain exits with code 0.
 
 Later blocks insert themselves into this sequence instead of adding their own. A background worker stops between the drain and the pool close. The container runtime sends `SIGTERM` and relies on this same order.
 
@@ -482,7 +488,7 @@ The HTTP server uses a 15 second `WriteTimeout`, which is a budget for the whole
 
 The API constructs a JSON logger with `log/slog` and injects it through the server and router. `LOG_LEVEL` accepts `debug`, `info`, `warn`, or `error`; an empty value defaults to `info`, and an invalid value prevents startup.
 
-Each request, including health checks, produces one access-log entry with method, path, matched route template, status, bytes written, duration in milliseconds, the direct peer address, and request ID. Authenticated requests also include the user ID. `X-Forwarded-For` is not trusted. 5xx responses log at error, 4xx responses at warn, and other statuses at info. A response write failure adds `writeError` to the same entry and raises its level to at least warn. Duration retains microsecond precision as a fractional number of milliseconds. The mux's method-qualified pattern is recorded as its path template; an unmatched path has no route value and keeps the plain-text 404.
+Each request, including liveness and readiness probes, produces one access-log entry with method, path, matched route template, status, bytes written, duration in milliseconds, the direct peer address, and request ID. Authenticated requests also include the user ID. `X-Forwarded-For` is not trusted. 5xx responses log at error, 4xx responses at warn, and other statuses at info. A response write failure adds `write_error` to the same entry and raises its level to at least warn. A request-ID generation failure adds `request_id_generation_error` and raises its level to error. Duration retains microsecond precision as a fractional number of milliseconds. The mux's method-qualified pattern is recorded as its path template; an unmatched path has no route value and keeps the plain-text 404.
 
 Request IDs use 1 to 64 ASCII letters, digits, dots, underscores, or hyphens. Missing and invalid values are replaced with a generated UUID v4 and returned in `X-Request-ID`.
 
