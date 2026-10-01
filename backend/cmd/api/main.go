@@ -2,69 +2,18 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"log"
-	"net/http"
 	"os"
-	"time"
-
-	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/chain"
-	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/contract"
-	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/httpapi"
-	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/user"
-	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
-
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"os/signal"
+	"syscall"
 )
 
 func main() {
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		log.Fatalf("DATABASE_URL environment variable is required")
-	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-	db, err := sql.Open("pgx", dsn)
-	if err != nil {
-		log.Fatalf("failed to initiate DB pool : %v", err)
-	}
-	defer db.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(25)
-	db.SetConnMaxLifetime(5 * time.Minute)
-
-	if err := db.PingContext(ctx); err != nil {
-		log.Fatalf("DB unreachable : %v", err)
-	}
-
-	chainRepo := chain.NewPostgresRepository(db)
-	chainSvc := chain.NewService(chainRepo)
-
-	walletRepo := wallet.NewPostgresWalletRepo(db)
-	walletSvc := wallet.NewService(walletRepo, chainSvc)
-
-	userRepo := user.NewPostgresUserRepository(db)
-	userSvc := user.NewService(userRepo)
-
-	contractRepo := contract.NewPostgresRepository(db)
-	contractSvc := contract.NewService(contractRepo, chainSvc)
-
-	handler := httpapi.NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
-
-	addr := ":8080"
-	log.Printf("Starting HTTP Server on %s...", addr)
-
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           handler,
-		ReadHeaderTimeout: 5 * time.Second,
-		IdleTimeout:       60 * time.Second,
-	}
-
-	if err := srv.ListenAndServe(); err != nil {
-		log.Fatalf("Server failed to start : %v", err)
+	if err := run(ctx); err != nil {
+		log.Printf("API stopped with error: %v", err)
+		os.Exit(1)
 	}
 }
