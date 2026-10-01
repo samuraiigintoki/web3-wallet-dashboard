@@ -62,7 +62,7 @@ func newTestRouter(userRepo user.UserRepository, loggers ...*slog.Logger) http.H
 
 	contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-	return NewRouter(walletSvc, userSvc, chainSvc, contractSvc, logger, &stubReadinessChecker{})
+	return NewRouter(walletSvc, userSvc, chainSvc, contractSvc, logger, &stubReadinessChecker{}, unlimitedRateLimiter(), unlimitedRateLimiter())
 }
 
 func TestRequireAuth_Middleware(t *testing.T) {
@@ -274,7 +274,7 @@ func TestLoginHandler_Identical401(t *testing.T) {
 
 	contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc, testLogger(), &stubReadinessChecker{})
+	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc, testLogger(), &stubReadinessChecker{}, unlimitedRateLimiter(), unlimitedRateLimiter())
 
 	_, err := userSvc.Register(ctx, "registered@example.com", "correctpassword")
 	if err != nil {
@@ -347,7 +347,7 @@ func TestLogoutHandler(t *testing.T) {
 
 	contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc, testLogger(), &stubReadinessChecker{})
+	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc, testLogger(), &stubReadinessChecker{}, unlimitedRateLimiter(), unlimitedRateLimiter())
 
 	_, err := userSvc.Register(ctx, "logoutuser@example.com", "mypassword")
 	if err != nil {

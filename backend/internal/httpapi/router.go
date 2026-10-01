@@ -10,27 +10,36 @@ import (
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
 )
 
-func NewRouter(walletSvc *wallet.Service, userSvc *user.Service, chainSvc *chain.Service, contractSvc *contract.Service, logger *slog.Logger, readinessChecker ReadinessChecker) http.Handler {
+func NewRouter(walletSvc *wallet.Service, userSvc *user.Service, chainSvc *chain.Service, contractSvc *contract.Service, logger *slog.Logger, readinessChecker ReadinessChecker, globalLimiter RateLimiter, authLimiter RateLimiter) http.Handler {
 	mux := http.NewServeMux()
 	h := NewHandler(walletSvc, userSvc, chainSvc, contractSvc)
 
 	// Liveness never consults dependencies; /health remains a compatibility alias.
+	// Health probes are infrastructure traffic and carry no rate-limit wrap.
 	mux.HandleFunc("GET /health/live", healthHandler)
 	mux.HandleFunc("GET /health", healthHandler)
 	mux.Handle("GET /health/ready", readyHandler(logger, readinessChecker, readinessTimeout))
 
-	// public: chains (no auth)
-	mux.HandleFunc("GET /api/v1/chains", h.listChains)
+	global := rateLimit(globalLimiter)
+	auth := rateLimit(authLimiter)
+
+	// public: chains (no auth), keyed by client address
+	mux.Handle("GET /api/v1/chains", global(http.HandlerFunc(h.listChains)))
 
 	// Authentication adds the user id to the request's access-log metadata after
-	// validating the bearer token.
+	// validating the bearer token. The global limiter wraps inside requireAuth so
+	// its bucket key is the authenticated user rather than the shared client
+	// address; before requireAuth runs there is no user id to key on.
 	requireAuth := RequireAuth(userSvc)
 	authenticated := func(next http.Handler) http.Handler {
-		return requireAuth(captureAuthenticatedUserID(next))
+		return requireAuth(captureAuthenticatedUserID(global(next)))
 	}
-	mux.HandleFunc("POST /api/v1/auth/register", h.registerUser)
-	mux.HandleFunc("POST /api/v1/auth/login", h.loginUser)
-	mux.HandleFunc("POST /api/v1/auth/logout", h.logoutUser)
+
+	// login and register are the brute-force targets, so they carry the stricter
+	// tier outside the global one.
+	mux.Handle("POST /api/v1/auth/register", auth(global(http.HandlerFunc(h.registerUser))))
+	mux.Handle("POST /api/v1/auth/login", auth(global(http.HandlerFunc(h.loginUser))))
+	mux.Handle("POST /api/v1/auth/logout", global(http.HandlerFunc(h.logoutUser)))
 	mux.Handle("POST /api/v1/auth/revoke-all", authenticated(http.HandlerFunc(h.revokeAllSessions)))
 	mux.Handle("GET /api/v1/users/me", authenticated(http.HandlerFunc(h.getCurrentUser)))
 

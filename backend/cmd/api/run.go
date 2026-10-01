@@ -78,7 +78,9 @@ func run(ctx context.Context, logger *slog.Logger) (runErr error) {
 	contractRepo := contract.NewPostgresRepository(db)
 	contractSvc := contract.NewService(contractRepo, chainSvc)
 
-	handler := httpapi.NewRouter(walletSvc, userSvc, chainSvc, contractSvc, logger, databaseReadiness{db: db})
+	globalLimiter := newTokenBucketLimiter(globalLimitPerMinute, globalLimitBurst)
+	authLimiter := newTokenBucketLimiter(authLimitPerMinute, authLimitBurst)
+	handler := httpapi.NewRouter(walletSvc, userSvc, chainSvc, contractSvc, logger, databaseReadiness{db: db}, globalLimiter, authLimiter)
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
