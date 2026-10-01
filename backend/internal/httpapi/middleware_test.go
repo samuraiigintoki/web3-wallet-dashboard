@@ -204,11 +204,38 @@ func TestAccessLogWriteFailureIsSingleWarnEntry(t *testing.T) {
 	if err := json.Unmarshal([]byte(lines[0]), &entry); err != nil {
 		t.Fatalf("access log is not JSON: %v", err)
 	}
-	if entry["level"] != "WARN" || entry["writeError"] != writeErr.Error() {
-		t.Fatalf("write failure log level/writeError = %v/%v, want WARN/broken pipe", entry["level"], entry["writeError"])
+	if entry["level"] != "WARN" || entry["write_error"] != writeErr.Error() {
+		t.Fatalf("write failure log level/write_error = %v/%v, want WARN/broken pipe", entry["level"], entry["write_error"])
 	}
 	if entry["msg"] != "request completed" {
 		t.Fatalf("write failure log message = %v, want one access-log entry", entry["msg"])
+	}
+}
+
+func TestAccessLogRequestIDGenerationErrorFieldName(t *testing.T) {
+	var output bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&output, nil))
+	fields := &requestLogFields{
+		requestID:                "fallback-request-id",
+		requestIDGenerationError: "entropy source unavailable",
+	}
+	req := httptest.NewRequest(http.MethodGet, "/health", nil).WithContext(
+		context.WithValue(context.Background(), requestLogContextKey{}, fields),
+	)
+	handler := accessLogMiddleware(logger, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+
+	var entry map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &entry); err != nil {
+		t.Fatalf("access log is not JSON: %v; output=%q", err, output.String())
+	}
+	if entry["level"] != "ERROR" || entry["request_id"] != "fallback-request-id" || entry["request_id_generation_error"] != "entropy source unavailable" {
+		t.Fatalf("request ID generation access log = %#v", entry)
+	}
+	if _, ok := entry["requestIDGenerationError"]; ok {
+		t.Fatalf("legacy request ID field remains in access log: %#v", entry)
 	}
 }
 
@@ -227,8 +254,8 @@ func TestHealthHandlerWriteFailureUsesAccessLog(t *testing.T) {
 	if err := json.Unmarshal([]byte(lines[0]), &entry); err != nil {
 		t.Fatalf("access log is not JSON: %v", err)
 	}
-	if entry["level"] != "WARN" || !strings.Contains(entry["writeError"].(string), writeErr.Error()) {
-		t.Fatalf("health write failure log = %#v, want WARN with writeError", entry)
+	if entry["level"] != "WARN" || !strings.Contains(entry["write_error"].(string), writeErr.Error()) {
+		t.Fatalf("health write failure log = %#v, want WARN with write_error", entry)
 	}
 }
 
