@@ -18,7 +18,7 @@ We chose **stateful session tokens stored in PostgreSQL** over stateless JSON We
 2. **Hash at Rest:** The raw token is returned only to the client. The server computes `SHA-256(raw_token)` and stores only the hash in `user_sessions`.
 3. **Transport:** Passed via standard `Authorization: Bearer <token>` HTTP header. No cookies, eliminating CSRF attack surface.
 4. **Validation:** On protected routes, the middleware extracts the token, computes `SHA-256`, queries `user_sessions`, and checks expiry in the service layer.
-5. **Revocation:** Logout executes `DELETE FROM user_sessions WHERE token_hash = $1`, revoking access immediately.
+5. **Revocation:** Logout executes `DELETE FROM user_sessions WHERE token_hash = $1` to revoke one session. Revoke-all executes `DELETE FROM user_sessions WHERE user_id = $1` for the authenticated user, including the session used for that request; every affected token fails authentication on subsequent requests.
 
 ## Why Session over JWT
 - **Instant Revocation:** In stateless JWTs, a token remains valid until its cryptographic expiry unless a distributed blacklist/denylist (e.g. Redis) is introduced, which eliminates the stateless benefit. With database sessions, logout is a single `DELETE` query that takes effect instantly across all servers.

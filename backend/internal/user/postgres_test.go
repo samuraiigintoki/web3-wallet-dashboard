@@ -119,4 +119,64 @@ func TestPostgresUserRepository_Integration(t *testing.T) {
 			t.Fatalf("expected ErrNotFound after session deletion, got: %v", err)
 		}
 	})
+
+	t.Run("DeleteSessionsByUser removes only that user's rows and returns count", func(t *testing.T) {
+		ctx := context.Background()
+		userA, err := repo.Create(ctx, User{
+			Email:        newUniqueEmail(),
+			PasswordHash: "unused-test-hash",
+		})
+		if err != nil {
+			t.Fatalf("create user A: %v", err)
+		}
+		userB, err := repo.Create(ctx, User{
+			Email:        newUniqueEmail(),
+			PasswordHash: "unused-test-hash",
+		})
+		if err != nil {
+			t.Fatalf("create user B: %v", err)
+		}
+
+		prefix := fmt.Sprintf("revoke-all-%d", time.Now().UnixNano())
+		tokenHashesA := []string{prefix + "-a-current", prefix + "-a-other"}
+		tokenHashB := prefix + "-b-current"
+		for _, tokenHash := range tokenHashesA {
+			if _, err := repo.CreateSession(ctx, UserSession{
+				UserID:    userA.ID,
+				TokenHash: tokenHash,
+				ExpiresAt: time.Now().Add(time.Hour),
+			}); err != nil {
+				t.Fatalf("create user A session %q: %v", tokenHash, err)
+			}
+		}
+		if _, err := repo.CreateSession(ctx, UserSession{
+			UserID:    userB.ID,
+			TokenHash: tokenHashB,
+			ExpiresAt: time.Now().Add(time.Hour),
+		}); err != nil {
+			t.Fatalf("create user B session: %v", err)
+		}
+		t.Cleanup(func() {
+			for _, tokenHash := range tokenHashesA {
+				_ = repo.DeleteSessionByTokenHash(context.Background(), tokenHash)
+			}
+			_ = repo.DeleteSessionByTokenHash(context.Background(), tokenHashB)
+		})
+
+		deleted, err := repo.DeleteSessionsByUser(ctx, userA.ID)
+		if err != nil {
+			t.Fatalf("delete user A sessions: %v", err)
+		}
+		if deleted != 2 {
+			t.Fatalf("expected 2 deleted rows for user A, got %d", deleted)
+		}
+		for _, tokenHash := range tokenHashesA {
+			if _, err := repo.GetSessionByTokenHash(ctx, tokenHash); !errors.Is(err, ErrNotFound) {
+				t.Errorf("expected user A session %q to be deleted, got error %v", tokenHash, err)
+			}
+		}
+		if _, err := repo.GetSessionByTokenHash(ctx, tokenHashB); err != nil {
+			t.Fatalf("expected user B session to remain, got error %v", err)
+		}
+	})
 }

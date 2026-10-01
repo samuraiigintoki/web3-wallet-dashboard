@@ -124,3 +124,22 @@ func (r *InMemoryRepository) DeleteSessionByTokenHash(ctx context.Context, token
 	delete(r.sessions, tokenHash)
 	return nil
 }
+
+func (r *InMemoryRepository) DeleteSessionsByUser(ctx context.Context, userID int64) (int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	var deleted int64
+	for tokenHash, session := range r.sessions {
+		if session.UserID == userID {
+			delete(r.sessions, tokenHash)
+			deleted++
+		}
+	}
+
+	return deleted, nil
+}

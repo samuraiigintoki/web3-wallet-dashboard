@@ -128,6 +128,20 @@ func (h *Handler) logoutUser(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handler) revokeAllSessions(w http.ResponseWriter, r *http.Request) {
+	u, ok := h.currentUser(w, r)
+	if !ok {
+		return
+	}
+
+	if _, err := h.userSvc.RevokeAll(r.Context(), u.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternalError, "internal error", nil)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *Handler) getCurrentUser(w http.ResponseWriter, r *http.Request) {
 	u, ok := UserFromContext(r.Context())
 	if !ok {

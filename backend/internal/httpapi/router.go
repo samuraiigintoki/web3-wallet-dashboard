@@ -24,6 +24,7 @@ func NewRouter(walletSvc *wallet.Service, userSvc *user.Service, chainSvc *chain
 	mux.HandleFunc("POST /api/v1/auth/register", h.registerUser)
 	mux.HandleFunc("POST /api/v1/auth/login", h.loginUser)
 	mux.HandleFunc("POST /api/v1/auth/logout", h.logoutUser)
+	mux.Handle("POST /api/v1/auth/revoke-all", requireAuth(http.HandlerFunc(h.revokeAllSessions)))
 	mux.Handle("GET /api/v1/users/me", requireAuth(http.HandlerFunc(h.getCurrentUser)))
 
 	// wallets (owner-scoped: every route requires the authenticated user)
