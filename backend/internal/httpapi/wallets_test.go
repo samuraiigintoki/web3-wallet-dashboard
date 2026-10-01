@@ -1363,7 +1363,7 @@ type authedRouter struct {
 func newAuthedRouter(t *testing.T, walletSvc *wallet.Service, userSvc *user.Service, chainSvc *chain.Service, contractSvc *contract.Service) http.Handler {
 	t.Helper()
 
-	plain := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
+	plain := NewRouter(walletSvc, userSvc, chainSvc, contractSvc, testLogger())
 	creds := `{"email":"wallet-suite@example.com","password":"password123"}`
 
 	registerRec := httptest.NewRecorder()
@@ -1423,7 +1423,7 @@ func newWalletOwnershipHarness(t *testing.T) *walletOwnershipHarness {
 	userSvc := user.NewService(user.NewInMemoryRepository())
 	contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
+	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc, testLogger())
 
 	return &walletOwnershipHarness{
 		router: router,
