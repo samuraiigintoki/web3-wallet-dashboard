@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -17,21 +18,28 @@ const requestIDHeader = "X-Request-ID"
 type requestLogContextKey struct{}
 
 type requestLogFields struct {
-	requestID string
-	userID    int64
-	hasUserID bool
+	requestID                string
+	userID                   int64
+	hasUserID                bool
+	requestIDGenerationError string
+	panicValue               string
+	panicStack               string
 }
 
 var requestIDFallbackCounter atomic.Uint64
 
-func requestIDMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
+func requestIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestID := r.Header.Get(requestIDHeader)
+		var generationErr error
 		if !validRequestID(requestID) {
-			requestID = generateRequestID(logger)
+			requestID, generationErr = generateRequestID()
 		}
 
 		fields := &requestLogFields{requestID: requestID}
+		if generationErr != nil {
+			fields.requestIDGenerationError = generationErr.Error()
+		}
 		ctx := context.WithValue(r.Context(), requestLogContextKey{}, fields)
 		w.Header().Set(requestIDHeader, requestID)
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -53,17 +61,17 @@ func validRequestID(requestID string) bool {
 	return true
 }
 
-func generateRequestID(logger *slog.Logger) string {
+func generateRequestID() (string, error) {
 	var raw [16]byte
 	if _, err := rand.Read(raw[:]); err != nil {
-		logger.Error("failed to generate request ID", "error", err)
-		return fmt.Sprintf("fallback-%x-%x", time.Now().UTC().UnixNano(), requestIDFallbackCounter.Add(1))
+		fallback := fmt.Sprintf("fallback-%x-%x", time.Now().UTC().UnixNano(), requestIDFallbackCounter.Add(1))
+		return fallback, err
 	}
 
 	raw[6] = (raw[6] & 0x0f) | 0x40
 	raw[8] = (raw[8] & 0x3f) | 0x80
 	encoded := hex.EncodeToString(raw[:])
-	return fmt.Sprintf("%s-%s-%s-%s-%s", encoded[:8], encoded[8:12], encoded[12:16], encoded[16:20], encoded[20:])
+	return fmt.Sprintf("%s-%s-%s-%s-%s", encoded[:8], encoded[8:12], encoded[12:16], encoded[16:20], encoded[20:]), nil
 }
 
 func requestLogFieldsFromContext(ctx context.Context) (*requestLogFields, bool) {
@@ -88,38 +96,58 @@ func accessLogMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 		started := time.Now()
 		response := &responseRecorder{ResponseWriter: w}
 		defer func() {
+			status := response.statusCode()
+			route := r.Pattern
+			if _, path, hasMethod := strings.Cut(route, " "); hasMethod {
+				route = path
+			}
+
 			attributes := []any{
 				"method", r.Method,
 				"path", r.URL.Path,
-				"status", response.statusCode(),
+				"route", route,
+				"status", status,
 				"bytes", response.bytesWritten,
-				"duration_ms", time.Since(started).Milliseconds(),
+				"duration_ms", durationMilliseconds(time.Since(started)),
 				"remote_addr", r.RemoteAddr,
+			}
+			level := slog.LevelInfo
+			if status >= http.StatusInternalServerError {
+				level = slog.LevelError
+			} else if status >= http.StatusBadRequest {
+				level = slog.LevelWarn
+			}
+			if response.writeErr != nil {
+				attributes = append(attributes, "writeError", response.writeErr.Error())
+				if level < slog.LevelWarn {
+					level = slog.LevelWarn
+				}
 			}
 			if fields, ok := requestLogFieldsFromContext(r.Context()); ok {
 				attributes = append(attributes, "request_id", fields.requestID)
 				if fields.hasUserID {
 					attributes = append(attributes, "user_id", fields.userID)
 				}
+				if fields.requestIDGenerationError != "" {
+					attributes = append(attributes, "requestIDGenerationError", fields.requestIDGenerationError)
+					level = slog.LevelError
+				}
+				if fields.panicValue != "" {
+					attributes = append(attributes, "panic", fields.panicValue, "stack", fields.panicStack)
+					level = slog.LevelError
+				}
 			}
-			if response.writeErr != nil {
-				logger.Error("response write failed", "request_id", requestIDFromContext(r.Context()), "error", response.writeErr)
-			}
-			logger.Info("request completed", attributes...)
+			logger.Log(r.Context(), level, "request completed", attributes...)
 		}()
 		next.ServeHTTP(response, r)
 	})
 }
 
-func requestIDFromContext(ctx context.Context) string {
-	fields, ok := requestLogFieldsFromContext(ctx)
-	if !ok {
-		return ""
-	}
-	return fields.requestID
+func durationMilliseconds(d time.Duration) float64 {
+	return float64(d.Microseconds()) / 1000
 }
 
-func panicRecoveryMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
+func panicRecoveryMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			recovered := recover()
@@ -131,14 +159,14 @@ func panicRecoveryMiddleware(logger *slog.Logger, next http.Handler) http.Handle
 				panic(recovered)
 			}
 
-			logger.Error(
-				"panic recovered",
-				"request_id", requestIDFromContext(r.Context()),
-				"panic", fmt.Sprint(recovered),
-				"stack", string(debug.Stack()),
-			)
-			markRequestAborted(w)
-			panic(http.ErrAbortHandler)
+			if fields, ok := requestLogFieldsFromContext(r.Context()); ok {
+				fields.panicValue = fmt.Sprint(recovered)
+				fields.panicStack = string(debug.Stack())
+			}
+			if response, ok := w.(*responseRecorder); ok && response.wroteHeader {
+				return
+			}
+			writeError(w, http.StatusInternalServerError, CodeInternalError, "internal error", nil)
 		}()
 
 		next.ServeHTTP(w, r)

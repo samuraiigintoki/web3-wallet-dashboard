@@ -878,4 +878,4 @@ Rate limiting is planned for authentication and RPC-backed routes. It should be 
 
 ## Request correlation
 
-Responses carry the `X-Request-ID` header. A valid client value is echoed; a missing or invalid value is replaced with a generated identifier. Request IDs are not added to JSON error bodies, so existing response status codes and bodies remain unchanged.
+Responses carry the `X-Request-ID` header. A valid client value must contain 1 to 64 ASCII letters, digits, dots, underscores, or hyphens, and is echoed unchanged. A missing or invalid value is replaced with a generated identifier. Request IDs are not added to JSON error bodies.

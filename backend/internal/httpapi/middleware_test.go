@@ -31,7 +31,7 @@ func TestRequestIDMiddleware(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			handler := requestIDMiddleware(testLogger(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handler := requestIDMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				fields, ok := requestLogFieldsFromContext(r.Context())
 				if !ok {
 					t.Fatal("request log fields are missing from context")
@@ -110,8 +110,8 @@ func TestAccessLogIncludesHealthAndUsesDirectPeer(t *testing.T) {
 	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &entry); err != nil {
 		t.Fatalf("access log is not JSON: %v; output=%q", err, output.String())
 	}
-	if entry["msg"] != "request completed" || entry["method"] != http.MethodGet || entry["path"] != "/health" {
-		t.Fatalf("access log fields = %#v, want the health request", entry)
+	if entry["msg"] != "request completed" || entry["level"] != "INFO" || entry["method"] != http.MethodGet || entry["path"] != "/health" || entry["route"] != "/health" {
+		t.Fatalf("access log fields = %#v, want the health request and route", entry)
 	}
 	if entry["status"] != float64(http.StatusOK) || entry["bytes"] != float64(rec.Body.Len()) {
 		t.Fatalf("access log status/bytes = %v/%v, want %d/%d", entry["status"], entry["bytes"], http.StatusOK, rec.Body.Len())
@@ -127,6 +127,108 @@ func TestAccessLogIncludesHealthAndUsesDirectPeer(t *testing.T) {
 	}
 	if _, exists := entry["user_id"]; exists {
 		t.Fatalf("public health access log has an unexpected user_id: %#v", entry)
+	}
+}
+
+func TestAccessLogSeverityByStatus(t *testing.T) {
+	tests := []struct {
+		name      string
+		status    int
+		wantLevel string
+	}{
+		{name: "success is info", status: http.StatusOK, wantLevel: "INFO"},
+		{name: "client error is warn", status: http.StatusBadRequest, wantLevel: "WARN"},
+		{name: "server error is error", status: http.StatusInternalServerError, wantLevel: "ERROR"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var output bytes.Buffer
+			logger := slog.New(slog.NewJSONHandler(&output, nil))
+			next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(test.status)
+			})
+			handler := requestIDMiddleware(accessLogMiddleware(logger, next))
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/severity", nil))
+
+			var entry map[string]any
+			if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &entry); err != nil {
+				t.Fatalf("access log is not JSON: %v; output=%q", err, output.String())
+			}
+			if entry["level"] != test.wantLevel || entry["status"] != float64(test.status) {
+				t.Fatalf("access log level/status = %v/%v, want %s/%d", entry["level"], entry["status"], test.wantLevel, test.status)
+			}
+		})
+	}
+}
+
+func TestAccessLogRouteUsesServeMuxPattern(t *testing.T) {
+	var output bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&output, nil))
+	handler := newTestRouter(nil, logger)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/wallets/42", nil)
+	req.Header.Set(requestIDHeader, "route-1")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+	var entry map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &entry); err != nil {
+		t.Fatalf("access log is not JSON: %v; output=%q", err, output.String())
+	}
+	if entry["path"] != "/api/v1/wallets/42" || entry["route"] != "/api/v1/wallets/{id}" {
+		t.Fatalf("path/route = %v/%v, want /api/v1/wallets/42 and /api/v1/wallets/{id}", entry["path"], entry["route"])
+	}
+}
+
+func TestAccessLogWriteFailureIsSingleWarnEntry(t *testing.T) {
+	var output bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&output, nil))
+	writeErr := errors.New("broken pipe")
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("body"))
+	})
+	handler := requestIDMiddleware(accessLogMiddleware(logger, next))
+	req := httptest.NewRequest(http.MethodGet, "/write-failure", nil)
+	req.Header.Set(requestIDHeader, "write-error-1")
+	handler.ServeHTTP(&errorResponseWriter{err: writeErr}, req)
+
+	lines := strings.Split(strings.TrimSpace(output.String()), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("log lines = %d, want one request entry: %s", len(lines), output.String())
+	}
+	var entry map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &entry); err != nil {
+		t.Fatalf("access log is not JSON: %v", err)
+	}
+	if entry["level"] != "WARN" || entry["writeError"] != writeErr.Error() {
+		t.Fatalf("write failure log level/writeError = %v/%v, want WARN/broken pipe", entry["level"], entry["writeError"])
+	}
+	if entry["msg"] != "request completed" {
+		t.Fatalf("write failure log message = %v, want one access-log entry", entry["msg"])
+	}
+}
+
+func TestHealthHandlerWriteFailureUsesAccessLog(t *testing.T) {
+	var output bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&output, nil))
+	writeErr := errors.New("health write failed")
+	handler := accessLogMiddleware(logger, http.HandlerFunc(healthHandler))
+	handler.ServeHTTP(&errorResponseWriter{err: writeErr}, httptest.NewRequest(http.MethodGet, "/health", nil))
+
+	lines := strings.Split(strings.TrimSpace(output.String()), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("log lines = %d, want one request entry: %s", len(lines), output.String())
+	}
+	var entry map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &entry); err != nil {
+		t.Fatalf("access log is not JSON: %v", err)
+	}
+	if entry["level"] != "WARN" || !strings.Contains(entry["writeError"].(string), writeErr.Error()) {
+		t.Fatalf("health write failure log = %#v, want WARN with writeError", entry)
 	}
 }
 
@@ -194,54 +296,76 @@ func TestAccessLogIncludesAuthenticatedUserID(t *testing.T) {
 	}
 }
 
-func TestPanicRecoveryLogsAndAbortsWithoutWritingResponse(t *testing.T) {
-	var output bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&output, nil))
-	handler := requestIDMiddleware(logger, accessLogMiddleware(logger, panicRecoveryMiddleware(logger, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		panic("test panic")
-	}))))
-	req := httptest.NewRequest(http.MethodGet, "/panic", nil)
-	req.Header.Set(requestIDHeader, "panic-1")
-	rec := httptest.NewRecorder()
+func TestPanicRecovery(t *testing.T) {
+	const internalErrorBody = "{\"error\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"message\":\"internal error\"}}\n"
+	tests := []struct {
+		name       string
+		handler    http.Handler
+		wantStatus int
+		wantBody   string
+	}{
+		{
+			name: "before response starts writes internal error envelope",
+			handler: http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				panic("test panic")
+			}),
+			wantStatus: http.StatusInternalServerError,
+			wantBody:   internalErrorBody,
+		},
+		{
+			name: "after partial write preserves response",
+			handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusAccepted)
+				_, _ = w.Write([]byte("partial"))
+				panic("test panic")
+			}),
+			wantStatus: http.StatusAccepted,
+			wantBody:   "partial",
+		},
+	}
 
-	var recovered any
-	func() {
-		defer func() { recovered = recover() }()
-		handler.ServeHTTP(rec, req)
-	}()
-	if recovered != http.ErrAbortHandler {
-		t.Fatalf("recovered panic = %#v, want http.ErrAbortHandler", recovered)
-	}
-	if rec.Body.Len() != 0 {
-		t.Fatalf("panic recovery wrote a response body: %q", rec.Body.String())
-	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var output bytes.Buffer
+			logger := slog.New(slog.NewJSONHandler(&output, nil))
+			handler := requestIDMiddleware(accessLogMiddleware(logger, panicRecoveryMiddleware(test.handler)))
+			req := httptest.NewRequest(http.MethodGet, "/panic", nil)
+			req.Header.Set(requestIDHeader, "panic-1")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
 
-	lines := strings.Split(strings.TrimSpace(output.String()), "\n")
-	if len(lines) != 2 {
-		t.Fatalf("log lines = %d, want panic and access entries: %s", len(lines), output.String())
-	}
-	var panicEntry, accessEntry map[string]any
-	if err := json.Unmarshal([]byte(lines[0]), &panicEntry); err != nil {
-		t.Fatalf("panic log is not JSON: %v", err)
-	}
-	if err := json.Unmarshal([]byte(lines[1]), &accessEntry); err != nil {
-		t.Fatalf("access log is not JSON: %v", err)
-	}
-	if panicEntry["msg"] != "panic recovered" || panicEntry["panic"] != "test panic" || panicEntry["stack"] == "" {
-		t.Fatalf("panic log fields = %#v", panicEntry)
-	}
-	if panicEntry["request_id"] != "panic-1" {
-		t.Fatalf("panic log request_id = %v, want panic-1", panicEntry["request_id"])
-	}
-	if accessEntry["msg"] != "request completed" || accessEntry["status"] != float64(0) || accessEntry["bytes"] != float64(0) {
-		t.Fatalf("aborted access log fields = %#v, want status=0 and bytes=0", accessEntry)
+			if rec.Code != test.wantStatus {
+				t.Fatalf("status = %d, want %d; body=%q", rec.Code, test.wantStatus, rec.Body.String())
+			}
+			if rec.Body.String() != test.wantBody {
+				t.Fatalf("body = %q, want %q", rec.Body.String(), test.wantBody)
+			}
+
+			lines := strings.Split(strings.TrimSpace(output.String()), "\n")
+			if len(lines) != 1 {
+				t.Fatalf("log lines = %d, want one request entry: %s", len(lines), output.String())
+			}
+			var entry map[string]any
+			if err := json.Unmarshal([]byte(lines[0]), &entry); err != nil {
+				t.Fatalf("access log is not JSON: %v", err)
+			}
+			if entry["msg"] != "request completed" || entry["level"] != "ERROR" {
+				t.Fatalf("panic access log message/level = %v/%v, want request completed/ERROR", entry["msg"], entry["level"])
+			}
+			if entry["status"] != float64(test.wantStatus) || entry["bytes"] != float64(len(test.wantBody)) {
+				t.Fatalf("panic access log status/bytes = %v/%v, want %d/%d", entry["status"], entry["bytes"], test.wantStatus, len(test.wantBody))
+			}
+			if entry["panic"] != "test panic" || entry["stack"] == "" || entry["request_id"] != "panic-1" {
+				t.Fatalf("panic access log metadata = %#v", entry)
+			}
+		})
 	}
 }
 
 func TestPanicRecoveryRepanicsErrAbortHandler(t *testing.T) {
 	var output bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&output, nil))
-	handler := accessLogMiddleware(logger, panicRecoveryMiddleware(logger, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	handler := accessLogMiddleware(logger, panicRecoveryMiddleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		panic(http.ErrAbortHandler)
 	})))
 	rec := httptest.NewRecorder()
@@ -259,6 +383,12 @@ func TestPanicRecoveryRepanicsErrAbortHandler(t *testing.T) {
 	}
 	if strings.Contains(output.String(), "panic recovered") {
 		t.Fatalf("http.ErrAbortHandler was logged as an application panic: %s", output.String())
+	}
+}
+
+func TestDurationMillisecondsUsesMicrosecondPrecision(t *testing.T) {
+	if got, want := durationMilliseconds(1234*time.Microsecond), 1.234; got != want {
+		t.Fatalf("durationMilliseconds(1234µs) = %v, want %v", got, want)
 	}
 }
 

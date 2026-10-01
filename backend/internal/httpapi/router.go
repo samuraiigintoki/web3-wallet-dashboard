@@ -46,5 +46,5 @@ func NewRouter(walletSvc *wallet.Service, userSvc *user.Service, chainSvc *chain
 	mux.Handle("PATCH /api/v1/contracts/{id}", authenticated(http.HandlerFunc(h.updateContract)))
 	mux.Handle("DELETE /api/v1/contracts/{id}", authenticated(http.HandlerFunc(h.deleteContract)))
 
-	return requestIDMiddleware(logger, accessLogMiddleware(logger, panicRecoveryMiddleware(logger, mux)))
+	return requestIDMiddleware(accessLogMiddleware(logger, panicRecoveryMiddleware(mux)))
 }
