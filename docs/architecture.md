@@ -478,7 +478,7 @@ The API process has one defined lifecycle: bind, serve, drain, close, exit.
 
 4. Forced close. If the grace window expires, `http.Server.Close` terminates the remaining connections, the event is logged, and the exit code is 1.
 
-5. Close. The database pool remains available while the HTTP server drains so in-flight readiness checks can finish, then it is closed exactly once from the function that opened it. A clean drain exits with code 0.
+5. Close. The database pool remains available while the HTTP server drains so in-flight readiness checks can finish, then it is closed exactly once from the function that opened it. A close failure is logged; when the run is otherwise clean it escalates to exit code 1, and an earlier error is never masked. A clean drain with a successful close exits with code 0.
 
 Later blocks insert themselves into this sequence instead of adding their own. A background worker stops between the drain and the pool close. The container runtime sends `SIGTERM` and relies on this same order.
 
