@@ -104,7 +104,7 @@ The first implementation may use offset pagination. Cursor pagination can be con
 - `404 Not Found` — resource not found or not visible to the user
 - `409 Conflict` — duplicate or conflicting state
 - `422 Unprocessable Entity` — valid JSON with domain-invalid values
-- `429 Too Many Requests` — rate limit exceeded (`RATE_LIMITED`, with `Retry-After`)
+- `429 Too Many Requests`: rate limit exceeded (`RATE_LIMITED`, with `Retry-After`)
 - `500 internal Server Error` — unexpected application failure
 - `502 Bad Gateway` — upstream RPC failure where appropriate
 - `503 Service Unavailable` — required dependency unavailable
