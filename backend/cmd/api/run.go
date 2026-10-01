@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -31,7 +31,7 @@ const (
 	maxHeaderBytes      = 1 << 20
 )
 
-func run(ctx context.Context) (runErr error) {
+func run(ctx context.Context, logger *slog.Logger) (runErr error) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		return errors.New("DATABASE_URL environment variable is required")
@@ -48,7 +48,7 @@ func run(ctx context.Context) (runErr error) {
 	}
 	defer func() {
 		if err := db.Close(); err != nil {
-			log.Printf("failed to close DB pool: %v", err)
+			logger.Error("failed to close DB pool", "error", err)
 			if runErr == nil {
 				runErr = fmt.Errorf("failed to close DB pool: %w", err)
 			}
@@ -85,7 +85,7 @@ func run(ctx context.Context) (runErr error) {
 	if err != nil {
 		return fmt.Errorf("failed to listen on %s: %w", addr, err)
 	}
-	log.Printf("HTTP server bound to %s", ln.Addr())
+	logger.Info("HTTP server bound", "address", ln.Addr().String())
 
 	srv := &http.Server{
 		Addr:              addr,
@@ -97,12 +97,12 @@ func run(ctx context.Context) (runErr error) {
 		MaxHeaderBytes:    maxHeaderBytes,
 	}
 
-	serveErr := serve(ctx, ln, srv, shutdownGracePeriod)
+	serveErr := serve(ctx, ln, srv, shutdownGracePeriod, logger)
 	// B5 stops its worker here, after the HTTP drain and before the deferred DB close.
 	return serveErr
 }
 
-func serve(ctx context.Context, ln net.Listener, srv *http.Server, grace time.Duration) error {
+func serve(ctx context.Context, ln net.Listener, srv *http.Server, grace time.Duration, logger *slog.Logger) error {
 	serveErr := make(chan error, 1)
 	go func() {
 		serveErr <- srv.Serve(ln)
@@ -116,16 +116,16 @@ func serve(ctx context.Context, ln net.Listener, srv *http.Server, grace time.Du
 		return err
 	case <-ctx.Done():
 		started := time.Now()
-		log.Printf("shutdown started, grace=%s", grace)
+		logger.Info("shutdown started", "grace", grace)
 
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), grace)
 		defer cancel()
 
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			closeErr := srv.Close()
-			log.Printf("shutdown forced close, elapsed=%s, error=%v", time.Since(started), err)
+			logger.Error("shutdown forced close", "elapsed", time.Since(started), "error", err)
 			if closeErr != nil {
-				log.Printf("server close returned error: %v", closeErr)
+				logger.Error("server close returned error", "error", closeErr)
 			}
 			return fmt.Errorf("HTTP server shutdown failed: %w; grace deadline: %w", err, context.DeadlineExceeded)
 		}
@@ -137,7 +137,7 @@ func serve(ctx context.Context, ln net.Listener, srv *http.Server, grace time.Du
 			return fmt.Errorf("HTTP server returned unexpectedly after shutdown: %w", err)
 		}
 
-		log.Printf("shutdown complete, elapsed=%s", time.Since(started))
+		logger.Info("shutdown complete", "elapsed", time.Since(started))
 		return nil
 	}
 }
