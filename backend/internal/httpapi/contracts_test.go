@@ -40,7 +40,7 @@ func newContractsHarness(t *testing.T) *contractsHarness {
 	userSvc := user.NewService(user.NewInMemoryRepository())
 	contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-	return &contractsHarness{t: t, router: NewRouter(walletSvc, userSvc, chainSvc, contractSvc)}
+	return &contractsHarness{t: t, router: NewRouter(walletSvc, userSvc, chainSvc, contractSvc, testLogger())}
 }
 
 func (h *contractsHarness) do(method, path, body, token string) *httptest.ResponseRecorder {

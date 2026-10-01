@@ -1,10 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -154,7 +159,7 @@ func testServeClosedListenerError(t *testing.T) {
 		t.Fatalf("close listener: %v", err)
 	}
 
-	err = serve(context.Background(), ln, &http.Server{Handler: http.NotFoundHandler()}, time.Second)
+	err = serve(context.Background(), ln, &http.Server{Handler: http.NotFoundHandler()}, time.Second, discardLogger())
 	if err == nil {
 		t.Fatal("serve returned nil for a closed listener")
 	}
@@ -183,7 +188,7 @@ func startTestServer(t *testing.T, handler http.Handler, grace time.Duration) *t
 	srv := &http.Server{Handler: handler}
 	result := make(chan error, 1)
 	go func() {
-		result <- serve(ctx, ln, srv, grace)
+		result <- serve(ctx, ln, srv, grace, discardLogger())
 	}()
 
 	return &testServer{
@@ -199,4 +204,67 @@ func (s *testServer) cleanup() {
 	s.cancel()
 	_ = s.server.Close()
 	_ = s.listener.Close()
+}
+
+func discardLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+func TestParseLogLevel(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  slog.Level
+		bad   bool
+	}{
+		{name: "empty defaults to info", input: "", want: slog.LevelInfo},
+		{name: "info", input: "info", want: slog.LevelInfo},
+		{name: "debug is case insensitive and trimmed", input: " DEBUG ", want: slog.LevelDebug},
+		{name: "warn", input: "warn", want: slog.LevelWarn},
+		{name: "error", input: "error", want: slog.LevelError},
+		{name: "unsupported level", input: "trace", bad: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := parseLogLevel(test.input)
+			if test.bad {
+				if err == nil || !strings.Contains(err.Error(), "invalid LOG_LEVEL") {
+					t.Fatalf("parseLogLevel(%q) error = %v, want invalid LOG_LEVEL error", test.input, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseLogLevel(%q): %v", test.input, err)
+			}
+			if got != test.want {
+				t.Fatalf("parseLogLevel(%q) = %v, want %v", test.input, got, test.want)
+			}
+		})
+	}
+}
+
+func TestNewLoggerWritesJSONAtConfiguredMinimumLevel(t *testing.T) {
+	var output bytes.Buffer
+	logger, err := newLogger(&output, "warn")
+	if err != nil {
+		t.Fatalf("newLogger: %v", err)
+	}
+	logger.Debug("debug hidden")
+	logger.Info("info hidden")
+	logger.Warn("warning visible", "request_id", "test-1")
+
+	lines := strings.Split(strings.TrimSpace(output.String()), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("log line count = %d, want 1: %s", len(lines), output.String())
+	}
+	var record map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &record); err != nil {
+		t.Fatalf("log output is not JSON: %v; output=%q", err, lines[0])
+	}
+	if record["level"] != "WARN" || record["msg"] != "warning visible" || record["request_id"] != "test-1" {
+		t.Fatalf("JSON log record = %#v, want WARN warning with request_id", record)
+	}
+	if strings.Contains(output.String(), "hidden") {
+		t.Fatalf("below-threshold message was written: %s", output.String())
+	}
 }

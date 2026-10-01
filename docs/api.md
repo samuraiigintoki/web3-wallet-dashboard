@@ -875,3 +875,7 @@ Rate limiting is planned for authentication and RPC-backed routes. It should be 
 6. Whether transaction-receipt lookup needs a dedicated API route.
 7. Whether optional status notifications use WebSocket or server-sent events.
 8. Whether API documentation is generated from an OpenAPI specification or maintained alongside code.
+
+## Request correlation
+
+Responses carry the `X-Request-ID` header. A valid client value must contain 1 to 64 ASCII letters, digits, dots, underscores, or hyphens, and is echoed unchanged. A missing or invalid value is replaced with a generated identifier. Request IDs are not added to JSON error bodies.

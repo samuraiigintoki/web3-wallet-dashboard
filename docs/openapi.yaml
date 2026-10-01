@@ -11,6 +11,7 @@ info:
     - Successful list responses wrap the payload in "data" and add "pagination".
     - Error responses always use { "error": { "code", "message", "details" } }.
     - Protected routes require a bearer token sent as "Authorization: Bearer <token>".
+    - Responses include an "X-Request-ID" header; correlation data is not added to JSON bodies.
     - Request bodies are JSON only, capped at 1 MB, and unknown fields are rejected (400 INVALID_JSON).
     - Fields marked required must be present; invalid values return 422 VALIDATION_ERROR.
 
@@ -40,6 +41,9 @@ paths:
       summary: Liveness.
       responses:
         '200':
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
           description: Service is up.
           content:
             application/json:
@@ -60,6 +64,9 @@ paths:
       summary: List supported chains.
       responses:
         '200':
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
           description: Supported chains.
           content:
             application/json:
@@ -87,6 +94,9 @@ paths:
               $ref: '#/components/schemas/registerRequest'
       responses:
         '201':
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
           description: User created.
           content:
             application/json:
@@ -118,6 +128,9 @@ paths:
               $ref: '#/components/schemas/loginRequest'
       responses:
         '200':
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
           description: Token issued.
           content:
             application/json:
@@ -145,6 +158,9 @@ paths:
         or empty.
       responses:
         '200':
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
           description: Logged out.
           content:
             application/json:
@@ -171,6 +187,9 @@ paths:
         - httpBearer: []
       responses:
         '204':
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
           description: All sessions revoked.
         '401':
           $ref: '#/components/responses/Unauthorized'
@@ -186,6 +205,9 @@ paths:
         - httpBearer: []
       responses:
         '200':
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
           description: Current user.
           content:
             application/json:
@@ -214,6 +236,9 @@ paths:
         - $ref: '#/components/parameters/search'
       responses:
         '200':
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
           description: Wallets and pagination.
           content:
             application/json:
@@ -249,6 +274,9 @@ paths:
               $ref: '#/components/schemas/walletCreate'
       responses:
         '201':
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
           description: Wallet created.
           content:
             application/json:
@@ -280,6 +308,9 @@ paths:
         - httpBearer: []
       responses:
         '200':
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
           description: Wallet.
           content:
             application/json:
@@ -311,6 +342,9 @@ paths:
               $ref: '#/components/schemas/walletUpdate'
       responses:
         '200':
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
           description: Updated wallet.
           content:
             application/json:
@@ -321,6 +355,9 @@ paths:
                   data:
                     $ref: '#/components/schemas/wallet'
         '400':
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
           description: Malformed body (INVALID_JSON) or an invalid id (VALIDATION_ERROR).
           content:
             application/json:
@@ -342,6 +379,9 @@ paths:
         - httpBearer: []
       responses:
         '204':
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
           description: Deleted.
         '400':
           $ref: '#/components/responses/Validation400'
@@ -367,6 +407,9 @@ paths:
         - $ref: '#/components/parameters/enabled'
       responses:
         '200':
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
           description: Contracts and pagination.
           content:
             application/json:
@@ -402,6 +445,9 @@ paths:
               $ref: '#/components/schemas/contractCreate'
       responses:
         '201':
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
           description: Contract tracked.
           content:
             application/json:
@@ -433,6 +479,9 @@ paths:
         - httpBearer: []
       responses:
         '200':
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
           description: Contract.
           content:
             application/json:
@@ -464,6 +513,9 @@ paths:
               $ref: '#/components/schemas/contractUpdate'
       responses:
         '200':
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
           description: Updated contract.
           content:
             application/json:
@@ -474,6 +526,9 @@ paths:
                   data:
                     $ref: '#/components/schemas/contract'
         '400':
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
           description: Malformed body (INVALID_JSON) or an invalid id (VALIDATION_ERROR).
           content:
             application/json:
@@ -495,6 +550,9 @@ paths:
         - httpBearer: []
       responses:
         '204':
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
           description: Deleted.
         '400':
           $ref: '#/components/responses/Validation400'
@@ -511,6 +569,15 @@ components:
       type: http
       scheme: bearer
       description: Bearer token returned by POST /api/v1/auth/login.
+
+  headers:
+    X-Request-ID:
+      description: Correlation identifier returned for the request.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+        pattern: '^[A-Za-z0-9._-]{1,64}$'
 
   parameters:
     id:
@@ -739,6 +806,9 @@ components:
 
   responses:
     InvalidJSON:
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/X-Request-ID'
       description: Malformed JSON body, an unknown field, or a body over 1 MB.
       content:
         application/json:
@@ -749,6 +819,9 @@ components:
               code: INVALID_JSON
               message: invalid request body
     Validation400:
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/X-Request-ID'
       description: Malformed input, such as an invalid id or an invalid query value.
       content:
         application/json:
@@ -759,6 +832,9 @@ components:
               code: VALIDATION_ERROR
               message: invalid request
     Validation422:
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/X-Request-ID'
       description: A field is present but has an invalid value, for example a bad address or an unknown chainId.
       content:
         application/json:
@@ -771,6 +847,9 @@ components:
               details:
                 chainId: unknown chain
     Conflict:
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/X-Request-ID'
       description: The resource already exists for this user, for example the same address on the same chain.
       content:
         application/json:
@@ -781,6 +860,9 @@ components:
               code: RESOURCE_CONFLICT
               message: already tracked
     UserConflict:
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/X-Request-ID'
       description: The email is already registered.
       content:
         application/json:
@@ -791,6 +873,9 @@ components:
               code: USER_CONFLICT
               message: email already registered
     InvalidCredentials:
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/X-Request-ID'
       description: The email or password is wrong.
       content:
         application/json:
@@ -801,6 +886,9 @@ components:
               code: INVALID_CREDENTIALS
               message: invalid credentials
     Unauthorized:
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/X-Request-ID'
       description: Missing, malformed, expired, or unknown bearer token.
       content:
         application/json:
@@ -811,6 +899,9 @@ components:
               code: UNAUTHENTICATED
               message: unauthenticated
     NotFound:
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/X-Request-ID'
       description: The resource does not exist or is not owned by the caller.
       content:
         application/json:
@@ -821,6 +912,9 @@ components:
               code: RESOURCE_NOT_FOUND
               message: not found
     InternalError:
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/X-Request-ID'
       description: Unexpected server error.
       content:
         application/json:

@@ -26,7 +26,7 @@ func TestHealthEndpointSuccess(t *testing.T) {
 
 	contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
+	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc, testLogger())
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 
@@ -67,7 +67,7 @@ func TestHealthEndpointMethodNotAllowed(t *testing.T) {
 
 	contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
+	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc, testLogger())
 
 	req := httptest.NewRequest(http.MethodPost, "/health", nil)
 	rec := httptest.NewRecorder()

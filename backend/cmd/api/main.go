@@ -2,18 +2,24 @@ package main
 
 import (
 	"context"
-	"log"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 )
 
 func main() {
+	logger, err := newLogger(os.Stdout, os.Getenv("LOG_LEVEL"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := run(ctx); err != nil {
-		log.Printf("API stopped with error: %v", err)
+	if err := run(ctx, logger); err != nil {
+		logger.Error("API stopped with error", "error", err)
 		os.Exit(1)
 	}
 }

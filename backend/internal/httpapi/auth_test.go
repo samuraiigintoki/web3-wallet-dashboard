@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -40,7 +41,12 @@ func (e *errorRevokeAllUserRepo) DeleteSessionsByUser(ctx context.Context, userI
 	return 0, errors.New("database connection down")
 }
 
-func newTestRouter(userRepo user.UserRepository) http.Handler {
+func newTestRouter(userRepo user.UserRepository, loggers ...*slog.Logger) http.Handler {
+	logger := testLogger()
+	if len(loggers) > 0 && loggers[0] != nil {
+		logger = loggers[0]
+	}
+
 	walletRepo := wallet.NewInMemoryWalletRepo()
 
 	chainRepo := chain.NewInMemoryRepository()
@@ -56,7 +62,7 @@ func newTestRouter(userRepo user.UserRepository) http.Handler {
 
 	contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-	return NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
+	return NewRouter(walletSvc, userSvc, chainSvc, contractSvc, logger)
 }
 
 func TestRequireAuth_Middleware(t *testing.T) {
@@ -268,7 +274,7 @@ func TestLoginHandler_Identical401(t *testing.T) {
 
 	contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
+	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc, testLogger())
 
 	_, err := userSvc.Register(ctx, "registered@example.com", "correctpassword")
 	if err != nil {
@@ -341,7 +347,7 @@ func TestLogoutHandler(t *testing.T) {
 
 	contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc)
+	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc, testLogger())
 
 	_, err := userSvc.Register(ctx, "logoutuser@example.com", "mypassword")
 	if err != nil {
