@@ -459,3 +459,21 @@ These decisions may later receive individual Architecture Decision Records in `d
 6. Whether the API exposes normalized contract reads in addition to direct frontend reads.
 7. Whether optional real-time updates use WebSocket or server-sent events.
 8. Whether the indexer remains in the API process or uses a separate executable at deployment time.
+
+## Runtime lifecycle
+
+The API process has one defined lifecycle: bind, serve, drain, close, exit.
+
+1. Start. `DATABASE_URL` is required and the process fails closed when it is empty. The pool is opened and pinged with a 5 second timeout, then the listener is bound. A bind failure exits with code 1 before serving.
+
+2. Signals. `SIGTERM` and `SIGINT` cancel the process context. This is the only shutdown trigger.
+
+3. Drain. `http.Server.Shutdown` stops accepting new connections and lets in flight requests finish inside a 10 second grace window. A second `SIGTERM` during the drain window is absorbed, and `SIGKILL` is the only escape hatch.
+
+4. Forced close. If the grace window expires, `http.Server.Close` terminates the remaining connections, the event is logged, and the exit code is 1.
+
+5. Close. The database pool is closed exactly once, after the drain, from the same function that opened it. A clean drain exits with code 0.
+
+Later blocks insert themselves into this sequence instead of adding their own. A background worker stops between the drain and the pool close. The container runtime sends `SIGTERM` and relies on this same order.
+
+The HTTP server uses a 15 second `WriteTimeout`, which is a budget for the whole response. Streaming or WebSocket routes will need per-route timeout handling. B1 records this constraint and does not solve it.
