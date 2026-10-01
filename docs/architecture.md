@@ -2,7 +2,7 @@
 
 ## Status
 
-This document describes the planned architecture of the Web3 Wallet Dashboard. At the current milestone, only the initial Go HTTP server, router, health endpoint, and associated tests are implemented.
+This document describes the planned architecture of the Web3 Wallet Dashboard. At the current milestone the Go backend implements bearer-token authentication, wallet CRUD, supported-chain metadata, and tracked-contract CRUD, all owner-scoped on the three-layer architecture; the React frontend, background indexer, and on-chain integration remain planned.
 
 ## Architectural objective
 
@@ -442,8 +442,7 @@ These decisions may later receive individual Architecture Decision Records in `d
 ## Known limitations
 
 - Only the health endpoint is implemented at the time this document is first written.
-- Authentication design is not finalized.
-- The exact PostgreSQL schema and API contracts are not finalized.
+- The Week-6 indexer tables (multisig_transactions, transaction_confirmations, contract_events, indexer_checkpoints) remain proposed; the user, wallet, chain, and contract tables are implemented in migrations 0001 through 0006.
 - The target testnet and RPC provider are not finalized.
 - Contract event coverage must be checked against the existing ABI.
 - Deep chain-reorganization handling is outside the initial scope.
@@ -452,7 +451,7 @@ These decisions may later receive individual Architecture Decision Records in `d
 
 ## Open decisions
 
-1. Session-cookie or bearer-token authentication.
+1. (Resolved for B3) Bearer-token authentication, not session cookies. See docs/auth.md.
 2. Target EVM testnet and RPC provider.
 3. Exact contract events and any required contract updates.
 4. Indexer confirmation depth and basic reorganization policy.
