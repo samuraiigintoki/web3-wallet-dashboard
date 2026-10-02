@@ -14,6 +14,7 @@ info:
     - Responses include an "X-Request-ID" header; correlation data is not added to JSON bodies.
     - Request bodies are JSON only, capped at 1 MB, and unknown fields are rejected (400 INVALID_JSON).
     - Fields marked required must be present; invalid values return 422 VALIDATION_ERROR.
+    - Requests are rate limited per caller; a denied request returns 429 RATE_LIMITED with a Retry-After header. Health and readiness probes are exempt.
 
 servers:
   - url: http://localhost:8080
@@ -93,6 +94,8 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/chain'
+        '429':
+          $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -101,6 +104,7 @@ paths:
       tags: [auth]
       operationId: register
       summary: Create a user account.
+      description: Carries the stricter rate-limit tier in addition to the global one, 5 requests per minute with a burst of 2, keyed by client address.
       requestBody:
         required: true
         content:
@@ -127,6 +131,8 @@ paths:
           $ref: '#/components/responses/Validation422'
         '409':
           $ref: '#/components/responses/UserConflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -135,6 +141,7 @@ paths:
       tags: [auth]
       operationId: login
       summary: Authenticate and receive a bearer token.
+      description: Carries the stricter rate-limit tier in addition to the global one, 5 requests per minute with a burst of 2, keyed by client address.
       requestBody:
         required: true
         content:
@@ -159,6 +166,8 @@ paths:
           $ref: '#/components/responses/InvalidJSON'
         '401':
           $ref: '#/components/responses/InvalidCredentials'
+        '429':
+          $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -187,6 +196,8 @@ paths:
                     $ref: '#/components/schemas/message'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -208,6 +219,8 @@ paths:
           description: All sessions revoked.
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -234,6 +247,8 @@ paths:
                     $ref: '#/components/schemas/user'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -273,6 +288,8 @@ paths:
           $ref: '#/components/responses/Validation422'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
     post:
@@ -309,6 +326,8 @@ paths:
           $ref: '#/components/responses/Conflict'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -341,6 +360,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
     patch:
@@ -384,6 +405,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
     delete:
@@ -404,6 +427,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -444,6 +469,8 @@ paths:
           $ref: '#/components/responses/Validation422'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
     post:
@@ -480,6 +507,8 @@ paths:
           $ref: '#/components/responses/Conflict'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -512,6 +541,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
     patch:
@@ -555,6 +586,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
     delete:
@@ -575,6 +608,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -593,6 +628,11 @@ components:
         minLength: 1
         maxLength: 64
         pattern: '^[A-Za-z0-9._-]{1,64}$'
+    Retry-After:
+      description: Whole seconds to wait before retrying. Set on 429 responses only.
+      schema:
+        type: integer
+        minimum: 1
 
   parameters:
     id:
@@ -763,6 +803,7 @@ components:
             - INVALID_CREDENTIALS
             - UNAUTHENTICATED
             - USER_CONFLICT
+            - RATE_LIMITED
         message:
           type: string
         details:
@@ -852,6 +893,26 @@ components:
             error:
               code: SERVICE_UNAVAILABLE
               message: not ready
+    RateLimited:
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/X-Request-ID'
+        Retry-After:
+          $ref: '#/components/headers/Retry-After'
+      description: >-
+        The caller exhausted its bucket. Every route outside the health probes
+        allows 60 requests per minute with a burst of 10; POST
+        /api/v1/auth/login and POST /api/v1/auth/register allow 5 per minute
+        with a burst of 2. Retry-After carries the wait in whole seconds.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/error'
+          example:
+            error:
+              code: RATE_LIMITED
+              message: too many requests
+
     InvalidJSON:
       headers:
         X-Request-ID:

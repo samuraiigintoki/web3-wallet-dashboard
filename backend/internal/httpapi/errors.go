@@ -10,4 +10,5 @@ const (
 	CodeInvalidCredentials = "INVALID_CREDENTIALS"
 	CodeUnauthenticated    = "UNAUTHENTICATED"
 	CodeUserConflict       = "USER_CONFLICT"
+	CodeRateLimited        = "RATE_LIMITED"
 )
