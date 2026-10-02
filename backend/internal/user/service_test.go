@@ -183,3 +183,37 @@ func TestRevokeAll_RemovesOnlyTheUsersSessions(t *testing.T) {
 		t.Fatalf("expected user B session to remain, got error %v", err)
 	}
 }
+
+func TestPurgeExpiredSessions_RemovesOnlyExpiredSessions(t *testing.T) {
+	ctx := context.Background()
+	repo := NewInMemoryRepository()
+	service := NewService(repo)
+
+	sessions := []UserSession{
+		{UserID: 1, TokenHash: "expired-one", ExpiresAt: time.Now().Add(-2 * time.Hour)},
+		{UserID: 1, TokenHash: "live", ExpiresAt: time.Now().Add(time.Hour)},
+		{UserID: 2, TokenHash: "expired-two", ExpiresAt: time.Now().Add(-time.Minute)},
+	}
+	for _, session := range sessions {
+		if _, err := repo.CreateSession(ctx, session); err != nil {
+			t.Fatalf("create session %q: %v", session.TokenHash, err)
+		}
+	}
+
+	purged, err := service.PurgeExpiredSessions(ctx)
+	if err != nil {
+		t.Fatalf("purge expired sessions: %v", err)
+	}
+	if purged != 2 {
+		t.Fatalf("expected 2 purged sessions, got %d", purged)
+	}
+
+	for _, tokenHash := range []string{"expired-one", "expired-two"} {
+		if _, err := repo.GetSessionByTokenHash(ctx, tokenHash); !errors.Is(err, ErrNotFound) {
+			t.Errorf("expected session %q to be purged, got error %v", tokenHash, err)
+		}
+	}
+	if _, err := repo.GetSessionByTokenHash(ctx, "live"); err != nil {
+		t.Fatalf("expected the live session to survive, got error %v", err)
+	}
+}

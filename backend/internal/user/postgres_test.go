@@ -179,4 +179,63 @@ func TestPostgresUserRepository_Integration(t *testing.T) {
 			t.Fatalf("expected user B session to remain, got error %v", err)
 		}
 	})
+
+	t.Run("PurgeExpiredSessions deletes only the expired rows", func(t *testing.T) {
+		ctx := context.Background()
+		u, err := repo.Create(ctx, User{
+			Email:        newUniqueEmail(),
+			PasswordHash: "unused-test-hash",
+		})
+		if err != nil {
+			t.Fatalf("create user: %v", err)
+		}
+
+		prefix := fmt.Sprintf("purge-%d", time.Now().UnixNano())
+		expired := []string{prefix + "-expired-one", prefix + "-expired-two"}
+		live := prefix + "-live"
+		for _, tokenHash := range expired {
+			if _, err := repo.CreateSession(ctx, UserSession{
+				UserID:    u.ID,
+				TokenHash: tokenHash,
+				ExpiresAt: time.Now().Add(-1 * time.Hour),
+			}); err != nil {
+				t.Fatalf("create expired session %q: %v", tokenHash, err)
+			}
+		}
+		if _, err := repo.CreateSession(ctx, UserSession{
+			UserID:    u.ID,
+			TokenHash: live,
+			ExpiresAt: time.Now().Add(time.Hour),
+		}); err != nil {
+			t.Fatalf("create live session: %v", err)
+		}
+		t.Cleanup(func() {
+			_ = repo.DeleteSessionByTokenHash(context.Background(), live)
+		})
+
+		purged, err := repo.PurgeExpiredSessions(ctx)
+		if err != nil {
+			t.Fatalf("purge expired sessions: %v", err)
+		}
+		if purged < int64(len(expired)) {
+			t.Fatalf("purged %d rows, want at least the %d this test seeded", purged, len(expired))
+		}
+
+		for _, tokenHash := range expired {
+			if _, err := repo.GetSessionByTokenHash(ctx, tokenHash); !errors.Is(err, ErrNotFound) {
+				t.Errorf("expected expired session %q to be gone, got error %v", tokenHash, err)
+			}
+		}
+		if _, err := repo.GetSessionByTokenHash(ctx, live); err != nil {
+			t.Errorf("expected the live session to survive the purge, got error %v", err)
+		}
+
+		purged, err = repo.PurgeExpiredSessions(ctx)
+		if err != nil {
+			t.Fatalf("repeat purge: %v", err)
+		}
+		if purged != 0 {
+			t.Errorf("repeat purge deleted %d rows, want 0", purged)
+		}
+	})
 }

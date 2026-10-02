@@ -10,4 +10,5 @@ type UserRepository interface {
 	GetSessionByTokenHash(ctx context.Context, tokenHash string) (UserSession, error)
 	DeleteSessionByTokenHash(ctx context.Context, tokenHash string) error
 	DeleteSessionsByUser(ctx context.Context, userID int64) (int64, error)
+	PurgeExpiredSessions(ctx context.Context) (int64, error)
 }

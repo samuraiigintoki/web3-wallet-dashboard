@@ -129,3 +129,9 @@ func (s *Service) Logout(ctx context.Context, token string) error {
 func (s *Service) RevokeAll(ctx context.Context, userID int64) (int64, error) {
 	return s.repo.DeleteSessionsByUser(ctx, userID)
 }
+
+// PurgeExpiredSessions deletes every session row past its expiry. It is called
+// by the periodic worker job, not by a request handler.
+func (s *Service) PurgeExpiredSessions(ctx context.Context) (int64, error) {
+	return s.repo.PurgeExpiredSessions(ctx)
+}
