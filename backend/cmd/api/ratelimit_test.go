@@ -87,43 +87,107 @@ func TestTokenBucketLimiterKeysDoNotShareBuckets(t *testing.T) {
 	limiter := newTokenBucketLimiter(globalLimitPerMinute, globalLimitBurst)
 
 	for i := 1; i <= globalLimitBurst; i++ {
-		limiter.Allow("user:1")
+		limiter.Allow("192.0.2.1")
 	}
-	if allowed, _ := limiter.Allow("user:1"); allowed {
-		t.Fatal("user 1 exceeded its burst, want a denial")
+	if allowed, _ := limiter.Allow("192.0.2.1"); allowed {
+		t.Fatal("the first address exceeded its burst, want a denial")
 	}
 
-	if allowed, retryAfter := limiter.Allow("user:2"); !allowed {
-		t.Fatalf("user 2 denied at retryAfter %v because user 1 spent the bucket", retryAfter)
+	if allowed, retryAfter := limiter.Allow("198.51.100.1"); !allowed {
+		t.Fatalf("the second address was denied at retryAfter %v because the first spent its bucket", retryAfter)
 	}
-	if allowed, _ := limiter.Allow("ip:192.0.2.1"); !allowed {
-		t.Fatal("the address bucket denied a request because a user bucket was spent")
+	if allowed, _ := limiter.Allow("203.0.113.1"); !allowed {
+		t.Fatal("the third address was denied because another address was spent")
 	}
 }
 
-func TestTokenBucketLimiterEvictsIdleBucketsOnAccess(t *testing.T) {
+func TestTokenBucketLimiterSweepsKeysThatAreNeverRevisited(t *testing.T) {
 	clock := newFakeClock()
 	limiter := newTokenBucketLimiter(globalLimitPerMinute, globalLimitBurst)
 	limiter.now = clock.Now
 
-	limiter.Allow("ip:stale")
-	stale := limiter.buckets["ip:stale"]
+	// One-off callers are the common case on a public API. This key is never
+	// visited again, so only the sweep can remove it.
+	limiter.Allow("192.0.2.1")
+	if _, ok := limiter.buckets["192.0.2.1"]; !ok {
+		t.Fatal("the first request did not create a bucket")
+	}
+
+	clock.advance(limiter.idleTTL + time.Minute)
+	limiter.Allow("198.51.100.1")
+
+	if _, ok := limiter.buckets["192.0.2.1"]; ok {
+		t.Fatal("a key that was never revisited kept its bucket, want the sweep to delete it")
+	}
+	if _, ok := limiter.buckets["198.51.100.1"]; !ok {
+		t.Fatal("the sweep deleted the bucket it had just created")
+	}
+}
+
+func TestTokenBucketLimiterSweepKeepsBucketsInsideTheThreshold(t *testing.T) {
+	clock := newFakeClock()
+	limiter := newTokenBucketLimiter(globalLimitPerMinute, globalLimitBurst)
+	limiter.now = clock.Now
+
+	limiter.Allow("192.0.2.1")
+	kept := limiter.buckets["192.0.2.1"]
+
+	// The sweep is due, the bucket is not idle yet.
+	clock.advance(sweepInterval + time.Second)
+	limiter.Allow("198.51.100.1")
+
+	if limiter.buckets["192.0.2.1"] != kept {
+		t.Fatal("the sweep replaced a bucket inside the idle threshold")
+	}
+}
+
+func TestTokenBucketLimiterSweepRunsAtMostOncePerInterval(t *testing.T) {
+	clock := newFakeClock()
+	limiter := newTokenBucketLimiter(globalLimitPerMinute, globalLimitBurst)
+	limiter.now = clock.Now
+
+	limiter.Allow("192.0.2.1")
+	first := limiter.lastSweep
+	if first.IsZero() {
+		t.Fatal("the first request did not run a sweep")
+	}
+
+	clock.advance(sweepInterval / 2)
+	limiter.Allow("198.51.100.1")
+	if !limiter.lastSweep.Equal(first) {
+		t.Fatalf("lastSweep moved after %v, want the interval to be %v", sweepInterval/2, sweepInterval)
+	}
+
+	clock.advance(sweepInterval / 2)
+	limiter.Allow("203.0.113.1")
+	if want := first.Add(sweepInterval); !limiter.lastSweep.Equal(want) {
+		t.Fatalf("lastSweep = %v, want %v", limiter.lastSweep, want)
+	}
+}
+
+func TestTokenBucketLimiterReplacesACrossedThresholdBucketOnAccess(t *testing.T) {
+	clock := newFakeClock()
+	limiter := newTokenBucketLimiter(globalLimitPerMinute, globalLimitBurst)
+	limiter.now = clock.Now
+
+	limiter.Allow("192.0.2.1")
+	idle := limiter.buckets["192.0.2.1"]
 
 	clock.advance(limiter.idleTTL + time.Second)
-	limiter.Allow("ip:fresh")
-	fresh := limiter.buckets["ip:fresh"]
 
-	limiter.Allow("ip:stale")
-	if limiter.buckets["ip:stale"] == stale {
-		t.Fatal("a bucket older than the idle threshold was carried forward, want it dropped and recreated")
-	}
-	if limiter.buckets["ip:fresh"] != fresh {
-		t.Fatal("touching one key replaced an unrelated key's bucket")
+	// The sweep has just run and left this bucket, so the per-key check is the
+	// only thing that can replace it for the rest of this interval.
+	limiter.lastSweep = clock.Now()
+	limiter.Allow("192.0.2.1")
+
+	if limiter.buckets["192.0.2.1"] == idle {
+		t.Fatal("a bucket past the idle threshold was carried forward, want it dropped and recreated")
 	}
 
+	fresh := limiter.buckets["192.0.2.1"]
 	clock.advance(time.Second)
-	limiter.Allow("ip:fresh")
-	if limiter.buckets["ip:fresh"] != fresh {
+	limiter.Allow("192.0.2.1")
+	if limiter.buckets["192.0.2.1"] != fresh {
 		t.Fatal("a bucket inside the idle threshold was replaced, want it reused")
 	}
 }

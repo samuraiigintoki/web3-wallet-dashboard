@@ -14,27 +14,31 @@ const (
 	authLimitPerMinute   = 5
 	authLimitBurst       = 2
 
-	// idleBucketTTL is the lazy-eviction threshold. A bucket untouched for
-	// longer than this is dropped and recreated full on its next access. The
+	// idleBucketTTL is the threshold past which a bucket is stale. The
 	// effective threshold is raised to one full refill when that is longer, so
-	// an evicted bucket could never have held more than a fresh one does.
+	// a dropped bucket could never have held more than a fresh one does.
 	idleBucketTTL = 10 * time.Minute
+
+	// sweepInterval is how often the periodic walk of the whole map may run.
+	// It is driven by the first request after the interval elapses, not by a
+	// goroutine.
+	sweepInterval = time.Minute
 )
 
-// tokenBucketLimiter is an in-memory token bucket store, one bucket per key.
-// It refills from elapsed wall-clock time on each Allow call and starts no
+// tokenBucketLimiter is an in-memory token bucket store, one bucket per key. It
+// refills from elapsed wall-clock time on each Allow call and starts no
 // background goroutine, matching the databaseReadiness split in this package:
 // httpapi declares the interface, cmd/api owns the concrete implementation.
 //
-// Memory is bounded by the number of distinct keys seen, not by time. Dropping
-// a bucket on access bounds how stale a bucket may be, not how many exist; a
-// real sweep is W4-B5's job, where a background worker already exists.
+// Memory is bounded by the keys seen inside the idle threshold. A key visited
+// once and never again is removed by the sweep rather than left in the map.
 type tokenBucketLimiter struct {
 	mu         sync.Mutex
 	buckets    map[string]*tokenBucket
 	refillRate float64 // tokens per second
 	burst      float64 // bucket capacity, also its initial fill
 	idleTTL    time.Duration
+	lastSweep  time.Time
 	now        func() time.Time
 }
 
@@ -59,14 +63,16 @@ func newTokenBucketLimiter(perMinute, burst int) *tokenBucketLimiter {
 	}
 }
 
-// Allow consumes one token for key. It reports whether the request may
-// proceed and, when it may not, how long the caller waits for one token to
-// accumulate at this tier's refill rate.
+// Allow consumes one token for key. It reports whether the request may proceed
+// and, when it may not, how long the caller waits for one token to accumulate
+// at this tier's refill rate.
 func (l *tokenBucketLimiter) Allow(key string) (bool, time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	now := l.now()
+	l.sweepIdleBuckets(now)
+
 	bucket, exists := l.buckets[key]
 	if !exists || now.Sub(bucket.lastRefill) > l.idleTTL {
 		bucket = &tokenBucket{tokens: l.burst, lastRefill: now}
@@ -85,4 +91,23 @@ func (l *tokenBucketLimiter) Allow(key string) (bool, time.Duration) {
 
 	deficit := 1 - bucket.tokens
 	return false, time.Duration(deficit / l.refillRate * float64(time.Second))
+}
+
+// sweepIdleBuckets walks the whole map and deletes every bucket that has not
+// been touched within the idle threshold. It runs at most once per sweep
+// interval, under the caller's lock, from whichever request is first after the
+// interval elapses. The per-key check in Allow still covers a bucket that goes
+// idle between sweeps, since the sweep interval is much shorter than the
+// threshold is long.
+func (l *tokenBucketLimiter) sweepIdleBuckets(now time.Time) {
+	if now.Sub(l.lastSweep) < sweepInterval {
+		return
+	}
+	l.lastSweep = now
+
+	for key, bucket := range l.buckets {
+		if now.Sub(bucket.lastRefill) > l.idleTTL {
+			delete(l.buckets, key)
+		}
+	}
 }
