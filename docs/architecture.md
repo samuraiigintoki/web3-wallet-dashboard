@@ -425,6 +425,20 @@ MultiSigWallet deployed and verified on an EVM testnet
 
 A separate indexer process may be considered if operational requirements justify it. It is not required for the initial portfolio version.
 
+Locally and on a single host the shape is three Compose services built from one image:
+
+- `postgres`, the `postgres:16-alpine` service that already backs local development.
+- `migrate`, a one-shot service from the backend image with the command overridden to `migrate up`. It waits for PostgreSQL to report healthy and exits once the schema is current.
+- `api`, the same image with the default command, publishing port 8080. It waits for `migrate` to exit successfully, so the API never serves against a schema that has not been brought up to date.
+
+The image is a two-stage build at the repository root. `golang:1.26-alpine` compiles `./cmd/api` and `./cmd/migrate` with `CGO_ENABLED=0`, and `alpine:3.20` carries the two binaries as a non-root user, the same Alpine family as the PostgreSQL service. The default command is the API and the migration service overrides only that command, so both entry points ship in one image rather than two Dockerfiles.
+
+The image's `HEALTHCHECK` calls `GET /health/live` and nothing else. Liveness answers whether the process is running, and a database blip must not restart a container that is still serving traffic. That is the reason B3 split the two endpoints, and it is why readiness stays out of the container health contract and remains an endpoint for callers and orchestrators.
+
+## Timestamps
+
+Every timestamp in the system is UTC. PostgreSQL stores `TIMESTAMPTZ`, the API serializes RFC 3339 with a `Z` suffix, and the container image sets `TZ=UTC`, so the process time zone and the log timestamps read UTC rather than the host's. No layer converts to a local time zone for storage, transport, or logs.
+
 ## Architectural decisions and scope guards
 
 - Keep one monorepo for frontend, backend, contracts, documentation, and CI.
