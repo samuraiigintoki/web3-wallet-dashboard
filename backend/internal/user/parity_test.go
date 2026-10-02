@@ -168,3 +168,138 @@ func runSessionRevocationScenario(
 
 	return observations
 }
+
+type sessionPurgeRepository interface {
+	CreateSession(ctx context.Context, session user.UserSession) (user.UserSession, error)
+	GetSessionByTokenHash(ctx context.Context, tokenHash string) (user.UserSession, error)
+	PurgeExpiredSessions(ctx context.Context) (int64, error)
+}
+
+type sessionPurgeObservation struct {
+	Step string
+	Got  string
+}
+
+func TestParity_PurgeExpiredSessions_InMemory(t *testing.T) {
+	_ = runSessionPurgeScenario(
+		t,
+		user.NewInMemoryRepository(),
+		1,
+		fmt.Sprintf("memory-purge-%d", time.Now().UnixNano()),
+	)
+}
+
+func TestParity_PurgeExpiredSessions_Postgres(t *testing.T) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL not set")
+	}
+
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	ctx := context.Background()
+	if err := db.PingContext(ctx); err != nil {
+		t.Fatalf("ping db: %v", err)
+	}
+
+	repo := user.NewPostgresUserRepository(db)
+	owner, err := repo.Create(ctx, user.User{
+		Email:        fmt.Sprintf("purge-parity-%d@example.com", time.Now().UnixNano()),
+		PasswordHash: "unused-parity-hash",
+	})
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(context.Background(), "DELETE FROM user_sessions WHERE user_id = $1", owner.ID)
+		_, _ = db.ExecContext(context.Background(), "DELETE FROM users WHERE id = $1", owner.ID)
+	})
+
+	prefix := fmt.Sprintf("purge-parity-%d", time.Now().UnixNano())
+	memoryObservations := runSessionPurgeScenario(
+		t,
+		user.NewInMemoryRepository(),
+		1,
+		prefix,
+	)
+	postgresObservations := runSessionPurgeScenario(
+		t,
+		repo,
+		owner.ID,
+		prefix,
+	)
+
+	if !reflect.DeepEqual(memoryObservations, postgresObservations) {
+		t.Errorf("parity mismatch:\nmem:%+v\npg:%+v", memoryObservations, postgresObservations)
+	}
+}
+
+func runSessionPurgeScenario(
+	t *testing.T,
+	repo sessionPurgeRepository,
+	userID int64,
+	prefix string,
+) []sessionPurgeObservation {
+	t.Helper()
+	ctx := context.Background()
+
+	seeded := []struct {
+		name      string
+		tokenHash string
+		expiresAt time.Time
+	}{
+		{name: "expired-one", tokenHash: prefix + "-expired-one", expiresAt: time.Now().Add(-2 * time.Hour)},
+		{name: "live", tokenHash: prefix + "-live", expiresAt: time.Now().Add(time.Hour)},
+		{name: "expired-two", tokenHash: prefix + "-expired-two", expiresAt: time.Now().Add(-time.Minute)},
+	}
+	for _, session := range seeded {
+		if _, err := repo.CreateSession(ctx, user.UserSession{
+			UserID:    userID,
+			TokenHash: session.tokenHash,
+			ExpiresAt: session.expiresAt,
+		}); err != nil {
+			t.Fatalf("create %s session: %v", session.name, err)
+		}
+	}
+
+	observations := make([]sessionPurgeObservation, 0, 6)
+	purged, err := repo.PurgeExpiredSessions(ctx)
+	if err != nil {
+		t.Fatalf("purge expired sessions: %v", err)
+	}
+	if purged != 2 {
+		t.Fatalf("expected 2 purged sessions, got %d", purged)
+	}
+	observations = append(observations, sessionPurgeObservation{Step: "purge", Got: fmt.Sprint(purged)})
+
+	for _, session := range seeded {
+		_, err := repo.GetSessionByTokenHash(ctx, session.tokenHash)
+		switch session.name {
+		case "live":
+			if err != nil {
+				t.Fatalf("expected %s session to remain, got error %v", session.name, err)
+			}
+			observations = append(observations, sessionPurgeObservation{Step: session.name, Got: "present"})
+		default:
+			if !errors.Is(err, user.ErrNotFound) {
+				t.Fatalf("expected %s session to be purged, got error %v", session.name, err)
+			}
+			observations = append(observations, sessionPurgeObservation{Step: session.name, Got: "purged"})
+		}
+	}
+
+	purged, err = repo.PurgeExpiredSessions(ctx)
+	if err != nil {
+		t.Fatalf("repeat purge: %v", err)
+	}
+	if purged != 0 {
+		t.Fatalf("expected repeat purge to delete 0 sessions, got %d", purged)
+	}
+	observations = append(observations, sessionPurgeObservation{Step: "repeat-purge", Got: fmt.Sprint(purged)})
+
+	return observations
+}

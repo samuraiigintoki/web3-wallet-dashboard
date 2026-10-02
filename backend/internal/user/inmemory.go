@@ -143,3 +143,23 @@ func (r *InMemoryRepository) DeleteSessionsByUser(ctx context.Context, userID in
 
 	return deleted, nil
 }
+
+func (r *InMemoryRepository) PurgeExpiredSessions(ctx context.Context) (int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	now := time.Now()
+	var deleted int64
+	for tokenHash, session := range r.sessions {
+		if session.ExpiresAt.Before(now) {
+			delete(r.sessions, tokenHash)
+			deleted++
+		}
+	}
+
+	return deleted, nil
+}

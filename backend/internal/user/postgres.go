@@ -121,3 +121,19 @@ func (repo *PostgresUserRepository) DeleteSessionsByUser(ctx context.Context, us
 
 	return rowsAffected, nil
 }
+
+func (repo *PostgresUserRepository) PurgeExpiredSessions(ctx context.Context) (int64, error) {
+	const query = `DELETE FROM user_sessions WHERE expires_at < NOW()`
+
+	result, err := repo.db.ExecContext(ctx, query)
+	if err != nil {
+		return 0, err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+
+	return rowsAffected, nil
+}

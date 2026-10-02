@@ -16,6 +16,7 @@ import (
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/httpapi"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/user"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
+	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/worker"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -98,8 +99,22 @@ func run(ctx context.Context, logger *slog.Logger) (runErr error) {
 		MaxHeaderBytes:    maxHeaderBytes,
 	}
 
+	// The purge worker starts before the server accepts traffic and stops after
+	// the HTTP drain, while the pool is still open.
+	sessionPurge := worker.New(
+		sessionPurgeJob{userSvc: userSvc, logger: logger},
+		logger,
+		sessionPurgeInterval,
+	)
+	sessionPurge.Start()
+
 	serveErr := serve(ctx, ln, srv, shutdownGracePeriod, logger)
-	// B5 stops its worker here, after the HTTP drain and before the deferred DB close.
+	if err := sessionPurge.Stop(); err != nil {
+		logger.Error("session purge worker did not stop cleanly", "error", err)
+		if serveErr == nil {
+			serveErr = err
+		}
+	}
 	return serveErr
 }
 
