@@ -875,26 +875,24 @@ Exact limits may change after implementation measurements.
 
 ## Rate limiting
 
-Implemented. Two tiers are applied as per-route wraps at routing time, so a route that is not wrapped is never limited.
+Implemented. One global tier wraps the whole API, and a stricter tier wraps the two credential routes. Health and readiness probes are exempt from both.
 
 | Tier | Applies to | Limit | Burst |
 |---|---|---|---|
-| Global | Every `/api/v1` route | 60 requests per minute | 10 |
+| Global | Every route outside the health probes | 60 requests per minute | 10 |
 | Authentication | `POST /api/v1/auth/login`, `POST /api/v1/auth/register` | 5 requests per minute | 2 |
 
-Both numbers are per key. `login` and `register` carry the authentication tier outside the global one, so a blocked brute-force attempt does not spend a global token.
+Both numbers are per key, and the key is the client address with the source port dropped. One key namespace covers the whole API.
 
-**Key.** Authenticated routes bucket per user id, read from the request context that `RequireAuth` populates, so callers behind one shared address do not spend each other's budget. Every route without a user in context, `login` and `register` included, buckets per client address with the source port dropped. The two namespaces are prefixed (`user:`, `ip:`).
+**Ordering.** The global tier runs before the router matches a route and before any authentication, which is why a missing or invalid bearer token is counted like any other request instead of reaching the session lookup untouched. A path with no route is counted too. The authentication tier runs on the two credential routes after the global one, so a blocked brute-force attempt spends both budgets.
 
 **Rejection.** A denied request returns `429` with the standard envelope, code `RATE_LIMITED`, and `Retry-After` in whole seconds, rounded up. `Retry-After` is set on the 429 only; no `X-RateLimit-*` headers are sent.
 
-**Exemption.** `GET /health`, `GET /health/live`, and `GET /health/ready` are infrastructure traffic and carry no wrap on either tier.
+**Exemption.** `GET /health`, `GET /health/live`, and `GET /health/ready` are infrastructure traffic and are skipped by both tiers.
 
-**State.** Buckets are in-process, one per key, refilled from elapsed wall-clock time on each request. There is no shared store, so limits are per API instance and reset on restart. A key untouched for longer than the idle threshold is dropped and recreated on its next request; that bounds how stale a bucket may be, not how many exist, and a sweep ticker belongs to W4-B5.
+**State.** Buckets are in-process, one per key, refilled from elapsed wall-clock time on each request. There is no shared store, so limits are per API instance and reset on restart. A sweep runs at most once a minute from the first request after the interval elapses, deleting every bucket untouched for longer than the idle threshold. In between sweeps, a key that goes idle is replaced full on its next request. The idle threshold is never shorter than a full refill, so a dropped bucket can never hold more than a fresh one would.
 
 The numbers are code constants (`backend/cmd/api/ratelimit.go`), not configuration, until real traffic argues otherwise.
-
-**Not counted.** An unmatched path still returns the mux's plain-text 404 with no limiter, and a request rejected by `RequireAuth` returns 401 before the global limiter runs. Both stay open; the catch-all and method-not-allowed behavior remains a B7 candidate.
 
 ## Open API decisions
 

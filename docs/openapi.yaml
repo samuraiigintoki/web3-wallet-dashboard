@@ -900,10 +900,10 @@ components:
         Retry-After:
           $ref: '#/components/headers/Retry-After'
       description: >-
-        The caller exhausted its bucket. Every /api/v1 route allows 60 requests
-        per minute with a burst of 10; POST /api/v1/auth/login and
-        POST /api/v1/auth/register allow 5 per minute with a burst of 2.
-        Retry-After carries the wait in whole seconds.
+        The caller exhausted its bucket. Every route outside the health probes
+        allows 60 requests per minute with a burst of 10; POST
+        /api/v1/auth/login and POST /api/v1/auth/register allow 5 per minute
+        with a burst of 2. Retry-After carries the wait in whole seconds.
       content:
         application/json:
           schema:
