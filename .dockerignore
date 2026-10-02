@@ -1,0 +1,5 @@
+# The build context is the repository root because the Dockerfile lives there,
+# but the image only needs backend/. Excluding everything else keeps .git, local
+# env files, and the docs out of what is sent to the builder.
+*
+!backend

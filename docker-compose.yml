@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wallet}
       POSTGRES_DB: ${POSTGRES_DB:-wallet}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgwallet_data:/var/lib/postgresql/data
     healthcheck:
@@ -15,6 +15,38 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  # One-shot schema step. Same image as the API, command overridden. It runs
+  # after PostgreSQL is healthy and exits when the schema is current.
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: web3-wallet-dashboard-backend:local
+    command: ["migrate", "up"]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-wallet}:${POSTGRES_PASSWORD:-wallet}@postgres:5432/${POSTGRES_DB:-wallet}?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # The API. Starts only once the migration service has exited successfully, so
+  # it never serves against a schema that has not been brought up to date.
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: web3-wallet-dashboard-backend:local
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-wallet}:${POSTGRES_PASSWORD:-wallet}@postgres:5432/${POSTGRES_DB:-wallet}?sslmode=disable
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "8080:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
 
 volumes:
   pgwallet_data:

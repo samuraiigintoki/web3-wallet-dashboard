@@ -25,6 +25,10 @@ Two architectural forks were evaluated:
    - Migrations will execute in explicit lexical order (`0001_`, `0002_`), with each migration wrapped in a single database transaction (`BEGIN` ... `COMMIT`).
    - The runner will support explicit `up` execution for forward progress and `down` execution for local development rollbacks.
 
+## Concurrency limitation
+
+The runner reads `schema_migrations` for a version, executes the migration, and then inserts the version row, all inside one transaction. That check-then-insert is not atomic across processes: two `migrate up` invocations starting at the same moment can both read a version as unapplied and both attempt it. A deployment must therefore ensure only one `migrate` invocation runs at a time. The Compose topology does this by running migrations in a single one-shot service that the API waits on. If concurrent invocation ever becomes a real risk, the fix is a PostgreSQL advisory lock held for the duration of a run. It is not implemented today.
+
 ## Consequences
 - The API binary remains focused solely on request serving.
 - Schema migrations become a distinct, auditable pipeline step.

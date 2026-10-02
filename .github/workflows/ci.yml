@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: backend
@@ -78,3 +78,38 @@ jobs:
         run: |
           go test -race -count=1 -v ./... 2>&1 | tee skip-mode.log
           grep -q -- '--- SKIP' skip-mode.log
+
+      # The Dockerfile has no Go test. This is its test: build the image, bring
+      # the whole stack up, and require both health endpoints to answer through
+      # the published port before the teardown step runs.
+      - name: Build Image and Verify the Compose Stack
+        working-directory: .
+        env:
+          # The job's own postgres service already owns host port 5432, so the
+          # stack's database is published elsewhere.
+          POSTGRES_PORT: 55432
+        run: |
+          set -euo pipefail
+          docker compose up -d --build
+
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://localhost:8080/health/live >/dev/null; then
+              echo "liveness answered on attempt ${attempt}"
+              break
+            fi
+            sleep 2
+          done
+
+          echo "liveness: $(curl -fsS http://localhost:8080/health/live)"
+          echo "readiness: $(curl -fsS http://localhost:8080/health/ready)"
+
+          docker compose ps
+
+      - name: Tear Down the Compose Stack
+        if: always()
+        working-directory: .
+        env:
+          POSTGRES_PORT: 55432
+        run: |
+          docker compose logs --no-color || true
+          docker compose down -v --remove-orphans || true

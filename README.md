@@ -84,7 +84,9 @@ web3-wallet-dashboard/
 │   ├── api.md                # REST API design specifications
 │   ├── database-schema.md    # PostgreSQL schema definitions
 │   └── security-assumptions.md # Security baseline and TLS assumptions
-└── docker-compose.yml        # Local PostgreSQL 16 service
+├── Dockerfile                # Multi-stage image: API and migrate binaries, non-root runtime
+├── .dockerignore             # Keeps the build context to backend/
+└── docker-compose.yml        # PostgreSQL 16, one-shot migrations, and the API image
 ```
 
 ## Prerequisites
@@ -116,6 +118,29 @@ The Go `GET` route patterns also accept `HEAD`. Unsupported methods return `405 
 
 ```bash
 curl -i -X POST http://localhost:8080/health/live
+```
+
+## Run the production-shaped stack
+
+The image and the Compose topology are the deployment shape described in `docs/architecture.md`. From the repository root:
+
+```bash
+docker compose up --build
+```
+
+This builds one image and starts three services: `postgres`, a one-shot `migrate` service that applies the schema, and `api`, which starts only after migrations exit successfully and publishes port 8080. The image runs as a non-root user, sets `TZ=UTC`, and reports container health from liveness only.
+
+Verify the running stack from another terminal:
+
+```bash
+curl -i http://localhost:8080/health/live   # liveness: process only, gates container health
+curl -i http://localhost:8080/health/ready  # readiness: also checks PostgreSQL
+```
+
+Stop the stack and remove its volume:
+
+```bash
+docker compose down -v
 ```
 
 ## Run backend checks
