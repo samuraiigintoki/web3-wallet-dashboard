@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"bytes"
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -75,7 +74,7 @@ func TestRateLimitDeniedWritesEnvelopeAndRetryAfter(t *testing.T) {
 	if got, want := rec.Header().Get("Content-Type"), "application/json"; got != want {
 		t.Fatalf("Content-Type = %q, want %q", got, want)
 	}
-	if got, want := limiter.keys(), []string{"ip:192.0.2.10"}; !slices.Equal(got, want) {
+	if got, want := limiter.keys(), []string{"192.0.2.10"}; !slices.Equal(got, want) {
 		t.Fatalf("limiter keys = %v, want %v", got, want)
 	}
 }
@@ -102,29 +101,33 @@ func TestRateLimitAllowedCallsNextWithoutRetryAfter(t *testing.T) {
 	}
 }
 
-func TestRateLimitKeyIsHybrid(t *testing.T) {
+func TestRateLimitKeyIsTheClientAddress(t *testing.T) {
 	tests := []struct {
 		name       string
 		remoteAddr string
-		userID     int64
-		hasUser    bool
 		want       string
 	}{
-		{name: "unauthenticated ipv4 drops the port", remoteAddr: "192.0.2.10:4567", want: "ip:192.0.2.10"},
-		{name: "unauthenticated ipv6 drops the port", remoteAddr: "[2001:db8::1]:4567", want: "ip:2001:db8::1"},
-		{name: "address without a port is kept", remoteAddr: "192.0.2.10", want: "ip:192.0.2.10"},
-		{name: "authenticated keys on the user", remoteAddr: "192.0.2.10:4567", userID: 42, hasUser: true, want: "user:42"},
-		{name: "authenticated ignores the address", remoteAddr: "198.51.100.4:9999", userID: 42, hasUser: true, want: "user:42"},
+		{name: "ipv4 drops the source port", remoteAddr: "192.0.2.10:4567", want: "192.0.2.10"},
+		{name: "ipv6 drops the source port", remoteAddr: "[2001:db8::1]:4567", want: "2001:db8::1"},
+		{name: "address without a port is kept", remoteAddr: "192.0.2.10", want: "192.0.2.10"},
+		{name: "two connections from one client share a key", remoteAddr: "192.0.2.10:5000", want: "192.0.2.10"},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/api/v1/wallets", nil)
-			req.RemoteAddr = test.remoteAddr
-			if test.hasUser {
-				req = req.WithContext(context.WithValue(req.Context(), userCtxKey, user.User{ID: test.userID}))
+			if test.name == "two connections from one client share a key" {
+				other := httptest.NewRequest(http.MethodGet, "/api/v1/wallets", nil)
+				other.RemoteAddr = "192.0.2.10:6000"
+				first := httptest.NewRequest(http.MethodGet, "/api/v1/wallets", nil)
+				first.RemoteAddr = test.remoteAddr
+
+				if rateLimitKey(first) != rateLimitKey(other) {
+					t.Fatalf("keys differ across ports: %q and %q", rateLimitKey(first), rateLimitKey(other))
+				}
 			}
 
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/wallets", nil)
+			req.RemoteAddr = test.remoteAddr
 			if got := rateLimitKey(req); got != test.want {
 				t.Fatalf("rateLimitKey() = %q, want %q", got, test.want)
 			}
@@ -221,8 +224,10 @@ func TestLoginTighterTierIsAppliedOnlyToTheAuthRoutes(t *testing.T) {
 	if got := len(auth.keys()); got != 6 {
 		t.Fatalf("strict limiter calls = %d, want 6 (login only)", got)
 	}
-	if got := len(global.keys()); got != 11 {
-		t.Fatalf("global limiter calls = %d, want 11 (5 login plus 6 chains)", got)
+	// The global tier is chain-wide, so the sixth login reached it before the
+	// strict tier denied the request.
+	if got := len(global.keys()); got != 12 {
+		t.Fatalf("global limiter calls = %d, want 12 (6 login plus 6 chains)", got)
 	}
 }
 

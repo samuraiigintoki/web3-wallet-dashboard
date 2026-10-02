@@ -6,7 +6,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -25,106 +24,104 @@ type stubReadinessCheck struct{ err error }
 func (s stubReadinessCheck) Check(context.Context) error { return s.err }
 
 func TestRateLimitTiersThroughTheRouter(t *testing.T) {
-	t.Run("the auth tier bites before the global tier does", func(t *testing.T) {
+	t.Run("the global tier counts every route once", func(t *testing.T) {
 		router := newRateLimitedTestRouter(newFakeClock())
+		address := "192.0.2.20:41000"
 		const loginBody = `{"email":"nobody@example.com","password":"incorrect-horse"}`
-		const authAddress = "192.0.2.7:40000"
-		const generalAddress = "192.0.2.70:40001"
+
+		// Spend nine of the ten starting tokens on a public route.
+		for i := 1; i <= globalLimitBurst-1; i++ {
+			if rec := get(t, router, "/api/v1/chains", address, ""); rec.Code != http.StatusOK {
+				t.Fatalf("chains request %d status = %d, want 200", i, rec.Code)
+			}
+		}
+
+		// The tenth request is a login. It must be allowed, which proves the
+		// chain-wide tier consumes exactly one token for it and not two.
+		if rec := postJSON(t, router, "/api/v1/auth/login", address, loginBody); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("login status = %d with one global token left, want 401; body=%s", rec.Code, rec.Body.String())
+		}
+
+		rec := get(t, router, "/api/v1/chains", address, "")
+		if rec.Code != http.StatusTooManyRequests {
+			t.Fatalf("chains status = %d after the burst, want 429", rec.Code)
+		}
+		if got, want := rec.Header().Get("Retry-After"), "1"; got != want {
+			t.Fatalf("Retry-After = %q, want %q for 60 requests per minute", got, want)
+		}
+		if got, want := rec.Body.String(), "{\"error\":{\"code\":\"RATE_LIMITED\",\"message\":\"too many requests\"}}\n"; got != want {
+			t.Fatalf("429 body = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("the auth tier bites at its own burst and refills in twelve seconds", func(t *testing.T) {
+		clock := newFakeClock()
+		router := newRateLimitedTestRouter(clock)
+		const loginBody = `{"email":"nobody@example.com","password":"incorrect-horse"}`
+		address := "192.0.2.21:41001"
 
 		for i := 1; i <= authLimitBurst; i++ {
-			if rec := postJSON(t, router, "/api/v1/auth/login", authAddress, loginBody); rec.Code != http.StatusUnauthorized {
+			if rec := postJSON(t, router, "/api/v1/auth/login", address, loginBody); rec.Code != http.StatusUnauthorized {
 				t.Fatalf("login %d status = %d, want 401; body=%s", i, rec.Code, rec.Body.String())
 			}
 		}
-		rec := postJSON(t, router, "/api/v1/auth/login", authAddress, loginBody)
+
+		rec := postJSON(t, router, "/api/v1/auth/login", address, loginBody)
 		if rec.Code != http.StatusTooManyRequests {
 			t.Fatalf("login %d status = %d, want 429 at the auth burst of %d", authLimitBurst+1, rec.Code, authLimitBurst)
 		}
 		if got, want := rec.Header().Get("Retry-After"), "12"; got != want {
 			t.Fatalf("login Retry-After = %q, want %q for 5 requests per minute", got, want)
 		}
-		if got, want := rec.Body.String(), "{\"error\":{\"code\":\"RATE_LIMITED\",\"message\":\"too many requests\"}}\n"; got != want {
-			t.Fatalf("429 body = %q, want %q", got, want)
-		}
-
-		// The same request count on a non-auth route is nowhere near the global
-		// tier, and the global burst is ten starting tokens.
-		for i := 1; i <= authLimitBurst+1; i++ {
-			if rec := get(t, router, "/api/v1/chains", generalAddress, ""); rec.Code != http.StatusOK {
-				t.Fatalf("chains request %d status = %d, want 200; body=%s", i, rec.Code, rec.Body.String())
-			}
-		}
-		for i := authLimitBurst + 2; i <= globalLimitBurst; i++ {
-			if rec := get(t, router, "/api/v1/chains", generalAddress, ""); rec.Code != http.StatusOK {
-				t.Fatalf("chains request %d status = %d, want 200 inside the global burst of %d", i, rec.Code, globalLimitBurst)
-			}
-		}
-		rec = get(t, router, "/api/v1/chains", generalAddress, "")
-		if rec.Code != http.StatusTooManyRequests {
-			t.Fatalf("chains request %d status = %d, want 429 at the global burst of %d", globalLimitBurst+1, rec.Code, globalLimitBurst)
-		}
-		if got, want := rec.Header().Get("Retry-After"), "1"; got != want {
-			t.Fatalf("chains Retry-After = %q, want %q for 60 requests per minute", got, want)
-		}
-	})
-
-	t.Run("the auth tier refills one request every twelve seconds", func(t *testing.T) {
-		clock := newFakeClock()
-		router := newRateLimitedTestRouter(clock)
-		const loginBody = `{"email":"nobody@example.com","password":"incorrect-horse"}`
-		address := "192.0.2.8:40001"
-
-		for i := 1; i <= authLimitBurst; i++ {
-			postJSON(t, router, "/api/v1/auth/login", address, loginBody)
-		}
-		if rec := postJSON(t, router, "/api/v1/auth/login", address, loginBody); rec.Code != http.StatusTooManyRequests {
-			t.Fatalf("login status = %d, want 429 before any refill", rec.Code)
-		}
 
 		clock.advance(15 * time.Second)
 		if rec := postJSON(t, router, "/api/v1/auth/login", address, loginBody); rec.Code != http.StatusUnauthorized {
-			t.Fatalf("login status = %d after 15s of refill, want one allowed request", rec.Code)
+			t.Fatalf("login status = %d after 15s of refill, want the single refilled token allowed", rec.Code)
 		}
 		if rec := postJSON(t, router, "/api/v1/auth/login", address, loginBody); rec.Code != http.StatusTooManyRequests {
-			t.Fatalf("login status = %d, want 429 after the single refilled token is spent", rec.Code)
+			t.Fatalf("login status = %d, want 429 once the refilled token is spent", rec.Code)
 		}
 	})
 
-	t.Run("authenticated routes bucket per user, not per address", func(t *testing.T) {
+	t.Run("a bad bearer token is rate limited before authentication runs", func(t *testing.T) {
 		router := newRateLimitedTestRouter(newFakeClock())
-		const sharedAddress = "203.0.113.9:40100"
+		address := "192.0.2.22:41002"
 
-		firstToken := registerAndLogin(t, router, "192.0.2.11:41000", "first@example.com")
-		secondToken := registerAndLogin(t, router, "192.0.2.12:41001", "second@example.com")
-
-		// Spend the whole global bucket for the shared address on an anonymous
-		// route, so a per-address key would deny everything below.
+		// Every one of these reaches requireAuth and is rejected there. The
+		// limiter sits above authentication, so the burst still runs out.
 		for i := 1; i <= globalLimitBurst; i++ {
-			if rec := get(t, router, "/api/v1/chains", sharedAddress, ""); rec.Code != http.StatusOK {
-				t.Fatalf("chains request %d status = %d, want 200", i, rec.Code)
+			rec := get(t, router, "/api/v1/wallets", address, "not-a-real-token")
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("request %d with a bad token status = %d, want 401; body=%s", i, rec.Code, rec.Body.String())
 			}
 		}
-		if rec := get(t, router, "/api/v1/chains", sharedAddress, ""); rec.Code != http.StatusTooManyRequests {
-			t.Fatalf("chains status = %d, want the shared address bucket spent before the user checks", rec.Code)
+
+		rec := get(t, router, "/api/v1/wallets", address, "not-a-real-token")
+		if rec.Code != http.StatusTooManyRequests {
+			t.Fatalf("garbage-token request %d status = %d, want 429 before the session lookup", globalLimitBurst+1, rec.Code)
 		}
 
-		if rec := get(t, router, "/api/v1/wallets", sharedAddress, firstToken); rec.Code != http.StatusOK {
-			t.Fatalf("first user status = %d with the address bucket spent, want 200; body=%s", rec.Code, rec.Body.String())
+		// A different client address still has its own budget.
+		if rec := get(t, router, "/api/v1/wallets", "192.0.2.23:41003", "not-a-real-token"); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("second address status = %d, want 401 on its own budget", rec.Code)
 		}
-		if rec := get(t, router, "/api/v1/wallets", sharedAddress, secondToken); rec.Code != http.StatusOK {
-			t.Fatalf("second user status = %d on the same address, want 200; body=%s", rec.Code, rec.Body.String())
+	})
+
+	t.Run("health paths are exempt with an empty bucket", func(t *testing.T) {
+		router := newRateLimitedTestRouter(newFakeClock())
+		address := "192.0.2.24:41004"
+
+		for i := 1; i <= globalLimitBurst; i++ {
+			get(t, router, "/api/v1/chains", address, "")
+		}
+		if rec := get(t, router, "/api/v1/chains", address, ""); rec.Code != http.StatusTooManyRequests {
+			t.Fatalf("chains status = %d, want the bucket spent before the health checks", rec.Code)
 		}
 
-		for i := 2; i <= globalLimitBurst; i++ {
-			if rec := get(t, router, "/api/v1/wallets", sharedAddress, firstToken); rec.Code != http.StatusOK {
-				t.Fatalf("first user request %d status = %d, want 200 inside the burst", i, rec.Code)
+		for _, path := range []string{"/health", "/health/live", "/health/ready"} {
+			if rec := get(t, router, path, address, ""); rec.Code != http.StatusOK {
+				t.Fatalf("GET %s status = %d with an empty bucket, want 200; body=%s", path, rec.Code, rec.Body.String())
 			}
-		}
-		if rec := get(t, router, "/api/v1/wallets", sharedAddress, firstToken); rec.Code != http.StatusTooManyRequests {
-			t.Fatalf("first user status = %d after the burst, want 429", rec.Code)
-		}
-		if rec := get(t, router, "/api/v1/wallets", sharedAddress, secondToken); rec.Code != http.StatusOK {
-			t.Fatalf("second user status = %d after the first user was limited, want 200", rec.Code)
 		}
 	})
 }
@@ -143,34 +140,6 @@ func newRateLimitedTestRouter(clock *fakeClock) http.Handler {
 	auth.now = clock.Now
 
 	return httpapi.NewRouter(walletSvc, userSvc, chainSvc, contractSvc, discardLogger(), stubReadinessCheck{}, global, auth)
-}
-
-func registerAndLogin(t *testing.T, router http.Handler, address, email string) string {
-	t.Helper()
-	const password = "correct-horse-battery"
-
-	rec := postJSON(t, router, "/api/v1/auth/register", address, `{"email":"`+email+`","password":"`+password+`"}`)
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("register %s status = %d, want 201; body=%s", email, rec.Code, rec.Body.String())
-	}
-
-	rec = postJSON(t, router, "/api/v1/auth/login", address, `{"email":"`+email+`","password":"`+password+`"}`)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("login %s status = %d, want 200; body=%s", email, rec.Code, rec.Body.String())
-	}
-
-	var body struct {
-		Data struct {
-			Token string `json:"token"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode login response for %s: %v", email, err)
-	}
-	if body.Data.Token == "" {
-		t.Fatalf("login response for %s carries no token", email)
-	}
-	return body.Data.Token
 }
 
 func get(t *testing.T, router http.Handler, path, address, token string) *httptest.ResponseRecorder {

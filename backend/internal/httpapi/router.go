@@ -15,31 +15,27 @@ func NewRouter(walletSvc *wallet.Service, userSvc *user.Service, chainSvc *chain
 	h := NewHandler(walletSvc, userSvc, chainSvc, contractSvc)
 
 	// Liveness never consults dependencies; /health remains a compatibility alias.
-	// Health probes are infrastructure traffic and carry no rate-limit wrap.
+	// Health probes are infrastructure traffic and no limiter counts them.
 	mux.HandleFunc("GET /health/live", healthHandler)
 	mux.HandleFunc("GET /health", healthHandler)
 	mux.Handle("GET /health/ready", readyHandler(logger, readinessChecker, readinessTimeout))
 
-	global := rateLimit(globalLimiter)
+	// The strict tier wraps the two brute-force targets, on top of the global
+	// tier that already wrapped the whole mux below.
 	auth := rateLimit(authLimiter)
 
-	// public: chains (no auth), keyed by client address
-	mux.Handle("GET /api/v1/chains", global(http.HandlerFunc(h.listChains)))
+	// public: chains (no auth)
+	mux.HandleFunc("GET /api/v1/chains", h.listChains)
 
 	// Authentication adds the user id to the request's access-log metadata after
-	// validating the bearer token. The global limiter wraps inside requireAuth so
-	// its bucket key is the authenticated user rather than the shared client
-	// address; before requireAuth runs there is no user id to key on.
+	// validating the bearer token.
 	requireAuth := RequireAuth(userSvc)
 	authenticated := func(next http.Handler) http.Handler {
-		return requireAuth(captureAuthenticatedUserID(global(next)))
+		return requireAuth(captureAuthenticatedUserID(next))
 	}
-
-	// login and register are the brute-force targets, so they carry the stricter
-	// tier outside the global one.
-	mux.Handle("POST /api/v1/auth/register", auth(global(http.HandlerFunc(h.registerUser))))
-	mux.Handle("POST /api/v1/auth/login", auth(global(http.HandlerFunc(h.loginUser))))
-	mux.Handle("POST /api/v1/auth/logout", global(http.HandlerFunc(h.logoutUser)))
+	mux.Handle("POST /api/v1/auth/register", auth(http.HandlerFunc(h.registerUser)))
+	mux.Handle("POST /api/v1/auth/login", auth(http.HandlerFunc(h.loginUser)))
+	mux.HandleFunc("POST /api/v1/auth/logout", h.logoutUser)
 	mux.Handle("POST /api/v1/auth/revoke-all", authenticated(http.HandlerFunc(h.revokeAllSessions)))
 	mux.Handle("GET /api/v1/users/me", authenticated(http.HandlerFunc(h.getCurrentUser)))
 
@@ -57,5 +53,9 @@ func NewRouter(walletSvc *wallet.Service, userSvc *user.Service, chainSvc *chain
 	mux.Handle("PATCH /api/v1/contracts/{id}", authenticated(http.HandlerFunc(h.updateContract)))
 	mux.Handle("DELETE /api/v1/contracts/{id}", authenticated(http.HandlerFunc(h.deleteContract)))
 
-	return requestIDMiddleware(accessLogMiddleware(logger, panicRecoveryMiddleware(mux)))
+	// The global tier is one chain-wide wrap, above route matching and above
+	// authentication, so an invalid token is counted before requireAuth reaches
+	// the session lookup and an unmatched path is counted too. The health paths
+	// skip it inside the middleware.
+	return requestIDMiddleware(accessLogMiddleware(logger, rateLimit(globalLimiter)(panicRecoveryMiddleware(mux))))
 }
