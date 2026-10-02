@@ -110,6 +110,18 @@ func TestClientMethodErrors(t *testing.T) {
 	}
 }
 
+func TestClientCloseClosesTransport(t *testing.T) {
+	closed := false
+	c := &Client{
+		closeTransport: func() { closed = true },
+	}
+
+	c.Close()
+	if !closed {
+		t.Fatal("Close() did not close the transport")
+	}
+}
+
 func TestNewRejectsEmptyURL(t *testing.T) {
 	ctx := t.Context()
 
@@ -118,7 +130,7 @@ func TestNewRejectsEmptyURL(t *testing.T) {
 	}
 }
 
-// TestIntegration dials the real Sepolia endpoint. It runs only when
+// TestIntegration dials the real Sepolia endpoint through Alchemy. It runs only when
 // EVM_RPC_URL is set, the same gate the Postgres integration tests use.
 func TestIntegration(t *testing.T) {
 	rpcURL := os.Getenv("EVM_RPC_URL")
@@ -131,6 +143,7 @@ func TestIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() = %v, want nil", err)
 	}
+	defer c.Close()
 
 	id, err := c.ChainID(ctx)
 	if err != nil {

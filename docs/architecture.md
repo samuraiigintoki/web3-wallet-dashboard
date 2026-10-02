@@ -457,7 +457,7 @@ These decisions may later receive individual Architecture Decision Records in `d
 
 - Readiness covers PostgreSQL connectivity only; EVM RPC availability and domain-state checks are intentionally excluded.
 - The Week-6 indexer tables (multisig_transactions, transaction_confirmations, contract_events, indexer_checkpoints) remain proposed; the user, wallet, chain, and contract tables are implemented in migrations 0001 through 0006.
-- The target testnet and RPC provider are not finalized.
+- The RPC target is Sepolia and the provider is Alchemy. Provider availability and rate limits remain external dependencies; retry and reorganization policies are not implemented by this client.
 - Contract event coverage must be checked against the existing ABI.
 - Deep chain-reorganization handling is outside the initial scope.
 - Indexed dashboard data may lag direct chain state.
@@ -500,7 +500,7 @@ Revisit trigger: re-run this benchmark when typical per-user wallet counts regul
 ## Open decisions
 
 1. (Resolved for B3) Bearer-token authentication, not session cookies. See docs/auth.md.
-2. Target EVM testnet and RPC provider.
+2. (Resolved) The target EVM testnet is Sepolia, chain ID `11155111`, and the RPC provider is Alchemy.
 3. Exact contract events and any required contract updates.
 4. Indexer confirmation depth and basic reorganization policy.
 5. Whether readiness should include EVM RPC connectivity.
@@ -554,6 +554,6 @@ Chain reads live in `internal/evm`. The package wraps an Ethereum JSON-RPC endpo
 
 `Client` is constructed with `New(ctx, rpcURL, expectedChainID)`. The constructor dials the endpoint and immediately compares the chain ID it serves against the expected value. A mismatch is a returned error, never a panic or a log line, because a client pointed at the wrong network must not appear to work. The expected chain ID is a parameter rather than a constant so the package stays chain-agnostic; the Sepolia call site passes `11155111`, the same value the `chains` table is seeded with in migration 0004.
 
-The package consumes a two-method `ChainReader` interface, `ChainID` and `BlockNumber`, defined on the consumer side like `ReadinessChecker` and `RateLimiter`. The live `ethclient` sits behind a small in-package adapter that converts its `*big.Int` chain ID to `uint64`; unit tests substitute a fake, and one integration test, gated on `EVM_RPC_URL`, dials the real testnet.
+The package consumes a two-method `ChainReader` interface, `ChainID` and `BlockNumber`, defined on the consumer side like `ReadinessChecker` and `RateLimiter`. The live `ethclient` sits behind a small in-package adapter that converts its `*big.Int` chain ID to `uint64`; unit tests substitute a fake, and one integration test, gated on `EVM_RPC_URL`, dials Sepolia through Alchemy.
 
-Configuration: `EVM_RPC_URL` holds the RPC endpoint and is read, fail-closed on empty, at the entrypoint that constructs the client. The package itself never reads the environment. Every method takes the caller's `context.Context`; no package-level default timeout exists. Nothing consumes this package over HTTP yet, and the frontend freeze is unaffected.
+Configuration: `EVM_RPC_URL` holds the Sepolia endpoint on Alchemy and is read, fail-closed on empty, at the entrypoint that constructs the client. The package itself never reads the environment. Every read takes the caller's `context.Context`; no package-level default timeout exists. Call `Client.Close()` when finished to release the transport opened by `New`; the method exposes no go-ethereum type. Nothing consumes this package over HTTP yet, and the frontend freeze is unaffected.

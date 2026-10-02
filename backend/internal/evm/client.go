@@ -27,10 +27,19 @@ type ChainReader interface {
 	BlockNumber(ctx context.Context) (uint64, error)
 }
 
-// Client reads chain state through a ChainReader. Every method takes the
-// caller's context; no default timeout hides inside this package.
+// Client reads chain state through a ChainReader. Read methods take the
+// caller's context; Close releases the transport opened by New.
 type Client struct {
-	reader ChainReader
+	reader         ChainReader
+	closeTransport func()
+}
+
+// Close releases the JSON-RPC transport opened by New. It has no result
+// because ethclient.Client.Close has no failure result.
+func (c *Client) Close() {
+	if c.closeTransport != nil {
+		c.closeTransport()
+	}
 }
 
 // New dials the RPC endpoint and verifies it serves the expected chain
@@ -53,6 +62,7 @@ func New(ctx context.Context, rpcURL string, expectedChainID int64) (*Client, er
 		ec.Close()
 		return nil, err
 	}
+	c.closeTransport = ec.Close
 	return c, nil
 }
 
