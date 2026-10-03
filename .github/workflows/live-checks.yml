@@ -1,0 +1,86 @@
+name: Live RPC checks
+
+# Deliberate, gated workflow. This is the ONLY place EVM_RPC_URL is used.
+#
+# Its secret lives on the `live-rpc` GitHub Environment, not on the repo, so
+# nothing gets the value unless it opts in via `environment: live-rpc` AND the
+# environment's protection rules are satisfied (e.g. required reviewer approval).
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag, or SHA to run live checks against"
+        required: true
+        default: "main"
+      reason:
+        description: "Why this live run is needed (for the audit log)"
+        required: false
+        default: "manual"
+
+permissions:
+  contents: read
+
+jobs:
+  live-checks:
+    runs-on: ubuntu-latest
+
+    # Opting in to the protected environment is what unlocks the secret.
+    # Without required-reviewer approval, this job does not start.
+    environment: live-rpc
+
+    env:
+      EVM_RPC_URL: ${{ secrets.EVM_RPC_URL }}
+      EXPECTED_CHAIN_ID: ${{ vars.EXPECTED_CHAIN_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Record what was requested
+        run: |
+          echo "Ref:    ${{ inputs.ref }}"
+          echo "Reason: ${{ inputs.reason }}"
+          echo "Actor:  ${{ github.actor }}"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pytest
+
+      # Strict mode: in THIS job a missing secret is a hard error, not a skip.
+      # Otherwise a missing key would give a green run with zero live checks.
+      - name: RPC preflight (strict)
+        run: python scripts/preflight_rpc.py --require
+
+      # Standalone marker check. Note pytest exits 5 ("no tests collected") when
+      # nothing matches -m live, which would falsely fail the job. Treated as a
+      # warning, because the preflight step above has already proven the key works.
+      - name: Live checks
+        run: |
+          set +e
+          pytest -q -m live
+          code=$?
+          set -e
+          if [ "$code" -eq 5 ]; then
+            echo "::warning::No tests marked 'live' were collected. Add @pytest.mark.live to network tests. Skipping - the RPC preflight above already verified the endpoint."
+            exit 0
+          fi
+          exit "$code"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-check-results
+          path: |
+            .pytest_cache/v/cache/lastfailed
+          if-no-files-found: ignore
+          retention-days: 7
