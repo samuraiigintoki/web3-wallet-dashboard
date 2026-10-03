@@ -14,7 +14,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
@@ -25,6 +28,7 @@ import (
 type ChainReader interface {
 	ChainID(ctx context.Context) (uint64, error)
 	BlockNumber(ctx context.Context) (uint64, error)
+	CallContract(ctx context.Context, contractAddress string, callData []byte, blockNumber uint64) ([]byte, error)
 }
 
 // Client reads chain state through a ChainReader. Read methods take the
@@ -101,6 +105,19 @@ func (c *Client) BlockNumber(ctx context.Context) (uint64, error) {
 	return n, nil
 }
 
+// callContract performs a read-only eth_call through the consumer-side
+// interface. The package keeps go-ethereum types inside the adapter below.
+func (c *Client) callContract(ctx context.Context, contractAddress string, callData []byte, blockNumber uint64) ([]byte, error) {
+	if c == nil || c.reader == nil {
+		return nil, errors.New("evm: chain reader is nil")
+	}
+	result, err := c.reader.CallContract(ctx, contractAddress, callData, blockNumber)
+	if err != nil {
+		return nil, fmt.Errorf("evm: call contract at block %d: %w", blockNumber, err)
+	}
+	return result, nil
+}
+
 // ethclientReader adapts *ethclient.Client to ChainReader. It exists
 // because ethclient reports the chain ID as a *big.Int; the conversion to
 // uint64 is explicit here so the interface stays in plain values.
@@ -121,6 +138,18 @@ func (r ethclientReader) ChainID(ctx context.Context) (uint64, error) {
 
 func (r ethclientReader) BlockNumber(ctx context.Context) (uint64, error) {
 	return r.c.BlockNumber(ctx)
+}
+
+func (r ethclientReader) CallContract(ctx context.Context, contractAddress string, callData []byte, blockNumber uint64) ([]byte, error) {
+	if r.c == nil {
+		return nil, errors.New("ethclient reader is nil")
+	}
+	if !common.IsHexAddress(contractAddress) {
+		return nil, fmt.Errorf("invalid contract address %q", contractAddress)
+	}
+	to := common.HexToAddress(contractAddress)
+	call := ethereum.CallMsg{To: &to, Data: callData}
+	return r.c.CallContract(ctx, call, new(big.Int).SetUint64(blockNumber))
 }
 
 var _ ChainReader = ethclientReader{}
