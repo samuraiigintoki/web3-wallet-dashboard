@@ -180,6 +180,8 @@ Responsibilities:
 - Retrieve blocks, logs, receipts, and gas information required by backend use cases.
 - Decode RPC errors into chain-boundary errors.
 
+The initial backend surface includes a typed, read-only `MultiSigReader` for owners, threshold, transaction count, ownership checks, transactions, and confirmations. It uses go-ethereum's ABI codec inside `backend/internal/evm`, while the chain-reader boundary carries plain Go values. Transaction and confirmation reads capture one block and use it for every related call.
+
 The chain client does not hold user private keys and is not responsible for signing browser-user transactions.
 
 ### Background event indexer

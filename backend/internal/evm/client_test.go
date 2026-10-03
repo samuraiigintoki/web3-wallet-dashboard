@@ -16,8 +16,8 @@ const sepoliaChainID = 11155111
 // errRPC stands in for any failure a live endpoint could return.
 var errRPC = errors.New("rpc failure")
 
-// fakeReader is a scriptable ChainReader. Zero values mean "succeed with
-// zero"; set the error fields to drive failure paths.
+// fakeReader is a scriptable ChainReader for client metadata tests. Zero
+// metadata values mean "succeed with zero"; contract calls are unexpected.
 type fakeReader struct {
 	chainID     uint64
 	blockNumber uint64
@@ -31,6 +31,10 @@ func (f fakeReader) ChainID(context.Context) (uint64, error) {
 
 func (f fakeReader) BlockNumber(context.Context) (uint64, error) {
 	return f.blockNumber, f.blockNumErr
+}
+
+func (fakeReader) CallContract(context.Context, string, []byte, uint64) ([]byte, error) {
+	return nil, errors.New("unexpected contract call in client test")
 }
 
 func TestNewWithReaderHappyPath(t *testing.T) {
