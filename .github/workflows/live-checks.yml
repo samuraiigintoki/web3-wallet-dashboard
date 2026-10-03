@@ -1,20 +1,29 @@
 name: Live RPC checks
 
-# Deliberate, gated workflow. This is the ONLY place EVM_RPC_URL is used.
+# Gated workflow. The ONLY place EVM_RPC_URL is used.
 #
-# Its secret lives on the `live-rpc` GitHub Environment, not on the repo, so
-# nothing gets the value unless it opts in via `environment: live-rpc` AND the
-# environment's protection rules are satisfied (e.g. required reviewer approval).
+# Two independent refs are involved - do not confuse them:
+#   1. The branch chosen in the "Run workflow" dropdown selects which copy of
+#      THIS FILE defines the job. Always use the default branch.
+#   2. The `ref` INPUT selects which commit's CODE gets checked out and tested.
+#      This is what you point at the feature branch.
+#
+# Tooling (this workflow + the preflight script) is always taken from the
+# default branch, so feature branches never need to carry the harness.
 
 on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "Branch, tag, or SHA to run live checks against"
+        description: "Branch, tag, or SHA whose CODE is tested. Must contain live tests."
         required: true
         default: "main"
+      packages:
+        description: "Go package pattern for live tests"
+        required: false
+        default: "./..."
       reason:
-        description: "Why this live run is needed (for the audit log)"
+        description: "Why this live run is needed (audit trail)"
         required: false
         default: "manual"
 
@@ -26,7 +35,6 @@ jobs:
     runs-on: ubuntu-latest
 
     # Opting in to the protected environment is what unlocks the secret.
-    # Without required-reviewer approval, this job does not start.
     environment: live-rpc
 
     env:
@@ -34,53 +42,104 @@ jobs:
       EXPECTED_CHAIN_ID: ${{ vars.EXPECTED_CHAIN_ID }}
 
     steps:
+      # NOTE ON HARDENING: inputs are passed through `env:` and referenced as
+      # shell variables, never interpolated with ${{ }} directly inside `run:`.
+      # Direct interpolation would let a crafted `reason` string execute shell
+      # code in a job that has the secret in its environment.
+      - name: Record request
+        env:
+          IN_REF: ${{ inputs.ref }}
+          IN_PACKAGES: ${{ inputs.packages }}
+          IN_REASON: ${{ inputs.reason }}
+          ACTOR: ${{ github.actor }}
+          WORKFLOW_REF: ${{ github.ref }}
+        run: |
+          {
+            echo "### Live RPC checks"
+            echo ""
+            echo "| field | value |"
+            echo "|---|---|"
+            echo "| code ref under test | \`${IN_REF}\` |"
+            echo "| packages | \`${IN_PACKAGES}\` |"
+            echo "| reason | ${IN_REASON} |"
+            echo "| triggered by | @${ACTOR} |"
+            echo "| workflow definition ref | \`${WORKFLOW_REF}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref }}
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Record what was requested
+      # Harness comes from the default branch, not the tested ref. This is why
+      # a feature branch does not need scripts/preflight_rpc.py committed to it.
+      - name: Stage harness from default branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          echo "Ref:    ${{ inputs.ref }}"
-          echo "Reason: ${{ inputs.reason }}"
-          echo "Actor:  ${{ github.actor }}"
+          set -euo pipefail
+          mkdir -p .ci
+          git fetch --depth=1 origin "$DEFAULT_BRANCH"
+          git show "origin/$DEFAULT_BRANCH:scripts/preflight_rpc.py" > .ci/preflight_rpc.py
+          echo "Staged preflight from $DEFAULT_BRANCH ($(wc -l < .ci/preflight_rpc.py) lines)"
 
-      - name: Install deps
+      # Vacuous-pass guard. Without this, a ref with no live tests would run,
+      # test nothing, and report green - the failure mode the agent flagged.
+      - name: Verify live tests exist on this ref
+        env:
+          IN_REF: ${{ inputs.ref }}
         run: |
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          pip install pytest
-
-      # Strict mode: in THIS job a missing secret is a hard error, not a skip.
-      # Otherwise a missing key would give a green run with zero live checks.
-      - name: RPC preflight (strict)
-        run: python scripts/preflight_rpc.py --require
-
-      # Standalone marker check. Note pytest exits 5 ("no tests collected") when
-      # nothing matches -m live, which would falsely fail the job. Treated as a
-      # warning, because the preflight step above has already proven the key works.
-      - name: Live checks
-        run: |
-          set +e
-          pytest -q -m live
-          code=$?
-          set -e
-          if [ "$code" -eq 5 ]; then
-            echo "::warning::No tests marked 'live' were collected. Add @pytest.mark.live to network tests. Skipping - the RPC preflight above already verified the endpoint."
-            exit 0
+          set -euo pipefail
+          files=$(grep -rlE --include='*.go' --exclude-dir=vendor --exclude-dir=.git \
+            '(go:build.*\blive\b|\+build.*\blive\b)' . || true)
+          if [ -z "$files" ]; then
+            echo "::error::No Go files carrying a 'live' build tag on ref '${IN_REF}'. Running the live job now would test nothing and pass vacuously."
+            exit 1
           fi
-          exit "$code"
+          echo "Live-tagged files on '${IN_REF}':"
+          echo "$files"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: RPC preflight (strict)
+        run: python3 .ci/preflight_rpc.py --require
+
+      - name: Live integration tests
+        env:
+          IN_PACKAGES: ${{ inputs.packages }}
+        run: |
+          set -o pipefail
+          go test -tags live -count=1 -timeout 15m -v "$IN_PACKAGES" 2>&1 \
+            | tee live-check-output.txt
+
+      # Artifacts are NOT masked by GitHub the way logs are. Scrub before upload.
+      - name: Scrub secrets from test output
+        if: always()
+        env:
+          SECRET: ${{ secrets.EVM_RPC_URL }}
+        run: |
+          python3 - <<'PY'
+          import os, pathlib
+          secret = os.environ.get("SECRET", "")
+          p = pathlib.Path("live-check-output.txt")
+          if not secret or not p.exists():
+              raise SystemExit(0)
+          text = p.read_text(errors="replace")
+          if secret in text:
+              p.write_text(text.replace(secret, "<REDACTED-EVM_RPC_URL>"))
+              print("::warning::EVM_RPC_URL appeared in test output and was redacted from the artifact.")
+          else:
+              print("No secret found in test output.")
+          PY
 
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: live-check-results
-          path: |
-            .pytest_cache/v/cache/lastfailed
+          path: live-check-output.txt
           if-no-files-found: ignore
           retention-days: 7
