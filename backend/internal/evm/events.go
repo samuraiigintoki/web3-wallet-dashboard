@@ -196,7 +196,7 @@ func (d *EventDecoder) Decode(raw RawLog) (DecodedEvent, error) {
 		return nil, fmt.Errorf("%w: topic0 %s", ErrUnsupportedEvent, topics[0].Hex())
 	}
 
-	indexed := event.Inputs.Indexed()
+	indexed := indexedArguments(event.Inputs)
 	if len(topics) != len(indexed)+1 {
 		return nil, malformedEvent("%s has %d indexed topics, got %d", event.Name, len(indexed), len(topics)-1)
 	}
@@ -231,6 +231,16 @@ func (d *EventDecoder) Decode(raw RawLog) (DecodedEvent, error) {
 		Removed:          raw.Removed,
 	}
 	return decodeMultiSigEvent(event.Name, indexedValues, dataValues, metadata)
+}
+
+func indexedArguments(arguments abi.Arguments) abi.Arguments {
+	var indexed abi.Arguments
+	for _, argument := range arguments {
+		if argument.Indexed {
+			indexed = append(indexed, argument)
+		}
+	}
+	return indexed
 }
 
 func validateIndexedTopicEncoding(fields abi.Arguments, values map[string]interface{}, topics []common.Hash) error {

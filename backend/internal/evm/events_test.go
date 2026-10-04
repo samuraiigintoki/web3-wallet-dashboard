@@ -278,8 +278,8 @@ func buildEventTestLog(t *testing.T, name string, indexedValues, nonIndexedValue
 	if !ok {
 		t.Fatalf("test ABI does not contain event %q", name)
 	}
-	if len(indexedValues) != len(event.Inputs.Indexed()) {
-		t.Fatalf("%s test indexed values = %d, want %d", name, len(indexedValues), len(event.Inputs.Indexed()))
+	if len(indexedValues) != len(indexedArguments(event.Inputs)) {
+		t.Fatalf("%s test indexed values = %d, want %d", name, len(indexedValues), len(indexedArguments(event.Inputs)))
 	}
 	if len(nonIndexedValues) != len(event.Inputs.NonIndexed()) {
 		t.Fatalf("%s test non-indexed values = %d, want %d", name, len(nonIndexedValues), len(event.Inputs.NonIndexed()))
