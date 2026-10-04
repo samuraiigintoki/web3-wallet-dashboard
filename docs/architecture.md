@@ -183,7 +183,7 @@ Implemented in `backend/internal/evm`:
 
 `MultiSigReader` uses go-ethereum's ABI codec inside the package. Its consumer-side `ChainReader` seam carries plain Go values and byte slices. Transaction and confirmation reads capture one block and use it for every related call. `Client.TransactionReceipt` maps an unavailable receipt to `ErrReceiptNotFound`; that error does not distinguish a pending transaction from an unknown hash. `Client.EstimateGas` validates and copies its inputs before the reader call.
 
-Still planned are application-service and API wiring, event decoding and indexing, retry policy, and reorganization and finality handling. The client does not hold user private keys and is not responsible for signing browser-user transactions.
+Still planned are application-service and API wiring, event log retrieval and indexing, retry policy, and reorganization and finality handling. Event decoding is implemented in `internal/evm`. The client does not hold user private keys and is not responsible for signing browser-user transactions.
 
 ### Background event indexer
 
@@ -563,4 +563,6 @@ The package consumes a consumer-side `ChainReader` interface with `ChainID`, `Bl
 
 `Client.EstimateGas` takes `From`, `To`, `ValueWei`, and calldata, validates addresses and the uint256 value, and returns gas units rather than a fee estimate. It is a simulation only. The client never signs or broadcasts transactions. Retry, confirmation, and reorganization policy remains planned for B5.
 
-Configuration: the package accepts an RPC URL as a constructor argument and never reads the environment. Live integration tests use the existing `EVM_RPC_URL` gate and the protected Sepolia endpoint. Every read takes the caller's `context.Context`; no package-level default timeout exists. Call `Client.Close()` when finished to release the transport opened by `New`. No application service or HTTP route consumes this package yet, and the event indexer remains planned.
+`EventDecoder` accepts a plain-Go `RawLog` and decodes the four existing `MultiSigWallet` events using a minimal ABI. It verifies the configured emitter, normalizes addresses and hashes, preserves submit values as `*big.Int`, checks the multisig transaction index fits `uint64`, and copies event data. A zero destination is retained. `Removed` is preserved as metadata but is not interpreted. Unsupported `topic0` values and malformed logs have distinct errors. The decoder does not retrieve or subscribe to logs; Week 6 owns log retrieval and indexing.
+
+Configuration: the package accepts an RPC URL as a constructor argument and never reads the environment. Live integration tests use the existing `EVM_RPC_URL` gate and the protected Sepolia endpoint. Every read takes the caller's `context.Context`; no package-level default timeout exists. Call `Client.Close()` when finished to release the transport opened by `New`. No application service or HTTP route consumes this package yet. Log retrieval and indexing remain planned for Week 6.
