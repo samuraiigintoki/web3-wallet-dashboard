@@ -110,7 +110,7 @@ func TestEventDecoderDecodesAllSupportedEvents(t *testing.T) {
 				if test.wantEventType != "submit" {
 					t.Fatalf("Decode() type = SubmitTransactionEvent, want %s", test.wantEventType)
 				}
-				if got.Owner != strings.ToLower(eventTestOwnerAddress) || got.TransactionIndex != test.wantIndex {
+				if got.Owner != strings.ToLower(eventTestOwnerAddress) || got.MultisigTxIndex != test.wantIndex {
 					t.Errorf("SubmitTransactionEvent identity = %+v", got)
 				}
 				if got.To != "0x0000000000000000000000000000000000000000" {
@@ -120,15 +120,15 @@ func TestEventDecoderDecodesAllSupportedEvents(t *testing.T) {
 					t.Errorf("SubmitTransactionEvent payload = value %v data %x", got.ValueWei, got.Data)
 				}
 			case ConfirmTransactionEvent:
-				if test.wantEventType != "confirm" || got.Owner != strings.ToLower(eventTestOwnerAddress) || got.TransactionIndex != test.wantIndex {
+				if test.wantEventType != "confirm" || got.Owner != strings.ToLower(eventTestOwnerAddress) || got.MultisigTxIndex != test.wantIndex {
 					t.Errorf("ConfirmTransactionEvent = %+v, want index %d", got, test.wantIndex)
 				}
 			case RevokeConfirmationEvent:
-				if test.wantEventType != "revoke" || got.Owner != strings.ToLower(eventTestOwnerAddress) || got.TransactionIndex != test.wantIndex {
+				if test.wantEventType != "revoke" || got.Owner != strings.ToLower(eventTestOwnerAddress) || got.MultisigTxIndex != test.wantIndex {
 					t.Errorf("RevokeConfirmationEvent = %+v, want index %d", got, test.wantIndex)
 				}
 			case ExecuteTransactionEvent:
-				if test.wantEventType != "execute" || got.Owner != strings.ToLower(eventTestOwnerAddress) || got.TransactionIndex != test.wantIndex {
+				if test.wantEventType != "execute" || got.Owner != strings.ToLower(eventTestOwnerAddress) || got.MultisigTxIndex != test.wantIndex {
 					t.Errorf("ExecuteTransactionEvent = %+v, want index %d", got, test.wantIndex)
 				}
 			default:

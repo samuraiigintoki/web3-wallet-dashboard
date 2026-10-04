@@ -183,7 +183,7 @@ Implemented in `backend/internal/evm`:
 
 `MultiSigReader` uses go-ethereum's ABI codec inside the package. Its consumer-side `ChainReader` seam carries plain Go values and byte slices. Transaction and confirmation reads capture one block and use it for every related call. `Client.TransactionReceipt` maps an unavailable receipt to `ErrReceiptNotFound`; that error does not distinguish a pending transaction from an unknown hash. `Client.EstimateGas` validates and copies its inputs before the reader call.
 
-Still planned are application-service and API wiring, event decoding and indexing, retry policy, and reorganization and finality handling. The client does not hold user private keys and is not responsible for signing browser-user transactions.
+Still planned are application-service and API wiring, event log retrieval and indexing, retry policy, and reorganization and finality handling. Event decoding is implemented in `internal/evm`. The client does not hold user private keys and is not responsible for signing browser-user transactions.
 
 ### Background event indexer
 

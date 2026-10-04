@@ -53,15 +53,15 @@ type DecodedEvent interface {
 }
 
 // SubmitTransactionEvent is emitted when an owner submits a multisig
-// transaction. TransactionIndex is the contract's multisig index, not the
-// position of the log's transaction in its block.
+// transaction. MultisigTxIndex is the contract's index, while
+// Metadata.TransactionIndex is the transaction's position in its block.
 type SubmitTransactionEvent struct {
-	Metadata         EventMetadata
-	Owner            string
-	TransactionIndex uint64
-	To               string
-	ValueWei         *big.Int
-	Data             []byte
+	Metadata        EventMetadata
+	Owner           string
+	MultisigTxIndex uint64
+	To              string
+	ValueWei        *big.Int
+	Data            []byte
 }
 
 func (e SubmitTransactionEvent) EventMetadata() EventMetadata { return e.Metadata }
@@ -69,27 +69,27 @@ func (e SubmitTransactionEvent) EventMetadata() EventMetadata { return e.Metadat
 // ConfirmTransactionEvent is emitted when an owner confirms a multisig
 // transaction.
 type ConfirmTransactionEvent struct {
-	Metadata         EventMetadata
-	Owner            string
-	TransactionIndex uint64
+	Metadata        EventMetadata
+	Owner           string
+	MultisigTxIndex uint64
 }
 
 func (e ConfirmTransactionEvent) EventMetadata() EventMetadata { return e.Metadata }
 
 // RevokeConfirmationEvent is emitted when an owner revokes a confirmation.
 type RevokeConfirmationEvent struct {
-	Metadata         EventMetadata
-	Owner            string
-	TransactionIndex uint64
+	Metadata        EventMetadata
+	Owner           string
+	MultisigTxIndex uint64
 }
 
 func (e RevokeConfirmationEvent) EventMetadata() EventMetadata { return e.Metadata }
 
 // ExecuteTransactionEvent is emitted when a multisig transaction is executed.
 type ExecuteTransactionEvent struct {
-	Metadata         EventMetadata
-	Owner            string
-	TransactionIndex uint64
+	Metadata        EventMetadata
+	Owner           string
+	MultisigTxIndex uint64
 }
 
 func (e ExecuteTransactionEvent) EventMetadata() EventMetadata { return e.Metadata }
@@ -302,28 +302,28 @@ func decodeMultiSigEvent(name string, indexed map[string]interface{}, data []int
 			return nil, malformedEvent("SubmitTransaction data is not bytes")
 		}
 		return SubmitTransactionEvent{
-			Metadata:         metadata,
-			Owner:            owner,
-			TransactionIndex: transactionIndex,
-			To:               to,
-			ValueWei:         new(big.Int).Set(value),
-			Data:             append([]byte(nil), callData...),
+			Metadata:        metadata,
+			Owner:           owner,
+			MultisigTxIndex: transactionIndex,
+			To:              to,
+			ValueWei:        new(big.Int).Set(value),
+			Data:            append([]byte(nil), callData...),
 		}, nil
 	case "ConfirmTransaction":
 		if len(data) != 0 {
 			return nil, malformedEvent("ConfirmTransaction has unexpected non-indexed values")
 		}
-		return ConfirmTransactionEvent{Metadata: metadata, Owner: owner, TransactionIndex: transactionIndex}, nil
+		return ConfirmTransactionEvent{Metadata: metadata, Owner: owner, MultisigTxIndex: transactionIndex}, nil
 	case "RevokeConfirmation":
 		if len(data) != 0 {
 			return nil, malformedEvent("RevokeConfirmation has unexpected non-indexed values")
 		}
-		return RevokeConfirmationEvent{Metadata: metadata, Owner: owner, TransactionIndex: transactionIndex}, nil
+		return RevokeConfirmationEvent{Metadata: metadata, Owner: owner, MultisigTxIndex: transactionIndex}, nil
 	case "ExecuteTransaction":
 		if len(data) != 0 {
 			return nil, malformedEvent("ExecuteTransaction has unexpected non-indexed values")
 		}
-		return ExecuteTransactionEvent{Metadata: metadata, Owner: owner, TransactionIndex: transactionIndex}, nil
+		return ExecuteTransactionEvent{Metadata: metadata, Owner: owner, MultisigTxIndex: transactionIndex}, nil
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedEvent, name)
 	}
