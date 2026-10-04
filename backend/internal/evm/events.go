@@ -274,7 +274,7 @@ func validateIndexedTopicEncoding(fields abi.Arguments, values map[string]interf
 	return nil
 }
 
-func decodeMultiSigEvent(name string, indexed, data []interface{}, metadata EventMetadata) (DecodedEvent, error) {
+func decodeMultiSigEvent(name string, indexed map[string]interface{}, data []interface{}, metadata EventMetadata) (DecodedEvent, error) {
 	owner, err := decodeEventAddress(indexed, "owner", true)
 	if err != nil {
 		return nil, malformedEvent("%s owner: %v", name, err)
