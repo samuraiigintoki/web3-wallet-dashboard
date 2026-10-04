@@ -19,10 +19,17 @@ var errRPC = errors.New("rpc failure")
 // fakeReader is a scriptable ChainReader for client metadata tests. Zero
 // metadata values mean "succeed with zero"; contract calls are unexpected.
 type fakeReader struct {
-	chainID     uint64
-	blockNumber uint64
-	chainIDErr  error
-	blockNumErr error
+	chainID          uint64
+	blockNumber      uint64
+	chainIDErr       error
+	blockNumErr      error
+	receipt          Receipt
+	receiptErr       error
+	receiptHash      *string
+	estimateGas      uint64
+	estimateGasErr   error
+	estimateRequest  *GasEstimateRequest
+	estimateGasCalls *int
 }
 
 func (f fakeReader) ChainID(context.Context) (uint64, error) {
@@ -35,6 +42,29 @@ func (f fakeReader) BlockNumber(context.Context) (uint64, error) {
 
 func (fakeReader) CallContract(context.Context, string, []byte, uint64) ([]byte, error) {
 	return nil, errors.New("unexpected contract call in client test")
+}
+
+func (f fakeReader) TransactionReceipt(ctx context.Context, txHash string) (Receipt, error) {
+	if err := ctx.Err(); err != nil {
+		return Receipt{}, err
+	}
+	if f.receiptHash != nil {
+		*f.receiptHash = txHash
+	}
+	return f.receipt, f.receiptErr
+}
+
+func (f fakeReader) EstimateGas(ctx context.Context, request GasEstimateRequest) (uint64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	if f.estimateRequest != nil {
+		*f.estimateRequest = request
+	}
+	if f.estimateGasCalls != nil {
+		(*f.estimateGasCalls)++
+	}
+	return f.estimateGas, f.estimateGasErr
 }
 
 func TestNewWithReaderHappyPath(t *testing.T) {

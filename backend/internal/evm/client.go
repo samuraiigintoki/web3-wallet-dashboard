@@ -29,6 +29,8 @@ type ChainReader interface {
 	ChainID(ctx context.Context) (uint64, error)
 	BlockNumber(ctx context.Context) (uint64, error)
 	CallContract(ctx context.Context, contractAddress string, callData []byte, blockNumber uint64) ([]byte, error)
+	TransactionReceipt(ctx context.Context, txHash string) (Receipt, error)
+	EstimateGas(ctx context.Context, request GasEstimateRequest) (uint64, error)
 }
 
 // Client reads chain state through a ChainReader. Read methods take the

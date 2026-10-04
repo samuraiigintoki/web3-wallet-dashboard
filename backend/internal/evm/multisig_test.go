@@ -49,6 +49,20 @@ func (r *contractTestReader) BlockNumber(context.Context) (uint64, error) {
 	return r.blockNumber, r.blockNumberErr
 }
 
+func (r *contractTestReader) TransactionReceipt(ctx context.Context, _ string) (Receipt, error) {
+	if err := ctx.Err(); err != nil {
+		return Receipt{}, err
+	}
+	return Receipt{}, errors.New("unexpected transaction receipt call in multisig test")
+}
+
+func (r *contractTestReader) EstimateGas(ctx context.Context, _ GasEstimateRequest) (uint64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	return 0, errors.New("unexpected gas estimate call in multisig test")
+}
+
 func (r *contractTestReader) CallContract(ctx context.Context, address string, callData []byte, block uint64) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
