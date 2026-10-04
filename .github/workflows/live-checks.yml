@@ -101,19 +101,22 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version-file: backend/go.mod
           cache: true
+          cache-dependency-path: backend/go.sum
 
       - name: RPC preflight (strict)
         run: python3 .ci/preflight_rpc.py --require
 
       - name: Live integration tests
+        # Run from the Go module root and keep the scrubbed artifact at repository root.
+        working-directory: backend
         env:
           IN_PACKAGES: ${{ inputs.packages }}
         run: |
           set -o pipefail
           go test -tags live -count=1 -timeout 15m -v "$IN_PACKAGES" 2>&1 \
-            | tee live-check-output.txt
+            | tee ../live-check-output.txt
 
       # Artifacts are NOT masked by GitHub the way logs are. Scrub before upload.
       - name: Scrub secrets from test output
