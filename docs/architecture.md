@@ -2,7 +2,7 @@
 
 ## Status
 
-This document describes the planned architecture of the Web3 Wallet Dashboard. At the current milestone the Go backend implements bearer-token authentication, wallet CRUD, supported-chain metadata, and tracked-contract CRUD, all owner-scoped on the three-layer architecture; the React frontend, background indexer, and on-chain integration remain planned.
+This document describes the target architecture of the Web3 Wallet Dashboard. The Go backend currently implements bearer-token authentication, wallet CRUD, supported-chain metadata, tracked-contract CRUD, and a read-only EVM client in `backend/internal/evm`. That client is not yet wired into an application service or API route. The frontend and background event indexer remain planned; diagrams and flows below describe the target architecture unless marked as implemented.
 
 ## Architectural objective
 
@@ -173,14 +173,15 @@ Repositories must not implement HTTP response behavior.
 
 Responsibilities:
 
-- Connect to a configured EVM JSON-RPC endpoint.
-- Verify the expected chain ID.
-- Load and use the `MultiSigWallet` ABI.
-- Read owners, thresholds, transaction counts, and transaction state.
-- Retrieve blocks, logs, receipts, and gas information required by backend use cases.
+Implemented in `backend/internal/evm`:
+
+- Connect to a configured EVM JSON-RPC endpoint and verify the expected chain ID.
+- Use the `MultiSigWallet` ABI for read-only owner, threshold, transaction-count, ownership, transaction, and confirmation reads.
 - Decode RPC errors into chain-boundary errors.
 
-The chain client does not hold user private keys and is not responsible for signing browser-user transactions.
+`MultiSigReader` uses go-ethereum's ABI codec inside the package. Its three-method `ChainReader` seam carries plain Go values and byte slices. Transaction and confirmation reads capture one block and use it for every related call.
+
+Still planned are application-service and API wiring, event decoding and indexing, receipt workflows, gas estimates, retry policy, and reorganization handling. The client does not hold user private keys and is not responsible for signing browser-user transactions.
 
 ### Background event indexer
 
@@ -554,6 +555,6 @@ Chain reads live in `internal/evm`. The package wraps an Ethereum JSON-RPC endpo
 
 `Client` is constructed with `New(ctx, rpcURL, expectedChainID)`. The constructor dials the endpoint and immediately compares the chain ID it serves against the expected value. A mismatch is a returned error, never a panic or a log line, because a client pointed at the wrong network must not appear to work. The expected chain ID is a parameter rather than a constant so the package stays chain-agnostic; the Sepolia call site passes `11155111`, the same value the `chains` table is seeded with in migration 0004.
 
-The package consumes a two-method `ChainReader` interface, `ChainID` and `BlockNumber`, defined on the consumer side like `ReadinessChecker` and `RateLimiter`. The live `ethclient` sits behind a small in-package adapter that converts its `*big.Int` chain ID to `uint64`; unit tests substitute a fake, and one integration test, gated on `EVM_RPC_URL`, dials Sepolia through Alchemy.
+The package consumes a three-method `ChainReader` interface, `ChainID`, `BlockNumber`, and block-specific `CallContract`, defined on the consumer side like `ReadinessChecker` and `RateLimiter`. The live `ethclient` sits behind an in-package adapter that converts its `*big.Int` chain ID to `uint64`; unit tests substitute a fake. The Sepolia integration test is in `multisig_live_test.go` with the Go `live` build tag and is run by the gated Live RPC checks workflow.
 
-Configuration: `EVM_RPC_URL` holds the Sepolia endpoint on Alchemy and is read, fail-closed on empty, at the entrypoint that constructs the client. The package itself never reads the environment. Every read takes the caller's `context.Context`; no package-level default timeout exists. Call `Client.Close()` when finished to release the transport opened by `New`; the method exposes no go-ethereum type. Nothing consumes this package over HTTP yet, and the frontend freeze is unaffected.
+Configuration: the package accepts an RPC URL as a constructor argument and never reads the environment. The live integration test reads `EVM_RPC_URL`; the gated workflow provides the protected Sepolia endpoint. Every read takes the caller's `context.Context`; no package-level default timeout exists. Call `Client.Close()` when finished to release the transport opened by `New`; the method exposes no go-ethereum type. No application service or HTTP route consumes this package yet, and the event indexer remains planned.
