@@ -177,11 +177,13 @@ Implemented in `backend/internal/evm`:
 
 - Connect to a configured EVM JSON-RPC endpoint and verify the expected chain ID.
 - Use the `MultiSigWallet` ABI for read-only owner, threshold, transaction-count, ownership, transaction, and confirmation reads.
+- Return transaction receipt metadata, including its transaction hash, block identity, status, and gas used. Failed execution is represented by receipt status, not as a lookup error.
+- Estimate gas for a call by RPC simulation and return gas units only. Estimation does not sign or submit a transaction.
 - Decode RPC errors into chain-boundary errors.
 
-`MultiSigReader` uses go-ethereum's ABI codec inside the package. Its three-method `ChainReader` seam carries plain Go values and byte slices. Transaction and confirmation reads capture one block and use it for every related call.
+`MultiSigReader` uses go-ethereum's ABI codec inside the package. Its consumer-side `ChainReader` seam carries plain Go values and byte slices. Transaction and confirmation reads capture one block and use it for every related call. `Client.TransactionReceipt` maps an unavailable receipt to `ErrReceiptNotFound`; that error does not distinguish a pending transaction from an unknown hash. `Client.EstimateGas` validates and copies its inputs before the reader call.
 
-Still planned are application-service and API wiring, event decoding and indexing, receipt workflows, gas estimates, retry policy, and reorganization handling. The client does not hold user private keys and is not responsible for signing browser-user transactions.
+Still planned are application-service and API wiring, event decoding and indexing, retry policy, and reorganization and finality handling. The client does not hold user private keys and is not responsible for signing browser-user transactions.
 
 ### Background event indexer
 
@@ -555,6 +557,10 @@ Chain reads live in `internal/evm`. The package wraps an Ethereum JSON-RPC endpo
 
 `Client` is constructed with `New(ctx, rpcURL, expectedChainID)`. The constructor dials the endpoint and immediately compares the chain ID it serves against the expected value. A mismatch is a returned error, never a panic or a log line, because a client pointed at the wrong network must not appear to work. The expected chain ID is a parameter rather than a constant so the package stays chain-agnostic; the Sepolia call site passes `11155111`, the same value the `chains` table is seeded with in migration 0004.
 
-The package consumes a three-method `ChainReader` interface, `ChainID`, `BlockNumber`, and block-specific `CallContract`, defined on the consumer side like `ReadinessChecker` and `RateLimiter`. The live `ethclient` sits behind an in-package adapter that converts its `*big.Int` chain ID to `uint64`; unit tests substitute a fake. The Sepolia integration test is in `multisig_live_test.go` with the Go `live` build tag and is run by the gated Live RPC checks workflow.
+The package consumes a consumer-side `ChainReader` interface with `ChainID`, `BlockNumber`, block-specific `CallContract`, `TransactionReceipt`, and `EstimateGas`. Its methods and results use plain Go values; the `ethclient` adapter converts to and from go-ethereum types. Unit tests substitute fakes.
 
-Configuration: the package accepts an RPC URL as a constructor argument and never reads the environment. The live integration test reads `EVM_RPC_URL`; the gated workflow provides the protected Sepolia endpoint. Every read takes the caller's `context.Context`; no package-level default timeout exists. Call `Client.Close()` when finished to release the transport opened by `New`; the method exposes no go-ethereum type. No application service or HTTP route consumes this package yet, and the event indexer remains planned.
+`Client.TransactionReceipt` returns a plain `Receipt` containing the transaction hash, block hash, block number, execution status, and gas used. Status `0` means execution failed and `1` means success. `ErrReceiptNotFound` means no receipt was available at query time and cannot distinguish pending from unknown. The receipt's block identity is available to later reorganization handling, but B3 does not decide finality.
+
+`Client.EstimateGas` takes `From`, `To`, `ValueWei`, and calldata, validates addresses and the uint256 value, and returns gas units rather than a fee estimate. It is a simulation only. The client never signs or broadcasts transactions. Retry, confirmation, and reorganization policy remains planned for B5.
+
+Configuration: the package accepts an RPC URL as a constructor argument and never reads the environment. Live integration tests use the existing `EVM_RPC_URL` gate and the protected Sepolia endpoint. Every read takes the caller's `context.Context`; no package-level default timeout exists. Call `Client.Close()` when finished to release the transport opened by `New`. No application service or HTTP route consumes this package yet, and the event indexer remains planned.
