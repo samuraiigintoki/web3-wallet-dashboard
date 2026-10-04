@@ -183,7 +183,7 @@ Implemented in `backend/internal/evm`:
 
 `MultiSigReader` uses go-ethereum's ABI codec inside the package. Its consumer-side `ChainReader` seam carries plain Go values and byte slices. Transaction and confirmation reads capture one block and use it for every related call. `Client.TransactionReceipt` maps an unavailable receipt to `ErrReceiptNotFound`; that error does not distinguish a pending transaction from an unknown hash. `Client.EstimateGas` validates and copies its inputs before the reader call.
 
-Still planned are application-service and API wiring, event log retrieval and indexing, retry policy, and reorganization and finality handling. Event decoding is implemented in `internal/evm`. The client does not hold user private keys and is not responsible for signing browser-user transactions.
+Still planned are application-service and API wiring, event log retrieval and indexing, and implementation of the reliability policy below. Event decoding is implemented in `internal/evm`. The client does not hold user private keys and is not responsible for signing browser-user transactions.
 
 ### Background event indexer
 
@@ -394,10 +394,19 @@ The final unique constraints must be chosen before indexer implementation.
 
 ### EVM RPC
 
-- Apply explicit timeouts.
-- Retry only transient failures and use bounded backoff.
-- Do not blindly retry state-changing user operations.
-- Map common RPC and receipt failures into user-readable states.
+`internal/evm.Client` remains single-attempt. Callers supply contexts and own deadlines; the client adds no hidden timeout or automatic retry. Wrapped cancellation and deadline errors remain discoverable through `errors.Is(err, context.Canceled)` and `errors.Is(err, context.DeadlineExceeded)`.
+
+The future indexer may retry only clearly classified transient transport failures, with at most 3 attempts total: the initial attempt, a retry after 100 ms, and a final retry after 200 ms. Caller cancellation or deadline expiry stops both calls and backoff waits. Unknown failures are not presumed transient. Validation, wrong-chain, ABI/decode, EVM revert, unknown JSON-RPC, and context errors must not be retried. `ErrReceiptNotFound` means no receipt was available at that query; it is not an automatic retry signal.
+
+A retry repeats the whole logical read, including a fresh snapshot block lookup and every related call. Retrying only a failed internal step of a multi-call snapshot is not allowed. Classification and retry execution belong to the future indexer, not this client. No signing or transaction submission is introduced.
+
+### Receipt confirmations and reorganizations
+
+When `latestBlockNumber >= receipt.BlockNumber`, count confirmations as `latestBlockNumber - receipt.BlockNumber + 1`. Otherwise the receipt is ahead of the observed head and must not be treated as confirmed; do not subtract unsigned block numbers in that case. These block confirmations are distinct from multisig owner approval flags.
+
+At 12 or more confirmations, the application may treat a receipt as safe for ordinary display or indexing progress. This is a reversible project heuristic, not protocol finality or a guarantee against reorganization. A receipt can vanish or reappear in a different block, so recorded state must remain correctable.
+
+The future indexer must compare stored block hashes with canonical block hashes, rewind to the first divergence, and rescan. It must not rely only on `RawLog.Removed`, which is preserved as metadata rather than interpreted by the decoder. Reorganization detection, rewind/rescan execution, and `safe` or `finalized` block-tag support are not implemented here.
 
 ### Indexer
 
@@ -462,7 +471,7 @@ These decisions may later receive individual Architecture Decision Records in `d
 - The Week-6 indexer tables (multisig_transactions, transaction_confirmations, contract_events, indexer_checkpoints) remain proposed; the user, wallet, chain, and contract tables are implemented in migrations 0001 through 0006.
 - The RPC target is Sepolia and the provider is Alchemy. Provider availability and rate limits remain external dependencies; retry and reorganization policies are not implemented by this client.
 - Contract event coverage must be checked against the existing ABI.
-- Deep chain-reorganization handling is outside the initial scope.
+- Reorganization detection and correction are not implemented yet; the future indexer must enforce the hash-comparison and rescan policy above.
 - Indexed dashboard data may lag direct chain state.
 - Optional WebSocket behavior is not defined and is not required for the first working version.
 
@@ -505,7 +514,7 @@ Revisit trigger: re-run this benchmark when typical per-user wallet counts regul
 1. (Resolved for B3) Bearer-token authentication, not session cookies. See docs/auth.md.
 2. (Resolved) The target EVM testnet is Sepolia, chain ID `11155111`, and the RPC provider is Alchemy.
 3. Exact contract events and any required contract updates.
-4. Indexer confirmation depth and basic reorganization policy.
+4. (Resolved) A reversible 12-confirmation heuristic and canonical-hash comparison with rewind/rescan; see Failure handling. Indexer implementation remains planned.
 5. Whether readiness should include EVM RPC connectivity.
 6. Whether the API exposes normalized contract reads in addition to direct frontend reads.
 7. Whether optional real-time updates use WebSocket or server-sent events.
@@ -559,9 +568,9 @@ Chain reads live in `internal/evm`. The package wraps an Ethereum JSON-RPC endpo
 
 The package consumes a consumer-side `ChainReader` interface with `ChainID`, `BlockNumber`, block-specific `CallContract`, `TransactionReceipt`, and `EstimateGas`. Its methods and results use plain Go values; the `ethclient` adapter converts to and from go-ethereum types. Unit tests substitute fakes.
 
-`Client.TransactionReceipt` returns a plain `Receipt` containing the transaction hash, block hash, block number, execution status, and gas used. Status `0` means execution failed and `1` means success. `ErrReceiptNotFound` means no receipt was available at query time and cannot distinguish pending from unknown. The receipt's block identity is available to later reorganization handling, but B3 does not decide finality.
+`Client.TransactionReceipt` returns a plain `Receipt` containing the transaction hash, block hash, block number, execution status, and gas used. Status `0` means execution failed and `1` means success. `ErrReceiptNotFound` means no receipt was available at query time and cannot distinguish pending from unknown. The receipt's block identity supports the reorganization policy in Failure handling; confirmation depth does not establish protocol finality.
 
-`Client.EstimateGas` takes `From`, `To`, `ValueWei`, and calldata, validates addresses and the uint256 value, and returns gas units rather than a fee estimate. It is a simulation only. The client never signs or broadcasts transactions. Retry, confirmation, and reorganization policy remains planned for B5.
+`Client.EstimateGas` takes `From`, `To`, `ValueWei`, and calldata, validates addresses and the uint256 value, and returns gas units rather than a fee estimate. It is a simulation only. The client never signs or broadcasts transactions. The reliability policy is documented in Failure handling. Retry execution and reorganization correction remain future indexer responsibilities; this client stays single-attempt.
 
 `EventDecoder` accepts a plain-Go `RawLog` and decodes the four existing `MultiSigWallet` events using a minimal ABI. It verifies the configured emitter, normalizes addresses and hashes, preserves submit values as `*big.Int`, checks the multisig transaction index fits `uint64`, and copies event data. A zero destination is retained. `Removed` is preserved as metadata but is not interpreted. Unsupported `topic0` values and malformed logs have distinct errors. The decoder does not retrieve or subscribe to logs; Week 6 owns log retrieval and indexing.
 
