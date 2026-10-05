@@ -2,7 +2,7 @@
 
 ## Status
 
-This document describes the target architecture of the Web3 Wallet Dashboard. The Go backend currently implements bearer-token authentication, wallet CRUD, supported-chain metadata, tracked-contract CRUD, and a read-only EVM client in `backend/internal/evm`. That client is not yet wired into an application service or API route. The frontend and background event indexer remain planned; diagrams and flows below describe the target architecture unless marked as implemented.
+This document describes the target architecture of the Web3 Wallet Dashboard. The Go backend currently implements bearer-token authentication, wallet CRUD, supported-chain metadata, tracked-contract CRUD, a read-only EVM client in `backend/internal/evm`, and the indexer persistence layer in `backend/internal/indexer` with migration `0008`. The EVM client is not yet wired into an application service or API route, and the scanner, log retrieval and API exposure remain planned; diagrams and flows below describe the target architecture unless marked as implemented.
 
 ## Architectural objective
 
@@ -337,13 +337,14 @@ The detailed design belongs in `database-schema.md`, but the initial architectur
 - `contract_events`
 - `indexed_blocks` or an equivalent checkpoint table
 
-Likely event uniqueness inputs:
+Implemented uniqueness keys in migration `0008`:
 
-- Chain ID
-- Transaction hash
-- Log index
+- `indexed_blocks`: `(contract_id, block_number)`
+- `contract_events`: `(contract_id, block_hash, log_index)`, so a transaction re-included in a different block is a separate occurrence
+- `multisig_transactions`: `(contract_id, multisig_tx_index)`
+- `transaction_confirmations`: `(multisig_transaction_id, owner_address)`
 
-The final unique constraints must be chosen before indexer implementation.
+The watch set is global: `contracts` rows with `indexing_enabled = TRUE` on the Sepolia chain, independent of how many users track a deployment.
 
 ## Trust boundaries
 
@@ -468,7 +469,7 @@ These decisions may later receive individual Architecture Decision Records in `d
 ## Known limitations
 
 - Readiness covers PostgreSQL connectivity only; EVM RPC availability and domain-state checks are intentionally excluded.
-- The Week-6 indexer tables (multisig_transactions, transaction_confirmations, contract_events, indexer_checkpoints) remain proposed; the user, wallet, chain, and contract tables are implemented in migrations 0001 through 0006.
+- The indexer tables (`indexed_blocks`, `contract_events`, `multisig_transactions`, `transaction_confirmations`, `indexer_checkpoints`) exist in migration `0008` with the repository in `backend/internal/indexer`; the scanner, log retrieval, retry execution and API exposure are not implemented yet.
 - The RPC target is Sepolia and the provider is Alchemy. Provider availability and rate limits remain external dependencies; retry and reorganization policies are not implemented by this client.
 - Contract event coverage must be checked against the existing ABI.
 - Reorganization detection and correction are not implemented yet; the future indexer must enforce the hash-comparison and rescan policy above.
