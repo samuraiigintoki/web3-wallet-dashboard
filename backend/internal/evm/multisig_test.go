@@ -49,6 +49,27 @@ func (r *contractTestReader) BlockNumber(context.Context) (uint64, error) {
 	return r.blockNumber, r.blockNumberErr
 }
 
+func (r *contractTestReader) BlockHeader(ctx context.Context, _ uint64) (BlockHeader, error) {
+	if err := ctx.Err(); err != nil {
+		return BlockHeader{}, err
+	}
+	return BlockHeader{}, errors.New("unexpected block header call in multisig test")
+}
+
+func (r *contractTestReader) BlockHeaders(ctx context.Context, _ []uint64) ([]BlockHeader, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return nil, errors.New("unexpected block headers call in multisig test")
+}
+
+func (r *contractTestReader) FilterLogs(ctx context.Context, _ LogFilter) ([]RawLog, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return nil, errors.New("unexpected filter logs call in multisig test")
+}
+
 func (r *contractTestReader) TransactionReceipt(ctx context.Context, _ string) (Receipt, error) {
 	if err := ctx.Err(); err != nil {
 		return Receipt{}, err

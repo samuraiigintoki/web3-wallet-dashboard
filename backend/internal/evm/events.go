@@ -123,6 +123,28 @@ const multiSigEventABI = `[
   ]}
 ]`
 
+// supportedEventTopics holds the topic0 hash of each supported event, in the
+// same order as multiSigEventNames. The hashes are derived from the embedded
+// event ABI, so they cannot drift from the decoder. A failure here means the
+// compiled-in ABI is itself invalid, which no caller could handle at runtime.
+var supportedEventTopics = mustSupportedEventTopics()
+
+func mustSupportedEventTopics() []string {
+	contractABI, err := abi.JSON(strings.NewReader(multiSigEventABI))
+	if err != nil {
+		panic(fmt.Sprintf("evm: parse embedded event ABI for topics: %v", err))
+	}
+	topics := make([]string, 0, len(multiSigEventNames))
+	for _, name := range multiSigEventNames {
+		event, ok := contractABI.Events[name]
+		if !ok {
+			panic(fmt.Sprintf("evm: embedded event ABI is missing %s", name))
+		}
+		topics = append(topics, strings.ToLower(event.ID.Hex()))
+	}
+	return topics
+}
+
 var multiSigEventNames = [...]string{
 	"SubmitTransaction",
 	"ConfirmTransaction",

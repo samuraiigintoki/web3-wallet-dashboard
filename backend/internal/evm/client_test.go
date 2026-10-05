@@ -18,6 +18,8 @@ var errRPC = errors.New("rpc failure")
 
 // fakeReader is a scriptable ChainReader for client metadata tests. Zero
 // metadata values mean "succeed with zero"; contract calls are unexpected.
+// The header, batched header and log fields are filled by the tests that cover
+// log retrieval.
 type fakeReader struct {
 	chainID          uint64
 	blockNumber      uint64
@@ -30,6 +32,21 @@ type fakeReader struct {
 	estimateGasErr   error
 	estimateRequest  *GasEstimateRequest
 	estimateGasCalls *int
+
+	header       BlockHeader
+	headerErr    error
+	headerNumber *uint64
+	headerCalls  *int
+
+	headers      []BlockHeader
+	headersErr   error
+	headersInput *[]uint64
+	headersCalls *int
+
+	logs        []RawLog
+	logsErr     error
+	filterInput *LogFilter
+	filterCalls *int
 }
 
 func (f fakeReader) ChainID(context.Context) (uint64, error) {
@@ -38,6 +55,56 @@ func (f fakeReader) ChainID(context.Context) (uint64, error) {
 
 func (f fakeReader) BlockNumber(context.Context) (uint64, error) {
 	return f.blockNumber, f.blockNumErr
+}
+
+func (f fakeReader) BlockHeader(ctx context.Context, blockNumber uint64) (BlockHeader, error) {
+	if err := ctx.Err(); err != nil {
+		return BlockHeader{}, err
+	}
+	if f.headerNumber != nil {
+		*f.headerNumber = blockNumber
+	}
+	if f.headerCalls != nil {
+		(*f.headerCalls)++
+	}
+	return f.header, f.headerErr
+}
+
+func (f fakeReader) BlockHeaders(ctx context.Context, blockNumbers []uint64) ([]BlockHeader, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if f.headersInput != nil {
+		*f.headersInput = append([]uint64(nil), blockNumbers...)
+	}
+	if f.headersCalls != nil {
+		(*f.headersCalls)++
+	}
+	if f.headersErr != nil {
+		return nil, f.headersErr
+	}
+	return append([]BlockHeader(nil), f.headers...), nil
+}
+
+func (f fakeReader) FilterLogs(ctx context.Context, filter LogFilter) ([]RawLog, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if f.filterInput != nil {
+		copied := filter
+		copied.Topics = make([][]string, len(filter.Topics))
+		for i, group := range filter.Topics {
+			copied.Topics[i] = append([]string(nil), group...)
+		}
+		*f.filterInput = copied
+	}
+	if f.filterCalls != nil {
+		(*f.filterCalls)++
+	}
+	if f.logsErr != nil {
+		return nil, f.logsErr
+	}
+	return append([]RawLog(nil), f.logs...), nil
 }
 
 func (fakeReader) CallContract(context.Context, string, []byte, uint64) ([]byte, error) {
