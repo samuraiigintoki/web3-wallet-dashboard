@@ -29,6 +29,12 @@ import (
 // first observed. Ranks stay comparable because both backends execute the same
 // script in the same order.
 
+// contractParityTruncate resets the contract tables for the parity scenario.
+// Migration 0008 added the indexer tables, which reference contracts, so they
+// are named here too.
+const contractParityTruncate = `TRUNCATE transaction_confirmations, multisig_transactions, contract_events,
+	indexed_blocks, indexer_checkpoints, user_contracts, contracts`
+
 const (
 	parityMissingDeploymentID int64 = 999999999
 
@@ -66,9 +72,9 @@ func TestParity_ContractRepository_Postgres(t *testing.T) {
 		t.Fatalf("ping: %v", err)
 	}
 
-	// Complete reset: user_contracts references contracts, so both tables are
-	// named in one statement and the child table comes first.
-	if _, err := db.ExecContext(ctx, "TRUNCATE user_contracts, contracts"); err != nil {
+	// Complete reset: user_contracts and the indexer tables from migration 0008
+	// reference contracts, so every table is named in one statement.
+	if _, err := db.ExecContext(ctx, contractParityTruncate); err != nil {
 		t.Fatalf("truncate contract tables: %v", err)
 	}
 
