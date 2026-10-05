@@ -14,9 +14,15 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-// These integration tests truncate user_contracts and contracts. Use a dedicated
-// test database with the users, chains, and contract migrations already applied.
-// Do not use t.Parallel: every test resets the same contract tables.
+// These integration tests truncate the contract tables listed in
+// contractTestTruncate. Use a dedicated test database with the users, chains,
+// contract and indexer migrations already applied. Do not use t.Parallel: every
+// test resets the same contract tables.
+
+// contractTestTruncate resets the contract tables. Migration 0008 added the
+// indexer tables, which reference contracts, so they are named here too.
+const contractTestTruncate = `TRUNCATE transaction_confirmations, multisig_transactions, contract_events,
+	indexed_blocks, indexer_checkpoints, user_contracts, contracts`
 
 func TestPostgresContractRepository_GetOrCreateDeployment(t *testing.T) {
 	_, repo, _ := setupPostgresContractTest(t)
@@ -464,13 +470,14 @@ func setupPostgresContractTest(t *testing.T) (*sql.DB, *PostgresRepository, int6
 		t.Fatalf("error connecting database:%v", err)
 	}
 
-	// Include both tables in one statement: PostgreSQL requires the referencing
-	// table even when it is empty. Keep user_contracts (child) before contracts.
-	if _, err := db.ExecContext(ctx, "TRUNCATE user_contracts, contracts"); err != nil {
+	// Include every table in one statement: PostgreSQL requires each referencing
+	// table even when it is empty. user_contracts and the indexer tables added by
+	// migration 0008 are children of contracts, so all of them are named.
+	if _, err := db.ExecContext(ctx, contractTestTruncate); err != nil {
 		t.Fatalf("truncate contract tables: %v", err)
 	}
 	t.Cleanup(func() {
-		if _, err := db.ExecContext(context.Background(), "TRUNCATE user_contracts, contracts"); err != nil {
+		if _, err := db.ExecContext(context.Background(), contractTestTruncate); err != nil {
 			t.Errorf("clean up contract tables: %v", err)
 		}
 	})

@@ -1,8 +1,10 @@
-# Initial PostgreSQL Schema
+# PostgreSQL Schema
 
 ## Status
 
-Schema for the implemented backend is managed by migrations 0001 through 0006: wallets (now user-owned, see `docs/adr/0003-wallet-ownership-retrofit.md`), users and sessions, supported chains, and tracked contracts. The Week-6 indexer tables remain proposed. See `docs/adr/0001-wallet-id-and-schema-conventions.md` for MVP schema decisions.
+Migrations `0001` through `0008` are implemented. The application tables (users and sessions, wallets, chains, contracts and user_contracts) and the Week 6 indexer tables (indexed_blocks, contract_events, multisig_transactions, transaction_confirmations, indexer_checkpoints) exist as described below. The indexer persistence layer and its repository live in `backend/internal/indexer`; the scanner, log retrieval and API exposure are later Week 6 blocks. See `docs/adr/0001-wallet-id-and-schema-conventions.md` for MVP conventions and `docs/adr/0003-wallet-ownership-retrofit.md` for wallet ownership.
+
+Earlier revisions of this document proposed UUID identifiers, a `contracts.contract_version` column and a transaction-hash event key. No migration implements them. Actual migrations override any remaining proposal text in this document.
 
 ## Design goals
 
@@ -17,14 +19,15 @@ Schema for the implemented backend is managed by migrations 0001 through 0006: w
 
 ## Conventions
 
-- Use UTC timestamps.
-- Use migration-managed defaults rather than application-generated timestamps where appropriate.
-- Store EVM addresses in one canonical representation for equality checks, initially lowercase `0x`-prefixed hexadecimal text.
-- Validate address length and hexadecimal shape in the application and optionally with database checks.
-- Store wei values as `NUMERIC(78,0)` to represent `uint256` safely.
-- Store block numbers and log indexes using types chosen to preserve required unsigned ranges; common testnet values fit PostgreSQL `BIGint`, but conversion boundaries must be validated.
-- Never use floating-point types for wei values.
-- Do not store private keys, seed phrases, or raw wallet credentials.
+- IDs are `BIGINT`. Migrations `0001` to `0005` use `GENERATED ALWAYS AS IDENTITY`; `0003` used `BIGSERIAL`; both map to Go `int64`. There are no UUID columns.
+- All timestamps are UTC and use `TIMESTAMPTZ`.
+- EVM addresses are stored lowercase-canonical, `0x` plus 40 hex characters.
+- Hashes are stored lowercase-canonical, `0x` plus 64 hex characters.
+- Wei and other `uint256` values use `NUMERIC(78,0)`, never floating point. Wide values inside JSON payloads are decimal strings.
+- Calldata is `BYTEA`; payloads are `JSONB`.
+- Block numbers, transaction indexes and log indexes are non-negative `BIGINT` or `INTEGER`, validated before conversion at the Go boundary.
+- The indexer tables carry shape `CHECK` constraints for addresses and hashes because a background process writes them, not only request handlers.
+- Never store private keys, seed phrases, or raw wallet credentials.
 
 ## Relationship overview
 
@@ -32,35 +35,51 @@ Schema for the implemented backend is managed by migrations 0001 through 0006: w
 erDiagram
     USERS ||--o{ WALLETS : owns
     USERS ||--o{ USER_CONTRACTS : tracks
+    USERS ||--o{ USER_SESSIONS : authenticates
     CONTRACTS ||--o{ USER_CONTRACTS : tracked_by
-    CONTRACTS ||--o{ MULTISIG_TRANSACTIONS : contains
-    MULTISIG_TRANSACTIONS ||--o{ TRANSACTION_CONFIRMATIONS : has
     CONTRACTS ||--o{ CONTRACT_EVENTS : emits
-    CONTRACTS ||--|| INDEXER_CHECKPOintS : has
+    CONTRACTS ||--o{ INDEXED_BLOCKS : canonical_blocks
+    CONTRACTS ||--o{ MULTISIG_TRANSACTIONS : contains
+    CONTRACTS ||--|| INDEXER_CHECKPOINTS : checkpoints
+    MULTISIG_TRANSACTIONS ||--o{ TRANSACTION_CONFIRMATIONS : has
 
     USERS {
-        uuid id PK
+        bigint id PK
         text email UK
         text password_hash
         timestamptz created_at
-        timestamptz updated_at
+    }
+
+    USER_SESSIONS {
+        bigint id PK
+        bigint user_id FK
+        text token_hash UK
+        timestamptz expires_at
+        timestamptz created_at
     }
 
     WALLETS {
-        uuid id PK
-        uuid user_id FK
-        bigint chain_id
+        bigint id PK
+        bigint user_id FK
+        bigint chain_id FK
         text address
         text label
         timestamptz created_at
-        timestamptz updated_at
+    }
+
+    CHAINS {
+        bigint chain_id PK
+        text name
+        text symbol
+        boolean is_testnet
+        boolean enabled
+        timestamptz created_at
     }
 
     CONTRACTS {
-        uuid id PK
-        bigint chain_id
+        bigint id PK
+        bigint chain_id FK
         text address
-        text contract_version
         bigint start_block
         boolean indexing_enabled
         timestamptz created_at
@@ -68,394 +87,356 @@ erDiagram
     }
 
     USER_CONTRACTS {
-        uuid user_id FK
-        uuid contract_id FK
+        bigint user_id PK,FK
+        bigint contract_id PK,FK
         text label
         boolean enabled
         timestamptz created_at
         timestamptz updated_at
     }
 
+    INDEXED_BLOCKS {
+        bigint id PK
+        bigint contract_id FK
+        bigint block_number
+        text block_hash
+        text parent_hash
+        timestamptz created_at
+    }
+
+    CONTRACT_EVENTS {
+        bigint id PK
+        bigint contract_id FK
+        text event_name
+        bigint block_number
+        text block_hash
+        text transaction_hash
+        integer transaction_index
+        integer log_index
+        text actor_address
+        numeric multisig_tx_index
+        jsonb payload
+        boolean removed
+        timestamptz observed_at
+    }
+
     MULTISIG_TRANSACTIONS {
-        uuid id PK
-        uuid contract_id FK
-        numeric tx_index
+        bigint id PK
+        bigint contract_id FK
+        numeric multisig_tx_index
         text to_address
         numeric value_wei
         bytea call_data
         boolean executed
         text submitted_by
         text submit_evm_tx_hash
+        bigint submit_block_number
         text execute_evm_tx_hash
+        bigint execute_block_number
         timestamptz created_at
         timestamptz updated_at
     }
 
     TRANSACTION_CONFIRMATIONS {
-        uuid multisig_transaction_id FK
-        text owner_address
+        bigint multisig_transaction_id PK,FK
+        text owner_address PK
         boolean confirmed
-        bigint confirmed_block
-        bigint revoked_block
+        text confirmed_evm_tx_hash
+        bigint confirmed_block_number
+        text revoked_evm_tx_hash
+        bigint revoked_block_number
         timestamptz updated_at
     }
 
-    CONTRACT_EVENTS {
-        uuid id PK
-        uuid contract_id FK
-        text event_name
-        bigint block_number
-        text block_hash
-        text transaction_hash
-        integer log_index
-        text actor_address
-        numeric multisig_tx_index
-        jsonb payload
-        timestamptz observed_at
-    }
-
-    INDEXER_CHECKPOintS {
-        uuid contract_id PK,FK
+    INDEXER_CHECKPOINTS {
+        bigint contract_id PK,FK
+        bigint next_block
         bigint last_indexed_block
         text last_indexed_block_hash
-        text state
+        text status
         text last_error
         timestamptz updated_at
     }
 ```
 
-## Tables
+## Application tables
 
 ### `schema_migrations`
 
-Purpose: records applied database migrations to guarantee idempotent execution.
-
-Columns (implemented):
+Purpose: records applied migrations so `cmd/migrate up` is idempotent.
 
 | Column | Type | Constraints and notes |
 | --- | --- | --- |
-| `version` | `TEXT` | Primary key (e.g. `0001_create_wallets`) |
-| `applied_at` | `TIMESTAMPTZ` | Not null, default current timestamp |
+| `version` | `TEXT` | Primary key, the migration file prefix such as `0008_create_indexer_tables` |
+| `applied_at` | `TIMESTAMPTZ` | Not null, default `NOW()` |
 
 ### `users`
 
-Purpose: application identity and authentication record.
+| Column | Type | Constraints and notes |
+| --- | --- | --- |
+| `id` | `BIGINT` | Primary key, `BIGSERIAL` |
+| `email` | `TEXT` | Not null, unique through `idx_users_email_lower` on `LOWER(email)` |
+| `password_hash` | `TEXT` | Not null, bcrypt output only; never plaintext |
+| `created_at` | `TIMESTAMPTZ` | Not null, default `NOW()` |
 
-Columns (implemented):
+There is no `updated_at` column. Password hashes never appear in API DTOs or logs.
+
+### `user_sessions`
 
 | Column | Type | Constraints and notes |
-|---|---|---|
-| `id` | `UUID` | Primary key |
-| `email` | `TEXT` or `CITEXT` | Unique, normalized |
-| `password_hash` | `TEXT` | Approved password hash only; never plaintext |
-| `created_at` | `TIMESTAMPTZ` | Not null, default current timestamp |
-| `updated_at` | `TIMESTAMPTZ` | Not null |
+| --- | --- | --- |
+| `id` | `BIGINT` | Primary key, `BIGSERIAL` |
+| `user_id` | `BIGINT` | Not null, foreign key to `users(id)` `ON DELETE CASCADE` |
+| `token_hash` | `TEXT` | Not null, unique; only the SHA-256 hash of the opaque bearer token is stored |
+| `expires_at` | `TIMESTAMPTZ` | Not null, fixed seven-day TTL set by the application |
+| `created_at` | `TIMESTAMPTZ` | Not null, default `NOW()` |
 
-Authentication-specific session or refresh-token tables must be designed after selecting the authentication mechanism.
+Indexes: `idx_user_sessions_expires_at` on `(expires_at)`, used by the expired-session purge job.
 
-Indexes:
+### `chains`
 
-- Unique normalized email index
+| Column | Type | Constraints and notes |
+| --- | --- | --- |
+| `chain_id` | `BIGINT` | Primary key, the EVM chain id |
+| `name` | `TEXT` | Not null |
+| `symbol` | `TEXT` | Not null |
+| `is_testnet` | `BOOLEAN` | Not null, default `FALSE` |
+| `enabled` | `BOOLEAN` | Not null, default `TRUE` |
+| `created_at` | `TIMESTAMPTZ` | Not null, default `NOW()` |
 
-Security:
-
-- Password hashes must not appear in ordinary API DTOs or logs.
-- Account lookup behavior must not leak sensitive authentication details.
+Seeded with `1` Ethereum, `137` Polygon and `11155111` Sepolia. Only Sepolia is reachable through the configured RPC endpoint.
 
 ### `wallets`
 
-Purpose: user-owned saved EVM address metadata.
-
-Columns (implemented):
-
 | Column | Type | Constraints and notes |
-|---|---|---|
-| `id` | `UUID` | Primary key |
-| `user_id` | `BIGINT` | Foreign key to `users`, not null, `ON DELETE CASCADE`. Now enforced by `0006_add_wallets_user_id`. |
-| `chain_id` | `BIGint` | Positive, not null |
-| `address` | `VARCHAR(42)` | Canonical EVM address, not null |
-| `label` | `VARCHAR(100)` | User-visible label, not null or documented nullable |
-| `created_at` | `TIMESTAMPTZ` | Not null |
-| `updated_at` | `TIMESTAMPTZ` | Not null |
+| --- | --- | --- |
+| `id` | `BIGINT` | Primary key, identity |
+| `address` | `TEXT` | Not null, lowercase-canonical address |
+| `chain_id` | `BIGINT` | Not null, foreign key to `chains(chain_id)` |
+| `label` | `TEXT` | Not null, user-visible label |
+| `created_at` | `TIMESTAMPTZ` | Not null, default `NOW()` |
+| `user_id` | `BIGINT` | Not null, foreign key to `users(id)` `ON DELETE CASCADE`, added by `0006` |
 
-Constraints:
+There is no `updated_at` column. A saved wallet records that a user saved an address; it does not prove control of the key.
 
-- Unique `(user_id, chain_id, address)` as `uq_wallets_user_chain_address`, now enforced by `0006_add_wallets_user_id`. It replaces the single-tenant `unique_address_chain (address, chain_id)`.
-- Address validation in application code and optional database check
+Constraints and indexes:
 
-Indexes:
-
-- `(user_id, created_at DESC, id DESC)` as `idx_wallets_user_created_id`, now enforced by `0006_add_wallets_user_id`. Every list query leads with the owner.
-- `(user_id, chain_id)` is proposed, not created yet.
-
-Important meaning:
-
-- This table records that an application user saved an address.
-- It does not prove that the user controls the address's private key.
+- `uq_wallets_user_chain_address` unique `(user_id, chain_id, address)`.
+- `idx_wallets_user_created_id` on `(user_id, created_at DESC, id DESC)` for the list query.
 
 ### `contracts`
 
-Purpose: one global record for each supported `MultiSigWallet` deployment.
-
-Columns (implemented):
+One global row per supported `MultiSigWallet` deployment, shared by every user who tracks it.
 
 | Column | Type | Constraints and notes |
-|---|---|---|
-| `id` | `UUID` | Primary key |
-| `chain_id` | `BIGint` | Positive, not null |
-| `address` | `VARCHAR(42)` | Canonical contract address, not null |
-| `contract_version` | `VARCHAR(50)` | For example `multisig-v1.1` |
-| `start_block` | `BIGint` | Deployment or configured indexing start block |
-| `indexing_enabled` | `BOOLEAN` | Global indexer control |
-| `created_at` | `TIMESTAMPTZ` | Not null |
-| `updated_at` | `TIMESTAMPTZ` | Not null |
+| --- | --- | --- |
+| `id` | `BIGINT` | Primary key, identity |
+| `chain_id` | `BIGINT` | Not null, foreign key to `chains(chain_id)` `ON DELETE NO ACTION` |
+| `address` | `TEXT` | Not null, lowercase-canonical contract address |
+| `start_block` | `BIGINT` | Not null, `CHECK (start_block >= 0)`; the authoritative inclusive indexing start |
+| `indexing_enabled` | `BOOLEAN` | Not null, default `TRUE`; the global indexer control |
+| `created_at` | `TIMESTAMPTZ` | Not null, default `NOW()` |
+| `updated_at` | `TIMESTAMPTZ` | Not null, default `NOW()` |
 
-Constraints:
+Constraints and indexes:
 
-- Unique `(chain_id, address)`
-- `start_block >= 0`
+- `uq_contracts_chain_address` unique `(chain_id, address)`.
+- `idx_contracts_chain_indexing_enabled` on `(chain_id, indexing_enabled)`, added by `0008` for the watch-set query.
 
-Indexes:
-
-- `(chain_id, indexing_enabled)`
-
-Deferred from the initial implementation:
-
-- `contract_version` is deferred to the Week-5 ABI client; it is intentionally absent from `0005_create_contracts`.
-- The `(chain_id, indexing_enabled)` index is deferred to Week 6.
-
-Reason for global normalization:
-
-Multiple users may track the same contract. The system should index one deployment once rather than start one duplicate indexer stream per user.
+`contract_version` does not exist and must not be added without a separate ABI/versioning design. `GetOrCreateDeployment` returns the existing row on conflict, so a stored `start_block` is never silently replaced by a later caller value.
 
 ### `user_contracts`
 
-Purpose: user-specific relationship to a globally identified tracked contract.
-
-Columns (implemented):
+A user's relationship to a global deployment.
 
 | Column | Type | Constraints and notes |
-|---|---|---|
-| `user_id` | `UUID` | Foreign key to `users` |
-| `contract_id` | `UUID` | Foreign key to `contracts` |
-| `label` | `VARCHAR(100)` | User-specific label |
-| `enabled` | `BOOLEAN` | Whether shown for that user |
-| `created_at` | `TIMESTAMPTZ` | Not null |
-| `updated_at` | `TIMESTAMPTZ` | Not null. Bumped to `NOW()` on every accepted PATCH. The scoped lookup runs first, so a foreign or missing id is a `404` before any no-op, and an all-nil update on an owned row does not bump. Never exposed in API responses; exposure deferred to the Week 6 indexer work. |
+| --- | --- | --- |
+| `user_id` | `BIGINT` | Foreign key to `users(id)` `ON DELETE CASCADE` |
+| `contract_id` | `BIGINT` | Foreign key to `contracts(id)` `ON DELETE NO ACTION` |
+| `label` | `TEXT` | Not null, user-specific label |
+| `enabled` | `BOOLEAN` | Not null, default `TRUE`; display preference only |
+| `created_at` | `TIMESTAMPTZ` | Not null, default `NOW()` |
+| `updated_at` | `TIMESTAMPTZ` | Not null, default `NOW()`; bumped on an accepted `PATCH`, never exposed in API responses |
 
-Primary or unique key:
+Primary key `(user_id, contract_id)`. Index `idx_user_contracts_user_enabled_created` on `(user_id, enabled, created_at DESC)`.
 
-- `(user_id, contract_id)`
+`enabled` never changes indexing. Removing a user's relationship must not delete shared contract or indexed data.
 
-Indexes:
+## Indexer tables (migration `0008`)
 
-- `(user_id, enabled, created_at DESC)`
+Indexed data is an eventually consistent PostgreSQL view of chain state. The EVM remains the source of truth for contract state.
 
-Deletion behavior:
+### `indexed_blocks`
 
-Removing one user's relationship must not delete shared contract events or another user's tracking relationship. Global contract cleanup requires a separate explicit policy.
-
-### `multisig_transactions`
-
-Purpose: current indexed projection of each transaction stored in a `MultiSigWallet`.
-
-Proposed columns:
+One canonical row per contract and block number, used for reorganization detection and ancestor lookup.
 
 | Column | Type | Constraints and notes |
-|---|---|---|
-| `id` | `UUID` | Primary key |
-| `contract_id` | `UUID` | Foreign key to `contracts` |
-| `tx_index` | `NUMERIC(78,0)` | Contract transaction index |
-| `to_address` | `VARCHAR(42)` | Target address |
-| `value_wei` | `NUMERIC(78,0)` | ETH value in wei |
-| `call_data` | `BYTEA` | Arbitrary call data |
-| `executed` | `BOOLEAN` | Current derived state |
-| `submitted_by` | `VARCHAR(42)` | Owner from submit event |
-| `submit_evm_tx_hash` | `VARCHAR(66)` | Outer EVM transaction hash |
-| `submit_block_number` | `BIGint` | Submission block |
-| `execute_evm_tx_hash` | `VARCHAR(66)` | Nullable until executed |
-| `execute_block_number` | `BIGint` | Nullable until executed |
-| `created_at` | `TIMESTAMPTZ` | Projection creation time |
-| `updated_at` | `TIMESTAMPTZ` | Last projection update |
+| --- | --- | --- |
+| `id` | `BIGINT` | Primary key, identity |
+| `contract_id` | `BIGINT` | Not null, foreign key to `contracts(id)` `ON DELETE NO ACTION` |
+| `block_number` | `BIGINT` | Not null, `CHECK (>= 0)` |
+| `block_hash` | `TEXT` | Not null, canonical lowercase hash |
+| `parent_hash` | `TEXT` | Not null, canonical lowercase hash |
+| `created_at` | `TIMESTAMPTZ` | Not null, default `NOW()` |
 
-Constraints:
-
-- Unique `(contract_id, tx_index)`
-- `value_wei >= 0`
-- `tx_index >= 0`
-
-Indexes:
-
-- `(contract_id, tx_index DESC)`
-- `(contract_id, executed, tx_index DESC)`
-- `(contract_id, submitted_by)` where filtering measurements justify it
-
-The event table remains the append-oriented history. This table is the current query-friendly projection.
-
-### `transaction_confirmations`
-
-Purpose: current confirmation state for one owner and one multisig transaction.
-
-Proposed columns:
-
-| Column | Type | Constraints and notes |
-|---|---|---|
-| `multisig_transaction_id` | `UUID` | Foreign key to `multisig_transactions` |
-| `owner_address` | `VARCHAR(42)` | Confirming owner |
-| `confirmed` | `BOOLEAN` | Current projected state |
-| `confirmed_evm_tx_hash` | `VARCHAR(66)` | Latest confirmation hash, nullable |
-| `confirmed_block_number` | `BIGint` | Latest confirmation block, nullable |
-| `revoked_evm_tx_hash` | `VARCHAR(66)` | Latest revocation hash, nullable |
-| `revoked_block_number` | `BIGint` | Latest revocation block, nullable |
-| `updated_at` | `TIMESTAMPTZ` | Last state transition time |
-
-Primary or unique key:
-
-- `(multisig_transaction_id, owner_address)`
-
-Indexes:
-
-- `(multisig_transaction_id, confirmed)`
-
-Repeated confirm/revoke history remains available in `contract_events`; this table stores only the current projection.
+Unique `uq_indexed_blocks_contract_block_number` on `(contract_id, block_number)`. Only canonical blocks are stored: a rewind deletes rows above the common ancestor and rescans.
 
 ### `contract_events`
 
-Purpose: decoded event history with enough raw chain identity to support idempotency and investigation.
-
-Proposed columns:
+Decoded event history with enough raw chain identity to investigate and replay.
 
 | Column | Type | Constraints and notes |
-|---|---|---|
-| `id` | `UUID` or `BIGSERIAL` | Primary key |
-| `contract_id` | `UUID` | Foreign key to `contracts` |
-| `event_name` | `VARCHAR(100)` | Supported ABI event name |
-| `block_number` | `BIGint` | Not null |
-| `block_hash` | `VARCHAR(66)` | Not null |
-| `transaction_hash` | `VARCHAR(66)` | Not null |
-| `transaction_index` | `intEGER` | Position in block where available |
-| `log_index` | `intEGER` | Not null |
-| `actor_address` | `VARCHAR(42)` | Event owner/sender where applicable |
-| `multisig_tx_index` | `NUMERIC(78,0)` | Nullable for non-transaction events |
-| `payload` | `JSONB` | Decoded event fields not promoted to columns |
-| `removed` | `BOOLEAN` | Default false; reserved for basic reorg handling |
-| `observed_at` | `TIMESTAMPTZ` | Indexer observation time |
+| --- | --- | --- |
+| `id` | `BIGINT` | Primary key, identity |
+| `contract_id` | `BIGINT` | Not null, foreign key to `contracts(id)` `ON DELETE NO ACTION` |
+| `event_name` | `TEXT` | One of `SubmitTransaction`, `ConfirmTransaction`, `RevokeConfirmation`, `ExecuteTransaction` |
+| `block_number` | `BIGINT` | Not null, `CHECK (>= 0)` |
+| `block_hash` | `TEXT` | Not null, canonical lowercase hash |
+| `transaction_hash` | `TEXT` | Not null, canonical lowercase hash |
+| `transaction_index` | `INTEGER` | Not null, `CHECK (>= 0)` |
+| `log_index` | `INTEGER` | Not null, `CHECK (>= 0)` |
+| `actor_address` | `TEXT` | Nullable owner or sender, canonical lowercase address |
+| `multisig_tx_index` | `NUMERIC(78,0)` | Nullable contract transaction index |
+| `payload` | `JSONB` | Not null, default `{}`; normalized fields not promoted to columns |
+| `removed` | `BOOLEAN` | Not null, default `FALSE`. A rewind sets it. It returns to `FALSE` only when the same occurrence is committed again while its block hash and log index are canonical |
+| `observed_at` | `TIMESTAMPTZ` | Not null, default `NOW()` |
 
-Idempotency constraint:
+Idempotency constraint: unique `uq_contract_events_occurrence` on `(contract_id, block_hash, log_index)`.
 
-- Unique `(contract_id, transaction_hash, log_index)`
+The transaction hash is deliberately not part of that key. After a reorganization the same transaction can be re-included in a different block, which is a separate occurrence with its own block hash; keying on the transaction hash would either drop the second occurrence or collide with the first.
 
-Indexes:
+Indexes: `(contract_id, block_number, transaction_index, log_index)` for canonical replay order, `(contract_id, event_name, block_number DESC)`, and `(contract_id, multisig_tx_index)`.
 
-- `(contract_id, block_number DESC, log_index DESC)`
-- `(contract_id, event_name, block_number DESC)`
-- `(contract_id, multisig_tx_index)`
-- `(contract_id, actor_address)` only if filtering requires it
+The four supported events come from the deployed contract. `receive()` emits no event, so there is no deposit event to index. Adding an event requires a migration because the name is constrained.
 
-Supported initial event names from the current contract:
+### `multisig_transactions`
 
-- `SubmitTransaction`
-- `ConfirmTransaction`
-- `RevokeConfirmation`
-- `ExecuteTransaction`
-- `Deposit`, if added in the integration revision
+The current projection of each multisig transaction. The event table remains the append-oriented history.
 
-Do not rely on `payload` alone for frequently filtered fields; promote measured query fields to typed columns.
+| Column | Type | Constraints and notes |
+| --- | --- | --- |
+| `id` | `BIGINT` | Primary key, identity |
+| `contract_id` | `BIGINT` | Not null, foreign key to `contracts(id)` `ON DELETE NO ACTION` |
+| `multisig_tx_index` | `NUMERIC(78,0)` | Not null, `CHECK (>= 0)`, the contract transaction index |
+| `to_address` | `TEXT` | Nullable target address |
+| `value_wei` | `NUMERIC(78,0)` | Nullable, `CHECK (>= 0)`, exact wei |
+| `call_data` | `BYTEA` | Nullable calldata |
+| `executed` | `BOOLEAN` | Not null, default `FALSE`; only an Execute event sets it |
+| `submitted_by` | `TEXT` | Nullable submitting owner |
+| `submit_evm_tx_hash` | `TEXT` | Nullable outer EVM transaction hash |
+| `submit_block_number` | `BIGINT` | Nullable submission block |
+| `execute_evm_tx_hash` | `TEXT` | Nullable until executed |
+| `execute_block_number` | `BIGINT` | Nullable until executed |
+| `created_at` | `TIMESTAMPTZ` | Not null, default `NOW()` |
+| `updated_at` | `TIMESTAMPTZ` | Not null, default `NOW()`; moves only on a real change, not on a replayed range |
+
+Unique `uq_multisig_transactions_contract_tx_index` on `(contract_id, multisig_tx_index)`. Indexes: `(contract_id, multisig_tx_index DESC)` and `(contract_id, executed, multisig_tx_index DESC)`.
+
+The submit fields are nullable on purpose. When indexing starts after the original submission, the projection is built from later confirm, revoke or execute events and the target and value of the earlier transaction are unknown.
+
+### `transaction_confirmations`
+
+The current confirmation state for one owner and one multisig transaction.
+
+| Column | Type | Constraints and notes |
+| --- | --- | --- |
+| `multisig_transaction_id` | `BIGINT` | Foreign key to `multisig_transactions(id)` `ON DELETE CASCADE` |
+| `owner_address` | `TEXT` | Not null, canonical lowercase address |
+| `confirmed` | `BOOLEAN` | Not null, default `FALSE`; current state |
+| `confirmed_evm_tx_hash` | `TEXT` | Nullable latest confirmation hash |
+| `confirmed_block_number` | `BIGINT` | Nullable latest confirmation block |
+| `revoked_evm_tx_hash` | `TEXT` | Nullable latest revocation hash |
+| `revoked_block_number` | `BIGINT` | Nullable latest revocation block |
+| `updated_at` | `TIMESTAMPTZ` | Not null, default `NOW()` |
+
+Primary key `pk_transaction_confirmations` on `(multisig_transaction_id, owner_address)`. Index `(multisig_transaction_id, confirmed)`.
+
+A revoked confirmation keeps its row with `confirmed = FALSE` and the revoke identity, so the current state and the last transition of both kinds stay visible. Repeated confirm and revoke history remains in `contract_events`.
 
 ### `indexer_checkpoints`
 
-Purpose: record restart and progress state for each contract deployment.
-
-Proposed columns:
+One row per contract deployment, keyed by `contract_id`.
 
 | Column | Type | Constraints and notes |
-|---|---|---|
-| `contract_id` | `UUID` | Primary key and foreign key to `contracts` |
-| `next_block` | `BIGint` | Next block the indexer intends to process |
-| `last_indexed_block` | `BIGint` | Nullable before first successful range |
-| `last_indexed_block_hash` | `VARCHAR(66)` | Nullable before first successful range |
-| `state` | `VARCHAR(30)` | Proposed: `idle`, `running`, `error`, `disabled` |
-| `last_error` | `TEXT` | Sanitized diagnostic, nullable |
-| `retry_count` | `intEGER` | Operational state, bounded |
-| `updated_at` | `TIMESTAMPTZ` | Not null |
+| --- | --- | --- |
+| `contract_id` | `BIGINT` | Primary key, foreign key to `contracts(id)` `ON DELETE NO ACTION` |
+| `next_block` | `BIGINT` | Not null, `CHECK (>= 0)`; initialized from the stored `contracts.start_block` |
+| `last_indexed_block` | `BIGINT` | Nullable before the first committed range |
+| `last_indexed_block_hash` | `TEXT` | Nullable, canonical lowercase hash when present |
+| `status` | `TEXT` | One of `pending`, `running`, `idle`, `error`, `disabled`, `unsupported` |
+| `last_error` | `TEXT` | Sanitized diagnostic; present only while `status = 'error'` |
+| `updated_at` | `TIMESTAMPTZ` | Not null, default `NOW()` |
 
-Constraints:
+Status meaning:
 
-- Block values non-negative
-- State restricted to documented values
+- `pending`: not yet scanned up to `next_block`.
+- `running`: a range is in progress. Stale `running` rows are reset to `pending` on startup.
+- `idle`: caught up to the safe head.
+- `error`: the last run failed; `last_error` explains why and is cleared by the next success.
+- `disabled`: `contracts.indexing_enabled` is false.
+- `unsupported`: the contract chain is not served by the configured RPC and must not be queried through it.
 
-A per-contract checkpoint makes it possible to add a newly tracked deployment with an earlier start block without rewinding unrelated contracts.
+The `last_error` `CHECK` enforces the pairing in both directions, so a status change cannot leave a stale message behind.
+
+A per-contract checkpoint lets a newly tracked deployment start at an earlier block without rewinding unrelated contracts.
+
+## Watch set
+
+The indexer follows global `contracts` rows where `indexing_enabled = TRUE` and `chain_id = 11155111`. The list comes from `contracts` alone: `user_contracts` is never joined, so a deployment tracked by ten users is indexed once and a deployment tracked by nobody is still indexed. `user_contracts.enabled` only controls what a user sees. Non-Sepolia deployments are marked `unsupported` and are never sent to the Sepolia RPC endpoint.
 
 ## Indexing transaction boundary
 
-For each successfully processed block range, the indexer should use a database transaction that:
+One range commit is a single transaction that:
 
-1. Inserts decoded `contract_events` using the idempotency constraint.
-2. Updates `multisig_transactions` projections.
-3. Updates `transaction_confirmations` projections.
-4. Advances `indexer_checkpoints`.
-5. Commits all changes together.
+1. Inserts canonical rows into `indexed_blocks` and rejects a stored block hash that differs from the committed header.
+2. Inserts decoded events into `contract_events` with the occurrence uniqueness key.
+3. Applies `multisig_transactions` and `transaction_confirmations` projection changes.
+4. Advances `indexer_checkpoints` only when the commit starts at the stored `next_block`.
 
-If any step fails, the transaction rolls back and the checkpoint does not advance. Reprocessing the range must be safe.
+If any step fails the transaction rolls back and the checkpoint does not move. Repeating a commit is idempotent: duplicate block rows are ignored, an event occurrence that a rewind marked removed becomes canonical again when the same block hash and log index are committed, and projection upserts leave an unchanged row untouched, timestamps included.
+
+## Rewind and projection rebuild
+
+- Rewind to an ancestor marks every event above it `removed = TRUE`, keeps those rows as history, deletes the canonical `indexed_blocks` rows above the ancestor, rebuilds the projections from the remaining nonremoved events, and resumes at `ancestor + 1`.
+- Rewind with no usable ancestor marks all events removed, deletes every canonical block row, clears the last indexed block and hash, and resumes at the stored `start_block`. No negative block sentinel is stored.
+- A projection rebuild deletes the contract's projections and replays its nonremoved events ordered by `(block_number, transaction_index, log_index)`, so the result depends only on stored events and is repeatable.
+- `SubmitTransaction` creates or updates the transaction projection, `ConfirmTransaction` sets `confirmed`, `RevokeConfirmation` clears it, and `ExecuteTransaction` sets `executed`.
 
 ## Deletion and retention
 
-Initial policy:
-
-- Deleting a user cascades to their `wallets` and `user_contracts`, now defined: `wallets.user_id` (`0006`) and `user_contracts.user_id` (`0005`) are `ON DELETE CASCADE`. Sessions cascade the same way (`user_sessions.user_id`, `0003`).
-- Deleting a `user_contracts` record must not delete shared chain data.
-- Contracts and indexed events should not be hard-deleted through ordinary user routes.
-- Operational retention for sessions and logs will be defined with authentication and deployment designs.
+- Deleting a user cascades to `wallets`, `user_contracts` and `user_sessions`.
+- Deleting a `user_contracts` row must not delete shared chain data.
+- `contracts` rows are protected while indexer rows reference them (`ON DELETE NO ACTION`).
+- Removing a `multisig_transactions` projection row removes its confirmations (`ON DELETE CASCADE`).
+- Removed event rows are retained indefinitely; a pruning or retention policy is not defined yet.
 
 ## Address normalization
 
-Initial proposal:
-
-- Validate input using an EVM-aware library.
-- Convert addresses to a canonical lowercase `0x` representation for equality and unique constraints.
-- Optionally return checksum formatting at presentation boundaries.
-- Never compare user-entered addresses as arbitrary case-sensitive text.
-
-This decision must be applied consistently across Go, PostgreSQL, TypeScript, and indexer code.
+- Validate input before storage and convert to the canonical lowercase `0x` representation.
+- Never compare user-entered addresses as case-sensitive text.
+- Indexer tables repeat the shape check in the database so a background writer cannot store a mixed-case or malformed value.
+- Checksum formatting, if ever needed, belongs at the presentation boundary.
 
 ## Chain reorganization preparation
 
-The initial system is not expected to support deep reorganizations, but the schema retains:
-
-- Block number
-- Block hash
-- Transaction hash
-- Log index
-- A `removed` marker
-- Checkpoint block hash
-
-Before testnet deployment, the indexer must define confirmation depth and how it responds when the stored checkpoint hash no longer matches the canonical chain.
+The schema retains block number, block hash, parent hash, transaction hash, log index, a `removed` marker and the checkpoint's last indexed hash. Ancestor lookup walks `indexed_blocks`; `RawLog.Removed` is preserved as metadata but is not the rewind trigger. Confirmation depth and the rewind policy live in `docs/architecture.md`.
 
 ## Migration order
 
-Initial migration dependency order:
+1. `0001` wallets
+2. `0002` wallet chain and created index
+3. `0003` users and sessions
+4. `0004` chains and wallet chain foreign key
+5. `0005` contracts and user_contracts
+6. `0006` wallet ownership retrofit
+7. `0007` session expiry index
+8. `0008` indexer tables and the watch-set index
 
-1. Required PostgreSQL extensions, if any
-2. `users`
-3. `wallets`
-4. `contracts`
-5. `user_contracts`
-6. `multisig_transactions`
-7. `transaction_confirmations`
-8. `contract_events`
-9. `indexer_checkpoints`
-10. Indexes and constraints not created alongside tables
-
-Each migration must have a documented rollback strategy appropriate to the migration tool.
+Migrations run only through `cmd/migrate`, in one transaction per migration, never at API startup.
 
 ## Open schema decisions
 
-1. UUID generation method and extension.
-2. `TEXT` plus normalized unique index versus `CITEXT` for email.
-3. Session or token persistence after authentication design is chosen.
-4. `BIGint` versus `NUMERIC` for block and transaction indexes at Go/SQL boundaries.
-5. Whether calldata is stored as `BYTEA` or normalized hexadecimal text.
-6. Whether event primary keys use UUID or `BIGSERIAL`.
-7. Final indexer checkpoint and confirmation-depth strategy.
-8. Whether direct RPC state is cached and, if so, where cache metadata belongs.
-9. Whether shared contracts remain indexed after no users track them.
+1. Retention and pruning policy for removed events and old indexed blocks.
+2. Whether `user_contracts.updated_at` is ever exposed in API responses.
+3. Whether direct RPC state is cached and, if so, where cache metadata belongs.
+4. Final confirmation-depth and rewind tuning beyond the current policy in `docs/architecture.md`.
