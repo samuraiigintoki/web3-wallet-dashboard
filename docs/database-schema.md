@@ -298,7 +298,7 @@ Decoded event history with enough raw chain identity to investigate and replay.
 | `actor_address` | `TEXT` | Nullable owner or sender, canonical lowercase address |
 | `multisig_tx_index` | `NUMERIC(78,0)` | Nullable contract transaction index |
 | `payload` | `JSONB` | Not null, default `{}`; normalized fields not promoted to columns |
-| `removed` | `BOOLEAN` | Not null, default `FALSE`; set by a rewind, never reset silently |
+| `removed` | `BOOLEAN` | Not null, default `FALSE`. A rewind sets it. It returns to `FALSE` only when the same occurrence is committed again while its block hash and log index are canonical |
 | `observed_at` | `TIMESTAMPTZ` | Not null, default `NOW()` |
 
 Idempotency constraint: unique `uq_contract_events_occurrence` on `(contract_id, block_hash, log_index)`.
@@ -393,7 +393,7 @@ One range commit is a single transaction that:
 3. Applies `multisig_transactions` and `transaction_confirmations` projection changes.
 4. Advances `indexer_checkpoints` only when the commit starts at the stored `next_block`.
 
-If any step fails the transaction rolls back and the checkpoint does not move. Repeating a commit is idempotent: block and event inserts ignore duplicates and projection upserts leave an unchanged row untouched, timestamps included.
+If any step fails the transaction rolls back and the checkpoint does not move. Repeating a commit is idempotent: duplicate block rows are ignored, an event occurrence that a rewind marked removed becomes canonical again when the same block hash and log index are committed, and projection upserts leave an unchanged row untouched, timestamps included.
 
 ## Rewind and projection rebuild
 

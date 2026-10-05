@@ -834,6 +834,139 @@ func TestPostgresIndexer_RewindToStart(t *testing.T) {
 	}
 }
 
+func TestPostgresIndexer_RescanAfterRewindToAncestorRestoresCanonicalEvents(t *testing.T) {
+	db, repo := setupPostgresIndexerTest(t)
+	ctx := t.Context()
+	contractID := seedIndexerTestDeployment(t, db, indexerTestChainSepolia, "0x0000000000000000000000000000000000000161", 100)
+	if _, err := repo.EnsureCheckpoint(ctx, contractID); err != nil {
+		t.Fatalf("ensure checkpoint: %v", err)
+	}
+
+	valueWei := mustUint256(t, "42")
+	submit, err := NewSubmitTransactionEvent(contractID, testEventMetadata(100, hashFor(100, 1), 0, 0), indexerTestOwner, 1, "0x000000000000000000000000000000000000dead", valueWei, nil)
+	if err != nil {
+		t.Fatalf("build submit event: %v", err)
+	}
+	confirm := testConfirmEvent(t, contractID, 100, hashFor(100, 1), 1)
+	execute := testOwnerEvent(t, contractID, EventExecuteTransaction, 101, hashFor(101, 1), 0, 1)
+	original := testRangeCommit(contractID, 100, 101, []Event{submit, confirm, execute})
+	if _, err := repo.CommitRange(ctx, original); err != nil {
+		t.Fatalf("commit range: %v", err)
+	}
+
+	eventsBefore := indexerTestCount(t, db, "contract_events", contractID)
+	stateBefore := indexerTestTransactionState(t, db, contractID)
+	if !indexerTestSingleBool(t, db, `
+		SELECT executed FROM multisig_transactions WHERE contract_id = $1 AND multisig_tx_index = 1
+	`, contractID) {
+		t.Fatal("expected the transaction to be projected as executed before the rewind")
+	}
+
+	if _, err := repo.RewindToAncestor(ctx, contractID, 100); err != nil {
+		t.Fatalf("rewind to ancestor: %v", err)
+	}
+	if got := indexerTestCountWhere(t, db, "contract_events", contractID, "removed"); got != 1 {
+		t.Fatalf("expected the block 101 event to be removed after the rewind, got %d", got)
+	}
+
+	// The fork that was rewound comes back, which is what a false-positive rewind
+	// or a flapping RPC node looks like. The same block hash and log index are
+	// committed again and the occurrence must return to canonical.
+	if _, err := repo.CommitRange(ctx, testRangeCommit(contractID, 101, 101, []Event{execute})); err != nil {
+		t.Fatalf("rescan the restored fork: %v", err)
+	}
+
+	if got := indexerTestCount(t, db, "contract_events", contractID); got != eventsBefore {
+		t.Errorf("the rescan must reuse the existing occurrence, event rows went from %d to %d", eventsBefore, got)
+	}
+	if got := indexerTestCountWhere(t, db, "contract_events", contractID, "removed"); got != 0 {
+		t.Errorf("expected every rescanned event to be canonical, got %d removed", got)
+	}
+	if got := indexerTestCount(t, db, "indexed_blocks", contractID); got != 2 {
+		t.Errorf("expected both canonical block rows, got %d", got)
+	}
+	if got := indexerTestTransactionState(t, db, contractID); !slices.Equal(got, stateBefore) {
+		t.Errorf("the rescan did not restore the projection state:\nbefore %v\nafter  %v", stateBefore, got)
+	}
+	if !indexerTestSingleBool(t, db, `
+		SELECT executed FROM multisig_transactions WHERE contract_id = $1 AND multisig_tx_index = 1
+	`, contractID) {
+		t.Error("expected the restored execution to be projected")
+	}
+
+	// A rebuild must derive the same state from the events that are canonical now.
+	if err := repo.RebuildProjections(ctx, contractID); err != nil {
+		t.Fatalf("rebuild after the rescan: %v", err)
+	}
+	if got := indexerTestTransactionState(t, db, contractID); !slices.Equal(got, stateBefore) {
+		t.Errorf("the rebuild did not reproduce the restored state:\nbefore %v\nafter  %v", stateBefore, got)
+	}
+}
+
+func TestPostgresIndexer_RescanAfterRewindToStartRestoresCanonicalEvents(t *testing.T) {
+	db, repo := setupPostgresIndexerTest(t)
+	ctx := t.Context()
+	startBlock := int64(300)
+	contractID := seedIndexerTestDeployment(t, db, indexerTestChainSepolia, "0x0000000000000000000000000000000000000171", startBlock)
+	if _, err := repo.EnsureCheckpoint(ctx, contractID); err != nil {
+		t.Fatalf("ensure checkpoint: %v", err)
+	}
+
+	valueWei := mustUint256(t, "9")
+	submit, err := NewSubmitTransactionEvent(contractID, testEventMetadata(300, hashFor(300, 1), 0, 0), indexerTestOwner, 1, "0x000000000000000000000000000000000000dead", valueWei, []byte{0x01})
+	if err != nil {
+		t.Fatalf("build submit event: %v", err)
+	}
+	confirm := testConfirmEvent(t, contractID, 300, hashFor(300, 1), 1)
+	execute := testOwnerEvent(t, contractID, EventExecuteTransaction, 301, hashFor(301, 1), 0, 1)
+	original := testRangeCommit(contractID, startBlock, 301, []Event{submit, confirm, execute})
+	if _, err := repo.CommitRange(ctx, original); err != nil {
+		t.Fatalf("commit range: %v", err)
+	}
+
+	eventsBefore := indexerTestCount(t, db, "contract_events", contractID)
+	stateBefore := indexerTestTransactionState(t, db, contractID)
+
+	if _, err := repo.RewindToStart(ctx, contractID); err != nil {
+		t.Fatalf("rewind to start: %v", err)
+	}
+	if got := indexerTestCountWhere(t, db, "contract_events", contractID, "removed"); got != eventsBefore {
+		t.Fatalf("expected every event to be removed after the rewind, got %d of %d", got, eventsBefore)
+	}
+
+	// Rescan the original range with the original hashes and log indexes.
+	if _, err := repo.CommitRange(ctx, original); err != nil {
+		t.Fatalf("rescan the original range: %v", err)
+	}
+
+	if got := indexerTestCount(t, db, "contract_events", contractID); got != eventsBefore {
+		t.Errorf("the rescan must reuse the existing occurrences, event rows went from %d to %d", eventsBefore, got)
+	}
+	if got := indexerTestCountWhere(t, db, "contract_events", contractID, "removed"); got != 0 {
+		t.Errorf("expected every rescanned event to be canonical, got %d removed", got)
+	}
+	if got := indexerTestCount(t, db, "indexed_blocks", contractID); got != 2 {
+		t.Errorf("expected both canonical block rows to be restored, got %d", got)
+	}
+	checkpoint, err := repo.GetCheckpoint(ctx, contractID)
+	if err != nil {
+		t.Fatalf("read checkpoint after the rescan: %v", err)
+	}
+	if checkpoint.NextBlock != 302 {
+		t.Errorf("expected the rescan to advance to 302, got %d", checkpoint.NextBlock)
+	}
+	if got := indexerTestTransactionState(t, db, contractID); !slices.Equal(got, stateBefore) {
+		t.Errorf("the rescan did not restore the projection state:\nbefore %v\nafter  %v", stateBefore, got)
+	}
+
+	if err := repo.RebuildProjections(ctx, contractID); err != nil {
+		t.Fatalf("rebuild after the rescan: %v", err)
+	}
+	if got := indexerTestTransactionState(t, db, contractID); !slices.Equal(got, stateBefore) {
+		t.Errorf("the rebuild did not reproduce the restored state:\nbefore %v\nafter  %v", stateBefore, got)
+	}
+}
+
 func TestPostgresIndexer_RebuildProjectionsIsDeterministic(t *testing.T) {
 	db, repo := setupPostgresIndexerTest(t)
 	ctx := t.Context()

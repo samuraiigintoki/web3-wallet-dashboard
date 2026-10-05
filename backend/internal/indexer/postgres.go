@@ -423,6 +423,11 @@ func insertBlockHeaders(ctx context.Context, tx *sql.Tx, commit RangeCommit) err
 }
 
 func insertEvents(ctx context.Context, tx *sql.Tx, commit RangeCommit) error {
+	// A conflict on the occurrence key means the same block hash and log index are
+	// canonical again. insertBlockHeaders rejects a stored hash that differs from
+	// the committed header, so this can only be the same occurrence returning to
+	// the canonical chain after a rewind: restore it instead of leaving it marked
+	// removed, which would hide it from readers and drop it from the next rebuild.
 	const insert = `
 		INSERT INTO contract_events (
 			contract_id, event_name, block_number, block_hash, transaction_hash,
@@ -430,7 +435,7 @@ func insertEvents(ctx context.Context, tx *sql.Tx, commit RangeCommit) error {
 			removed, observed_at
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8::text, ''), NULLIF($9::text, '')::numeric, $10::jsonb, FALSE, NOW())
-		ON CONFLICT (contract_id, block_hash, log_index) DO NOTHING
+		ON CONFLICT (contract_id, block_hash, log_index) DO UPDATE SET removed = FALSE
 	`
 
 	for _, event := range commit.Events {
