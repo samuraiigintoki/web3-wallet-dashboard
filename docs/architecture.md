@@ -2,7 +2,7 @@
 
 ## Status
 
-This document describes the target architecture of the Web3 Wallet Dashboard. The Go backend currently implements bearer-token authentication, wallet CRUD, supported-chain metadata, tracked-contract CRUD, a read-only EVM client in `backend/internal/evm`, and the indexer persistence layer in `backend/internal/indexer` with migration `0008`. The EVM client is not yet wired into an application service or API route, and the scanner, log retrieval and API exposure remain planned; diagrams and flows below describe the target architecture unless marked as implemented.
+This document describes the target architecture of the Web3 Wallet Dashboard. The Go backend currently implements bearer-token authentication, wallet CRUD, supported-chain metadata, tracked-contract CRUD, a read-only EVM client in `backend/internal/evm`, and the contract indexer in `backend/internal/indexer`: the persistence layer from migration `0008` and the scanner that advances its checkpoints, wired into the API process behind an optional `EVM_RPC_URL`. Retry, reorganization recovery and HTTP exposure of indexed data remain planned, so diagrams and flows below describe the target architecture unless marked as implemented.
 
 ## Architectural objective
 
@@ -183,23 +183,24 @@ Implemented in `backend/internal/evm`:
 
 `MultiSigReader` uses go-ethereum's ABI codec inside the package. Its consumer-side `ChainReader` seam carries plain Go values and byte slices. Transaction and confirmation reads capture one block and use it for every related call. `Client.TransactionReceipt` maps an unavailable receipt to `ErrReceiptNotFound`; that error does not distinguish a pending transaction from an unknown hash. `Client.EstimateGas` validates and copies its inputs before the reader call. `Client.BlockHeader` and `Client.BlockHeaders` read block identity, the batched form issuing one JSON-RPC batch call and returning headers in request order. `Client.FilterLogs` reads the decoded-input logs for one contract over an inclusive block range and the four supported event topics, returning the plain-Go `RawLog` the event decoder consumes. A missing block maps to `ErrBlockNotFound`, and a returned log outside the requested range or from another emitter is rejected rather than stored. Every read takes the caller's context, makes one attempt, and does not retry, time out or subscribe.
 
-Still planned are application-service and API wiring, indexing execution against these reads, and implementation of the reliability policy below. Event decoding and log retrieval are implemented in `internal/evm`. The client does not hold user private keys and is not responsible for signing browser-user transactions.
+The indexer's scanner consumes these reads through its own `ChainReader` seam. Still planned are the reliability policy below, which retry and reorganization recovery implement, and HTTP exposure of indexed data. Event decoding and log retrieval are implemented in `internal/evm`. The client does not hold user private keys and is not responsible for signing browser-user transactions.
 
 ### Background event indexer
 
-Responsibilities:
+Implemented in `backend/internal/indexer` for the scan path. The job runs as a periodic worker inside the API process and:
 
-- Discover tracked contracts and their indexing start points.
-- Load the stored checkpoint.
-- Query bounded block ranges.
-- Filter and decode supported contract events.
-- Persist events idempotently.
-- Derive normalized multisig transaction and confirmation data where appropriate.
-- Advance checkpoint state only after event persistence succeeds.
-- Retry transient RPC failures with bounded backoff.
-- Stop cleanly when the application is shutting down.
+- Reads the watch set from `contracts` rows that are enabled for indexing, together with the chain each deployment belongs to.
+- Loads the stored checkpoint for one deployment at a time and scans a bounded range of at most 100 blocks.
+- Derives a safe head of `latest - 11`, which is 12 confirmations including the head block, and never scans past it.
+- Filters and decodes the four supported `MultiSigWallet` events.
+- Persists events idempotently through the repository, which derives normalized multisig transactions and confirmations in the same transaction.
+- Advances checkpoint state only after event persistence succeeds.
+- Resumes from the last committed checkpoint after a restart.
+- Stops cleanly when the application is shutting down.
 
-The initial indexer is a Go background component. It may later run as a separate process using the same internal packages, but a message queue is not required for the initial version.
+Retry of transient RPC failures and reorganization correction are not implemented. Those belong to the reliability policy in Failure handling and are the next indexer block.
+
+The indexer is a Go background component. It may later run as a separate process using the same internal packages, but a message queue is not required for the initial version.
 
 ### PostgreSQL
 
@@ -414,8 +415,10 @@ The future indexer must compare stored block hashes with canonical block hashes,
 - Process bounded ranges to avoid oversized RPC requests.
 - Persist events and checkpoint changes atomically.
 - Make insertion idempotent.
-- Log chain, contract, block range, and error context.
+- Log contract, block range, event count, status and safe head, and sanitize the error text stored on a checkpoint.
 - Resume from the last successful checkpoint after restart.
+
+The scanner implements these obligations with one range per run, rotating over the eligible deployments so a busy one cannot starve the others. Every returned log is checked against the fetched block headers before decoding: a log whose block hash disagrees with the header, whose block has no header in the range, or that the endpoint marks removed fails the range instead of being stored. A failed range writes the `error` status and its message to the checkpoint and leaves the checkpoint's next block untouched, so the next tick retries the same range. The status write is detached from the run context, which lets a shutdown or an expiring run still record why it failed. The scanner is single-attempt and sequential: it has no retry, no backoff inside a run, and no per-contract goroutines, so concurrent ranges cannot overlap.
 
 ## Deployment shape
 
@@ -442,7 +445,7 @@ Locally and on a single host the shape is three Compose services built from one 
 
 - `postgres`, the `postgres:16-alpine` service that already backs local development.
 - `migrate`, a one-shot service from the backend image with the command overridden to `migrate up`. It waits for PostgreSQL to report healthy and exits once the schema is current.
-- `api`, the same image with the default command, publishing port 8080. It waits for `migrate` to exit successfully, so the API never serves against a schema that has not been brought up to date.
+- `api`, the same image with the default command, publishing port 8080. It waits for `migrate` to exit successfully, so the API never serves against a schema that has not been brought up to date. Its environment forwards `DATABASE_URL` and `LOG_LEVEL`, plus `EVM_RPC_URL` with an empty default: unsetting the variable is how indexing is left off in a local run, and the value is passed as runtime environment rather than a build argument so it is never baked into an image layer.
 
 The image is a two-stage build at the repository root. `golang:1.26-alpine` compiles `./cmd/api` and `./cmd/migrate` with `CGO_ENABLED=0`, and `alpine:3.20` carries the two binaries as a non-root user, the same Alpine family as the PostgreSQL service. The default command is the API and the migration service overrides only that command, so both entry points ship in one image rather than two Dockerfiles.
 
@@ -469,10 +472,10 @@ These decisions may later receive individual Architecture Decision Records in `d
 ## Known limitations
 
 - Readiness covers PostgreSQL connectivity only; EVM RPC availability and domain-state checks are intentionally excluded.
-- The indexer tables (`indexed_blocks`, `contract_events`, `multisig_transactions`, `transaction_confirmations`, `indexer_checkpoints`) exist in migration `0008` with the repository in `backend/internal/indexer`; the scanner, log retrieval, retry execution and API exposure are not implemented yet.
-- The RPC target is Sepolia and the provider is Alchemy. Provider availability and rate limits remain external dependencies; retry and reorganization policies are not implemented by this client.
+- The indexer tables (`indexed_blocks`, `contract_events`, `multisig_transactions`, `transaction_confirmations`, `indexer_checkpoints`) exist in migration `0008` with the repository in `backend/internal/indexer`. The scanner that fills them is implemented and runs inside the API process; retry, reorganization correction and API exposure of indexed data are not implemented yet.
+- The RPC target is Sepolia and the provider is Alchemy. Provider availability and rate limits remain external dependencies; retry and reorganization policies are implemented neither by this client nor by the scanner.
 - Contract event coverage must be checked against the existing ABI.
-- Reorganization detection and correction are not implemented yet; the future indexer must enforce the hash-comparison and rescan policy above.
+- Reorganization detection and correction are not implemented yet. The scanner verifies each log against the header of its block within the range it scans, but the hash-comparison and rescan policy above is still owed by the next indexer block.
 - Indexed dashboard data may lag direct chain state.
 - Optional WebSocket behavior is not defined and is not required for the first working version.
 
@@ -515,8 +518,8 @@ Revisit trigger: re-run this benchmark when typical per-user wallet counts regul
 1. (Resolved for B3) Bearer-token authentication, not session cookies. See docs/auth.md.
 2. (Resolved) The target EVM testnet is Sepolia, chain ID `11155111`, and the RPC provider is Alchemy.
 3. Exact contract events and any required contract updates.
-4. (Resolved) A reversible 12-confirmation heuristic and canonical-hash comparison with rewind/rescan; see Failure handling. Indexer implementation remains planned.
-5. Whether readiness should include EVM RPC connectivity.
+4. (Resolved) A reversible 12-confirmation heuristic and canonical-hash comparison with rewind/rescan; see Failure handling. The scanner applies the confirmation window as a safe head and checks log block hashes; rewind and rescan remain planned.
+5. (Resolved for B3) Readiness does not include EVM RPC connectivity. Indexing is optional, an unset `EVM_RPC_URL` disables it, and a set one is verified once at startup, so `/health/ready` keeps reporting database connectivity only.
 6. Whether the API exposes normalized contract reads in addition to direct frontend reads.
 7. Whether optional real-time updates use WebSocket or server-sent events.
 8. Whether the indexer remains in the API process or uses a separate executable at deployment time.
@@ -551,6 +554,16 @@ The first job is the session purge. `ValidateSession` rejects an expired session
 
 State is per process. Two API instances would each run their own worker over the same table; the delete is idempotent, so the second one simply removes fewer rows. A job that needs coordination across replicas is not solved here.
 
+## Contract indexer
+
+The other periodic job is the contract scanner in `internal/indexer`, described in Component responsibilities. It starts before the purge worker starts and stops before it, so a failed endpoint verification leaves no worker running. It runs on a fifteen second interval, which sits well inside the worker's ten second run timeout, so a run that overruns is reported as a failed range instead of delaying the next tick. It uses the same start, drain and stop seam as the purge worker: it starts before the server accepts traffic and stops after the HTTP drain, while the pool is still open.
+
+Configuration is one variable. `EVM_RPC_URL` is optional. Unset, the API serves every other feature and logs a single startup warning naming contract indexing as disabled: there is no indexer, and no chain request is ever made. Set, the process dials the endpoint and requires it to serve Sepolia, chain ID `11155111`, before the server accepts traffic. An unreachable endpoint and a served chain ID that does not match are both startup failures, handled exactly like an unreachable `DATABASE_URL`, and the transport is closed before the run function returns an error. The URL is used to dial and to redact itself out of failure messages; it is never logged, stored in a row, or supplied as a build argument.
+
+Readiness is deliberately unaffected. `/health/ready` reports database connectivity only, because indexing is optional and a slow or unavailable RPC provider must not take an otherwise healthy API out of rotation.
+
+Startup resets checkpoints left in `running` by a previous process. That state means the process stopped in the middle of a range, so the commit that would have advanced the checkpoint never happened and the range is simply scanned again.
+
 ## Request observability
 
 The API constructs a JSON logger with `log/slog` and injects it through the server and router. `LOG_LEVEL` accepts `debug`, `info`, `warn`, or `error`; an empty value defaults to `info`, and an invalid value prevents startup.
@@ -573,6 +586,6 @@ The package consumes a consumer-side `ChainReader` interface with `ChainID`, `Bl
 
 `Client.EstimateGas` takes `From`, `To`, `ValueWei`, and calldata, validates addresses and the uint256 value, and returns gas units rather than a fee estimate. It is a simulation only. The client never signs or broadcasts transactions. The reliability policy is documented in Failure handling. Retry execution and reorganization correction remain future indexer responsibilities; this client stays single-attempt.
 
-`EventDecoder` accepts a plain-Go `RawLog` and decodes the four existing `MultiSigWallet` events using a minimal ABI. It verifies the configured emitter, normalizes addresses and hashes, preserves submit values as `*big.Int`, checks the multisig transaction index fits `uint64`, and copies event data. A zero destination is retained. `Removed` is preserved as metadata but is not interpreted. Unsupported `topic0` values and malformed logs have distinct errors. The decoder does not retrieve or subscribe to logs; Week 6 owns log retrieval and indexing.
+`EventDecoder` accepts a plain-Go `RawLog` and decodes the four existing `MultiSigWallet` events using a minimal ABI. It verifies the configured emitter, normalizes addresses and hashes, preserves submit values as `*big.Int`, checks the multisig transaction index fits `uint64`, and copies event data. A zero destination is retained. `Removed` is preserved as metadata but is not interpreted. Unsupported `topic0` values and malformed logs have distinct errors. The decoder does not retrieve or subscribe to logs; log retrieval lives in the same package and the scanner consumes it.
 
-Configuration: the package accepts an RPC URL as a constructor argument and never reads the environment. Live integration tests use the existing `EVM_RPC_URL` gate and the protected Sepolia endpoint. Every read takes the caller's `context.Context`; no package-level default timeout exists. Call `Client.Close()` when finished to release the transport opened by `New`. No application service or HTTP route consumes this package yet. Log retrieval and indexing remain planned for Week 6.
+Configuration: the package accepts an RPC URL as a constructor argument and never reads the environment. Live integration tests use the existing `EVM_RPC_URL` gate and the protected Sepolia endpoint. Every read takes the caller's `context.Context`; no package-level default timeout exists. Call `Client.Close()` when finished to release the transport opened by `New`. The indexer's scanner consumes this package through its own `ChainReader` seam, and the API process closes the transport when the scanner stops. No HTTP route exposes EVM reads yet.

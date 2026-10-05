@@ -14,6 +14,7 @@ import (
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/chain"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/contract"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/httpapi"
+	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/indexer"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/user"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/worker"
@@ -99,8 +100,15 @@ func run(ctx context.Context, logger *slog.Logger) (runErr error) {
 		MaxHeaderBytes:    maxHeaderBytes,
 	}
 
-	// The purge worker starts before the server accepts traffic and stops after
-	// the HTTP drain, while the pool is still open.
+	// The indexer is optional, and a misconfigured endpoint fails startup here,
+	// before any worker runs and before the server serves its first request.
+	indexing, err := startIndexer(ctx, indexer.NewPostgresRepository(db), logger)
+	if err != nil {
+		return err
+	}
+
+	// The periodic workers start before the server accepts traffic and stop
+	// after the HTTP drain, while the pool is still open.
 	sessionPurge := worker.New(
 		sessionPurgeJob{userSvc: userSvc, logger: logger},
 		logger,
@@ -109,6 +117,12 @@ func run(ctx context.Context, logger *slog.Logger) (runErr error) {
 	sessionPurge.Start()
 
 	serveErr := serve(ctx, ln, srv, shutdownGracePeriod, logger)
+	if err := indexing.Stop(); err != nil {
+		logger.Error("indexer worker did not stop cleanly", "error", err)
+		if serveErr == nil {
+			serveErr = err
+		}
+	}
 	if err := sessionPurge.Stop(); err != nil {
 		logger.Error("session purge worker did not stop cleanly", "error", err)
 		if serveErr == nil {
