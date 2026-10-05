@@ -17,8 +17,9 @@ import (
 
 // ChainReader is the slice of the EVM client the scanner consumes. *evm.Client
 // satisfies it, and tests substitute a fake. Every method takes the caller's
-// context and makes one attempt: retry and reorganization recovery belong to
-// the scanner boundary that a later block adds, not to this seam.
+// context and makes one attempt, and a single attempt stays inside the client:
+// the scanner owns retry, and it repeats the whole range operation rather than
+// individual reads.
 type ChainReader interface {
 	BlockNumber(ctx context.Context) (uint64, error)
 	BlockHeaders(ctx context.Context, blockNumbers []uint64) ([]evm.BlockHeader, error)
@@ -124,6 +125,13 @@ type Job struct {
 	// Restarting resumes from the first contract, which is harmless because a
 	// checkpoint is never processed twice.
 	cursor int
+
+	// Retry policy for one range operation. The fields are set from the package
+	// defaults and replaced by tests, which is how the backoff schedule is
+	// asserted without waiting on wall-clock delays.
+	attempts int
+	backoff  []time.Duration
+	wait     func(context.Context, time.Duration) error
 }
 
 // NewJob builds the scanner. The chain ID must be the chain the reader was
@@ -141,7 +149,16 @@ func NewJob(repo Repository, reader ChainReader, chainID int64, rpcURL string, l
 	if logger == nil {
 		return nil, errors.New("indexer: logger is required")
 	}
-	return &Job{repo: repo, reader: reader, chainID: chainID, rpcURL: rpcURL, logger: logger}, nil
+	return &Job{
+		repo:     repo,
+		reader:   reader,
+		chainID:  chainID,
+		rpcURL:   rpcURL,
+		logger:   logger,
+		attempts: retryAttempts,
+		backoff:  retryBackoff,
+		wait:     waitForRetry,
+	}, nil
 }
 
 // Run processes at most one range for one eligible contract and returns. The
@@ -224,39 +241,50 @@ func (j *Job) scanContract(ctx context.Context, target WatchTarget, safeHead int
 		return false, j.wrap(fmt.Errorf("mark contract %d running: %w", target.ContractID, err))
 	}
 
-	headers, logs, err := j.readRange(ctx, target, fromBlock, toBlock)
-	if err != nil {
-		return false, j.failRange(ctx, target.ContractID, err)
-	}
-	blocks, err := blockHeadersFromEVM(headers)
-	if err != nil {
-		return false, j.failRange(ctx, target.ContractID, err)
-	}
-	events, err := decodeRange(target.ContractID, target.Address, blocks, logs)
-	if err != nil {
-		return false, j.failRange(ctx, target.ContractID, err)
-	}
-
 	status := StatusPending
 	if toBlock == safeHead {
 		status = StatusIdle
 	}
-	_, err = j.repo.CommitRange(ctx, RangeCommit{
+	commit := RangeCommit{
 		ContractID: target.ContractID,
 		FromBlock:  fromBlock,
 		ToBlock:    toBlock,
-		Blocks:     blocks,
-		Events:     events,
 		Status:     status,
+	}
+
+	// One attempt is the whole range: read, verify, decode and commit. A
+	// transient failure repeats all of it, so the job never resumes from a
+	// partially successful attempt, and nothing is written between attempts:
+	// the status above was recorded once, before the first one. Repeating the
+	// commit is safe because the repository applies a range idempotently.
+	err = j.runWithRetry(ctx, target.ContractID, func(ctx context.Context) error {
+		headers, logs, err := j.readRange(ctx, target, fromBlock, toBlock)
+		if err != nil {
+			return err
+		}
+		blocks, err := blockHeadersFromEVM(headers)
+		if err != nil {
+			return err
+		}
+		events, err := decodeRange(target.ContractID, target.Address, blocks, logs)
+		if err != nil {
+			return err
+		}
+
+		commit.Blocks = blocks
+		commit.Events = events
+		if _, err := j.repo.CommitRange(ctx, commit); err != nil {
+			return fmt.Errorf("commit range %d..%d: %w", fromBlock, toBlock, err)
+		}
+		return nil
 	})
 	if err != nil {
-		return false, j.failRange(ctx, target.ContractID,
-			fmt.Errorf("commit range %d..%d: %w", fromBlock, toBlock, err))
+		return false, j.failRange(ctx, target.ContractID, err)
 	}
 
 	j.logger.Info("indexer range committed",
 		"contractId", target.ContractID, "fromBlock", fromBlock, "toBlock", toBlock,
-		"events", len(events), "status", status, "safeHead", safeHead)
+		"events", len(commit.Events), "status", status, "safeHead", safeHead)
 	return true, nil
 }
 
