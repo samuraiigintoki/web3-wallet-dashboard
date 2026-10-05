@@ -143,6 +143,55 @@ func (r *PostgresRepository) ResetRunningCheckpoints(ctx context.Context) (int64
 	return reset, nil
 }
 
+// maxIndexedBlockWindow caps one ListIndexedBlocks read. It mirrors the scanner
+// range cap and the EVM client's header batch cap, so one window is one stored
+// read and one batched header read.
+const maxIndexedBlockWindow int64 = 100
+
+// ListIndexedBlocks reads stored canonical block rows for one contract over an
+// inclusive window, newest first. It writes nothing and is the only read the
+// reorganization walk needs.
+func (r *PostgresRepository) ListIndexedBlocks(ctx context.Context, contractID int64, fromBlock, toBlock int64) ([]BlockHeader, error) {
+	if contractID <= 0 {
+		return nil, ValidationError{Field: "contractId", Message: "must be positive"}
+	}
+	if fromBlock < 0 {
+		return nil, ValidationError{Field: "fromBlock", Message: "must not be negative"}
+	}
+	if fromBlock > toBlock {
+		return nil, ValidationError{Field: "toBlock", Message: fmt.Sprintf("must not be below fromBlock %d, got %d", fromBlock, toBlock)}
+	}
+	if window := toBlock - fromBlock + 1; window > maxIndexedBlockWindow {
+		return nil, ValidationError{Field: "toBlock", Message: fmt.Sprintf("window of %d blocks exceeds %d", window, maxIndexedBlockWindow)}
+	}
+
+	const query = `
+		SELECT block_number, block_hash, parent_hash
+		FROM indexed_blocks
+		WHERE contract_id = $1 AND block_number BETWEEN $2 AND $3
+		ORDER BY block_number DESC
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, contractID, fromBlock, toBlock)
+	if err != nil {
+		return nil, fmt.Errorf("list indexed blocks: %w", err)
+	}
+	defer rows.Close()
+
+	headers := make([]BlockHeader, 0, toBlock-fromBlock+1)
+	for rows.Next() {
+		var header BlockHeader
+		if err := rows.Scan(&header.BlockNumber, &header.BlockHash, &header.ParentHash); err != nil {
+			return nil, fmt.Errorf("scan indexed block: %w", err)
+		}
+		headers = append(headers, header)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list indexed blocks: %w", err)
+	}
+	return headers, nil
+}
+
 // CommitRange applies one inclusive range in a single transaction. Repeating a
 // commit is idempotent because block rows and event rows use conflict-safe
 // inserts and projections are declarative upserts.

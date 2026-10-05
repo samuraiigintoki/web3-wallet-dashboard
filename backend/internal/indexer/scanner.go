@@ -34,8 +34,9 @@ const (
 
 	// safeHeadConfirmations is the reversible confirmation heuristic: 12
 	// confirmations including the head block itself. It is not protocol
-	// finality, and a reorganization deeper than this window is corrected by the
-	// recovery work that follows this block.
+	// finality, and it is not the reorg boundary: the stored tip is compared
+	// with the canonical header on every run, so a mismatch deeper than this
+	// window is still corrected.
 	safeHeadConfirmations uint64 = 12
 
 	// statusWriteTimeout bounds the status write issued after a failed range.
@@ -211,12 +212,22 @@ func (j *Job) Run(ctx context.Context) error {
 	return nil
 }
 
-// scanContract refreshes one checkpoint and, when the contract is behind the
-// safe head, processes one range. It reports whether a range was committed.
+// scanContract refreshes one checkpoint, corrects the stored chain state when
+// the chain has moved under it, and then processes one range. It reports whether
+// a range was committed.
 func (j *Job) scanContract(ctx context.Context, target WatchTarget, safeHead int64) (bool, error) {
 	checkpoint, err := j.repo.EnsureCheckpoint(ctx, target.ContractID)
 	if err != nil {
 		return false, j.wrap(fmt.Errorf("ensure checkpoint for contract %d: %w", target.ContractID, err))
+	}
+
+	// A stored tip the chain no longer has is corrected before anything else,
+	// including before a checkpoint that looks caught up is left alone: the
+	// stored state above the fork is what a later commit would otherwise build
+	// on.
+	checkpoint, err = j.correctChainState(ctx, target, checkpoint)
+	if err != nil {
+		return false, j.failRange(ctx, target.ContractID, err)
 	}
 
 	if checkpoint.NextBlock > safeHead {

@@ -2,7 +2,7 @@
 
 ## Status
 
-This document describes the target architecture of the Web3 Wallet Dashboard. The Go backend currently implements bearer-token authentication, wallet CRUD, supported-chain metadata, tracked-contract CRUD, a read-only EVM client in `backend/internal/evm`, and the contract indexer in `backend/internal/indexer`: the persistence layer from migration `0008` and the scanner that advances its checkpoints, wired into the API process behind an optional `EVM_RPC_URL`. Retry, reorganization recovery and HTTP exposure of indexed data remain planned, so diagrams and flows below describe the target architecture unless marked as implemented.
+This document describes the target architecture of the Web3 Wallet Dashboard. The Go backend currently implements bearer-token authentication, wallet CRUD, supported-chain metadata, tracked-contract CRUD, a read-only EVM client in `backend/internal/evm`, and the contract indexer in `backend/internal/indexer`: the persistence layer from migration `0008` and the scanner that advances its checkpoints, wired into the API process behind an optional `EVM_RPC_URL`. The scanner retries classified transport failures and corrects a reorganized chain by comparing stored block hashes with canonical ones. HTTP exposure of indexed data remains planned, so diagrams and flows below describe the target architecture unless marked as implemented.
 
 ## Architectural objective
 
@@ -195,10 +195,12 @@ Implemented in `backend/internal/indexer` for the scan path. The job runs as a p
 - Filters and decodes the four supported `MultiSigWallet` events.
 - Persists events idempotently through the repository, which derives normalized multisig transactions and confirmations in the same transaction.
 - Advances checkpoint state only after event persistence succeeds.
+- Retries one range operation after a classified transient transport failure, at most twice more.
+- Compares the stored last indexed block with the canonical header on every rotation turn and rewinds to the common ancestor when the chain has moved.
 - Resumes from the last committed checkpoint after a restart.
 - Stops cleanly when the application is shutting down.
 
-Retry of transient RPC failures and reorganization correction are not implemented. Those belong to the reliability policy in Failure handling and are the next indexer block.
+`safe` or `finalized` block tags are not used, and the confirmation window is not treated as finality.
 
 The indexer is a Go background component. It may later run as a separate process using the same internal packages, but a message queue is not required for the initial version.
 
@@ -398,9 +400,9 @@ The watch set is global: `contracts` rows with `indexing_enabled = TRUE` on the 
 
 `internal/evm.Client` remains single-attempt. Callers supply contexts and own deadlines; the client adds no hidden timeout or automatic retry. Wrapped cancellation and deadline errors remain discoverable through `errors.Is(err, context.Canceled)` and `errors.Is(err, context.DeadlineExceeded)`.
 
-The future indexer may retry only clearly classified transient transport failures, with at most 3 attempts total: the initial attempt, a retry after 100 ms, and a final retry after 200 ms. Caller cancellation or deadline expiry stops both calls and backoff waits. Unknown failures are not presumed transient. Validation, wrong-chain, ABI/decode, EVM revert, unknown JSON-RPC, and context errors must not be retried. `ErrReceiptNotFound` means no receipt was available at that query; it is not an automatic retry signal.
+The indexer retries only clearly classified transient transport failures, with at most 3 attempts total: the initial attempt, a retry after 100 ms, and a final retry after 200 ms. Caller cancellation or deadline expiry stops both calls and backoff waits. Unknown failures are not presumed transient. Validation, wrong-chain, ABI/decode, EVM revert, unknown JSON-RPC, and context errors are not retried. `ErrReceiptNotFound` means no receipt was available at that query; it is not an automatic retry signal.
 
-A retry repeats the whole logical read, including a fresh snapshot block lookup and every related call. Retrying only a failed internal step of a multi-call snapshot is not allowed. Classification and retry execution belong to the future indexer, not this client. No signing or transaction submission is introduced.
+A retry repeats the whole logical read, including a fresh snapshot block lookup and every related call. Retrying only a failed internal step of a multi-call snapshot is not allowed. Classification and retry execution live in the scanner, not in this client, which stays single-attempt. No signing or transaction submission is introduced.
 
 ### Receipt confirmations and reorganizations
 
@@ -408,7 +410,7 @@ When `latestBlockNumber >= receipt.BlockNumber`, count confirmations as `latestB
 
 At 12 or more confirmations, the application may treat a receipt as safe for ordinary display or indexing progress. This is a reversible project heuristic, not protocol finality or a guarantee against reorganization. A receipt can vanish or reappear in a different block, so recorded state must remain correctable.
 
-The future indexer must compare stored block hashes with canonical block hashes, rewind to the first divergence, and rescan. It must not rely only on `RawLog.Removed`, which is preserved as metadata rather than interpreted by the decoder. Reorganization detection, rewind/rescan execution, and `safe` or `finalized` block-tag support are not implemented here.
+The scanner compares the stored last indexed block hash with the canonical header for the same height before it scans, and does not rely on `RawLog.Removed`, which stays metadata. On a mismatch it walks stored `indexed_blocks` rows down in bounded windows to the highest block whose stored hash still matches, rewinds to that ancestor through the repository, and rescans from `ancestor + 1`. When no stored row matches, it rewinds to the contract's stored start block and rescans inclusively from there. Detection, rewind and rescan are implemented; `safe` or `finalized` block-tag support is not.
 
 ### Indexer
 
@@ -418,7 +420,11 @@ The future indexer must compare stored block hashes with canonical block hashes,
 - Log contract, block range, event count, status and safe head, and sanitize the error text stored on a checkpoint.
 - Resume from the last successful checkpoint after restart.
 
-The scanner implements these obligations with one range per run, rotating over the eligible deployments so a busy one cannot starve the others. Every returned log is checked against the fetched block headers before decoding: a log whose block hash disagrees with the header, whose block has no header in the range, or that the endpoint marks removed fails the range instead of being stored. A failed range writes the `error` status and its message to the checkpoint and leaves the checkpoint's next block untouched, so the next tick retries the same range. The status write is detached from the run context, which lets a shutdown or an expiring run still record why it failed. The scanner is single-attempt and sequential: it has no retry, no backoff inside a run, and no per-contract goroutines, so concurrent ranges cannot overlap.
+The scanner implements these obligations with one range per run, rotating over the eligible deployments so a busy one cannot starve the others. Every returned log is checked against the fetched block headers before decoding: a log whose block hash disagrees with the header, whose block has no header in the range, or that the endpoint marks removed fails the range instead of being stored. A failed range writes the `error` status and its message to the checkpoint and leaves the checkpoint's next block untouched, so the next tick retries the same range. The status write is detached from the run context, which lets a shutdown or an expiring run still record why it failed. The scanner is sequential: no per-contract goroutines, so concurrent ranges cannot overlap, and the only retries are the bounded ones described above.
+
+Retry covers one whole range operation: the header batch, the log read, decoding and the commit. Nothing else in a run is retried, no status or commit happens between attempts, and the operation is repeated from the start rather than resumed. Classification, the backoff schedule and the attempt count are documented in the reliability policy above. The commit stays inside the retried operation because the repository applies a range idempotently, so a repeated commit of the same range neither duplicates rows nor moves the checkpoint twice.
+
+Reorganization recovery runs when a contract takes its rotation turn, before the range decision, so a checkpoint that looks caught up is corrected too. The stored last indexed block hash is compared with the canonical header for that height; a mismatch starts a walk over stored block rows in windows of at most 100 blocks, each window read in one stored read and one batched header read. The highest block whose stored hash still matches is the common ancestor and becomes the rewind target through `RewindToAncestor`, which marks later events removed, deletes their canonical block rows, rebuilds projections and leaves the checkpoint at `ancestor + 1`. When no stored row matches, `RewindToStart` clears the contract's indexed state and leaves the checkpoint at the stored start block. Both rewinds commit in one transaction, so no reader sees removed events beside projections that still count them. A rewind is logged at warn with the depth, and the same tick continues scanning from the corrected checkpoint when a range is still due.
 
 ## Deployment shape
 
@@ -472,10 +478,10 @@ These decisions may later receive individual Architecture Decision Records in `d
 ## Known limitations
 
 - Readiness covers PostgreSQL connectivity only; EVM RPC availability and domain-state checks are intentionally excluded.
-- The indexer tables (`indexed_blocks`, `contract_events`, `multisig_transactions`, `transaction_confirmations`, `indexer_checkpoints`) exist in migration `0008` with the repository in `backend/internal/indexer`. The scanner that fills them is implemented and runs inside the API process; retry, reorganization correction and API exposure of indexed data are not implemented yet.
-- The RPC target is Sepolia and the provider is Alchemy. Provider availability and rate limits remain external dependencies; retry and reorganization policies are implemented neither by this client nor by the scanner.
+- The indexer tables (`indexed_blocks`, `contract_events`, `multisig_transactions`, `transaction_confirmations`, `indexer_checkpoints`) exist in migration `0008` with the repository in `backend/internal/indexer`. The scanner that fills them is implemented, retries classified transport failures and corrects reorganizations; API exposure of indexed data is not implemented yet.
+- The RPC target is Sepolia and the provider is Alchemy. Provider availability and rate limits remain external dependencies. The client stays single-attempt and the scanner's retry is bounded to three attempts per range operation, so a provider outage delays indexing rather than being absorbed.
 - Contract event coverage must be checked against the existing ABI.
-- Reorganization detection and correction are not implemented yet. The scanner verifies each log against the header of its block within the range it scans, but the hash-comparison and rescan policy above is still owed by the next indexer block.
+- Reorganization detection and correction are implemented for any depth stored in `indexed_blocks`; `safe` and `finalized` block tags are not used, and error classification recognizes a fixed set of transport failures, so an unfamiliar provider failure is treated as permanent and surfaces as an `error` checkpoint until the next tick.
 - Indexed dashboard data may lag direct chain state.
 - Optional WebSocket behavior is not defined and is not required for the first working version.
 
@@ -518,7 +524,7 @@ Revisit trigger: re-run this benchmark when typical per-user wallet counts regul
 1. (Resolved for B3) Bearer-token authentication, not session cookies. See docs/auth.md.
 2. (Resolved) The target EVM testnet is Sepolia, chain ID `11155111`, and the RPC provider is Alchemy.
 3. Exact contract events and any required contract updates.
-4. (Resolved) A reversible 12-confirmation heuristic and canonical-hash comparison with rewind/rescan; see Failure handling. The scanner applies the confirmation window as a safe head and checks log block hashes; rewind and rescan remain planned.
+4. (Resolved) A reversible 12-confirmation heuristic and canonical-hash comparison with rewind/rescan; see Failure handling. The scanner applies the confirmation window as a safe head, compares the stored tip with the canonical header and rewinds to the common ancestor, or to the stored start block when nothing stored matches. `safe` and `finalized` block tags remain unimplemented.
 5. (Resolved for B3) Readiness does not include EVM RPC connectivity. Indexing is optional, an unset `EVM_RPC_URL` disables it, and a set one is verified once at startup, so `/health/ready` keeps reporting database connectivity only.
 6. Whether the API exposes normalized contract reads in addition to direct frontend reads.
 7. Whether optional real-time updates use WebSocket or server-sent events.
@@ -556,7 +562,7 @@ State is per process. Two API instances would each run their own worker over the
 
 ## Contract indexer
 
-The other periodic job is the contract scanner in `internal/indexer`, described in Component responsibilities. It starts before the purge worker starts and stops before it, so a failed endpoint verification leaves no worker running. It runs on a fifteen second interval, which sits well inside the worker's ten second run timeout, so a run that overruns is reported as a failed range instead of delaying the next tick. It uses the same start, drain and stop seam as the purge worker: it starts before the server accepts traffic and stops after the HTTP drain, while the pool is still open.
+The other periodic job is the contract scanner in `internal/indexer`, described in Component responsibilities. It runs on a fifteen second interval, which sits well inside the worker's ten second run timeout, so a run that overruns is reported as a failed range instead of delaying the next tick. Each range operation is retried at most twice after a classified transport failure, with a 100 ms then a 200 ms wait, and the stored last indexed block is compared with the canonical header on every rotation turn, so a reorganization is corrected by a rewind rather than built upon. It uses the same start, drain and stop seam as the purge worker: it starts before the server accepts traffic and stops after the HTTP drain, while the pool is still open. It starts before the purge worker starts and stops before it, so a failed endpoint verification leaves no worker running.
 
 Configuration is one variable. `EVM_RPC_URL` is optional. Unset, the API serves every other feature and logs a single startup warning naming contract indexing as disabled: there is no indexer, and no chain request is ever made. Set, the process dials the endpoint and requires it to serve Sepolia, chain ID `11155111`, before the server accepts traffic. An unreachable endpoint and a served chain ID that does not match are both startup failures, handled exactly like an unreachable `DATABASE_URL`, and the transport is closed before the run function returns an error. The URL is used to dial and to redact itself out of failure messages; it is never logged, stored in a row, or supplied as a build argument.
 
