@@ -41,6 +41,11 @@ services:
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-wallet}:${POSTGRES_PASSWORD:-wallet}@postgres:5432/${POSTGRES_DB:-wallet}?sslmode=disable
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Optional contract indexing. Empty leaves it off: the API serves every
+      # other feature and logs one warning. Set it to a Sepolia endpoint to run
+      # the indexer. The value is runtime environment only, never a build
+      # argument.
+      EVM_RPC_URL: ${EVM_RPC_URL:-}
     ports:
       - "8080:8080"
     depends_on:
