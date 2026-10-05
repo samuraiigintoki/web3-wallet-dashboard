@@ -28,7 +28,10 @@ import (
 type ChainReader interface {
 	ChainID(ctx context.Context) (uint64, error)
 	BlockNumber(ctx context.Context) (uint64, error)
+	BlockHeader(ctx context.Context, blockNumber uint64) (BlockHeader, error)
+	BlockHeaders(ctx context.Context, blockNumbers []uint64) ([]BlockHeader, error)
 	CallContract(ctx context.Context, contractAddress string, callData []byte, blockNumber uint64) ([]byte, error)
+	FilterLogs(ctx context.Context, filter LogFilter) ([]RawLog, error)
 	TransactionReceipt(ctx context.Context, txHash string) (Receipt, error)
 	EstimateGas(ctx context.Context, request GasEstimateRequest) (uint64, error)
 }

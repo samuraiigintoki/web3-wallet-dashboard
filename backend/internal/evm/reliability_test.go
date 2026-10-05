@@ -31,7 +31,16 @@ func (r *reliabilityReader) fail(ctx context.Context) error {
 }
 func (r *reliabilityReader) ChainID(ctx context.Context) (uint64, error)     { return 0, r.fail(ctx) }
 func (r *reliabilityReader) BlockNumber(ctx context.Context) (uint64, error) { return 0, r.fail(ctx) }
+func (r *reliabilityReader) BlockHeader(ctx context.Context, _ uint64) (BlockHeader, error) {
+	return BlockHeader{}, r.fail(ctx)
+}
+func (r *reliabilityReader) BlockHeaders(ctx context.Context, _ []uint64) ([]BlockHeader, error) {
+	return nil, r.fail(ctx)
+}
 func (r *reliabilityReader) CallContract(ctx context.Context, _ string, _ []byte, _ uint64) ([]byte, error) {
+	return nil, r.fail(ctx)
+}
+func (r *reliabilityReader) FilterLogs(ctx context.Context, _ LogFilter) ([]RawLog, error) {
 	return nil, r.fail(ctx)
 }
 func (r *reliabilityReader) TransactionReceipt(ctx context.Context, _ string) (Receipt, error) {
@@ -54,6 +63,18 @@ func TestClientFailuresPreserveContextAndSingleAttempt(t *testing.T) {
 		{"block number", func(ctx context.Context, c *Client) error { _, err := c.BlockNumber(ctx); return err }},
 		{"contract call", func(ctx context.Context, c *Client) error {
 			_, err := c.callContract(ctx, multisigFixtureAddress, nil, 100)
+			return err
+		}},
+		{"block header", func(ctx context.Context, c *Client) error {
+			_, err := c.BlockHeader(ctx, 100)
+			return err
+		}},
+		{"block headers", func(ctx context.Context, c *Client) error {
+			_, err := c.BlockHeaders(ctx, []uint64{100, 101})
+			return err
+		}},
+		{"filter logs", func(ctx context.Context, c *Client) error {
+			_, err := c.FilterLogs(ctx, NewLogFilter(100, 199, multisigFixtureAddress))
 			return err
 		}},
 		{"receipt", func(ctx context.Context, c *Client) error {
