@@ -22,7 +22,7 @@ The Go backend features:
 - Versioned SQL migrations (`backend/migrations/`, 0001 through 0008) embedded with `go:embed` and managed via `cmd/migrate`
 - Table-driven unit tests plus PostgreSQL integration tests, including a restartable scan, reorg and rescan flow, gated by a GitHub Actions CI workflow
 
-The React frontend and production deployment are planned for upcoming blocks.
+The React frontend now has its foundation in `frontend/`: authentication routes, a typed API client and a restored session. Its data screens, the browser-wallet write path and production deployment are planned for upcoming blocks.
 
 ## Architecture
 
@@ -47,7 +47,7 @@ Go backend                EVM JSON-RPC
                        PostgreSQL -> API -> dashboard
 ```
 
-The Go backend, the indexer and the indexed reads are implemented. The React dashboard and the browser-wallet write path are not.
+The Go backend, the indexer and the indexed reads are implemented. The React dashboard is a foundation only: it signs users in and out and renders placeholder sections. Its wallet, contract and event screens and the browser-wallet write path are not implemented.
 
 The browser wallet will sign user transactions. The Go backend will not receive or store users' private keys.
 
@@ -55,8 +55,12 @@ The browser wallet will sign user transactions. The Go backend will not receive 
 
 Implemented in the Go backend: user registration and authentication, wallet and contract address management, filtering and pagination, EVM event indexing with PostgreSQL persistence and authenticated event reads, automated tests and CI, Docker-based local setup, and the architecture, API, database, and security documentation.
 
+Implemented in the React frontend: the login and register screens, a protected application shell that redirects signed-out visitors, a hand-written typed API client over the documented response envelopes, and a session restored from browser storage on load.
+
 Planned for later weeks:
 
+- Wallet, contract and indexed event screens in the dashboard
+- Browser wallet connection and on-chain reads and writes
 - Multisig transaction submission, confirmation, revocation, and execution
 - Contract state reads and transaction writes
 - Indexed transaction and confirmation routes, and indexing progress reporting
@@ -79,6 +83,13 @@ web3-wallet-dashboard/
 │   │   ├── evm/              # Read-only EVM client: headers, logs, event decoding
 │   │   └── indexer/          # Scanner, checkpointed persistence, reorg recovery
 │   └── migrations/           # Versioned SQL schema migrations
+├── frontend/                 # Vite + React + TypeScript dashboard
+│   └── src/
+│       ├── api/              # Hand-written typed client and error taxonomy
+│       ├── auth/             # Token storage and the session state machine
+│       ├── forms/            # Shared form validation rules
+│       ├── pages/            # Auth pages, shell layout, placeholders
+│       └── routes/           # Route guards and router state
 ├── contracts/                # Solidity MultiSigWallet contracts
 ├── docs/                     # Architecture, API, and schema documentation
 │   ├── adr/                  # Architecture Decision Records
@@ -97,6 +108,7 @@ web3-wallet-dashboard/
 ## Prerequisites
 
 - Go version declared in `backend/go.mod`
+- Node version declared in `frontend/.nvmrc`, for the frontend only
 
 ## Run the backend
 
@@ -160,6 +172,47 @@ go vet ./...
 go build ./...
 ```
 
+## Run the frontend
+
+The dashboard talks to the API on its own origin and the dev server proxies the
+request, so the API must be running first. See "Run the backend" above.
+
+Node is pinned in `frontend/.nvmrc`. With `nvm`:
+
+```bash
+cd frontend
+nvm use
+npm ci
+npm run dev
+```
+
+Vite serves `http://localhost:5173`. The application requests the relative path
+`/api/v1` and the dev server forwards `/api` to the API, so there is no URL to
+configure in the browser and no CORS to arrange. The API publishes no CORS
+headers, so this proxy is required rather than a convenience.
+
+To point the proxy somewhere other than `http://localhost:8080`, copy
+`frontend/.env.example` to `frontend/.env.local` and set `API_PROXY_TARGET`.
+The name has no `VITE_` prefix on purpose: it is read by the dev server and
+never reaches the bundle.
+
+The database starts empty, so register an account first. Registration does not
+sign you in, because the API issues no token there.
+
+## Run frontend checks
+
+From the repository root:
+
+```bash
+cd frontend
+npm run lint
+npm run typecheck
+npm test
+npm run build
+```
+
+These are the same four gates the `frontend` CI job runs after `npm ci`.
+
 ## Documentation Index
 
 - [Project specification](docs/project-spec.md)
@@ -176,5 +229,6 @@ go build ./...
 
 ## Development status
 
-- **Current milestone:** Week 6 complete (contract event indexer: persistence, scanner, retry, reorganization recovery, and authenticated event reads)
+- **Current milestone:** Week 7 in progress (frontend foundation: authentication routes, typed API client, and session handling)
+- **Last completed milestone:** Week 6 (contract event indexer: persistence, scanner, retry, reorganization recovery, and authenticated event reads)
 - **Status:** In active development

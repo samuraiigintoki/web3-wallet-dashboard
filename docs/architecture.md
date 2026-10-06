@@ -2,7 +2,7 @@
 
 ## Status
 
-This document describes the target architecture of the Web3 Wallet Dashboard. The Go backend currently implements bearer-token authentication, wallet CRUD, supported-chain metadata, tracked-contract CRUD, a read-only EVM client in `backend/internal/evm`, and the contract indexer in `backend/internal/indexer`: the persistence layer from migration `0008` and the scanner that advances its checkpoints, wired into the API process behind an optional `EVM_RPC_URL`. The scanner retries classified transport failures and corrects a reorganized chain by comparing stored block hashes with canonical ones, and the API exposes the indexed events of a tracked contract and the deployment's indexing availability at read time. The React frontend remains planned, so diagrams and flows below describe the target architecture unless marked as implemented.
+This document describes the target architecture of the Web3 Wallet Dashboard. The Go backend currently implements bearer-token authentication, wallet CRUD, supported-chain metadata, tracked-contract CRUD, a read-only EVM client in `backend/internal/evm`, and the contract indexer in `backend/internal/indexer`: the persistence layer from migration `0008` and the scanner that advances its checkpoints, wired into the API process behind an optional `EVM_RPC_URL`. The scanner retries classified transport failures and corrects a reorganized chain by comparing stored block hashes with canonical ones, and the API exposes the indexed events of a tracked contract and the deployment's indexing availability at read time. The React frontend now exists as a foundation: a Vite and TypeScript application in `frontend/` with the authentication routes, a typed client over the documented envelopes, and a session restored from browser storage. Its wallet, contract and event screens, and all browser wallet interaction, remain planned, so diagrams and flows below describe the target architecture unless marked as implemented.
 
 ## Architectural objective
 
@@ -107,6 +107,16 @@ Responsibilities:
 - Refresh indexed dashboard data after on-chain activity.
 
 The frontend must not present a submitted wallet request as successful until the resulting EVM transaction receipt confirms success.
+
+Implemented today in `frontend/`:
+
+- Vite, React and TypeScript with `strict` on, no styling framework and no UI kit.
+- Routes for `/login` and `/register`, and a protected shell at `/` with placeholder sections for wallets and contracts. The placeholders render static text and call nothing.
+- A hand-written typed client in `src/api/`, mirroring `docs/openapi.yaml` rather than generated from it. One request helper adds the bearer header, parses the `data` and `pagination` envelopes through type guards, and maps the documented error codes plus four client-side codes for network failure, timeout, abort and an unrecognised response.
+- Register, login, logout and current-user wired against `/api/v1`. Registration issues no token, so it does not sign the user in. Login is two calls, token then identity, because the login response carries no user.
+- A session restored from browser storage on load, with four states: restoring, anonymous, authenticated, and unavailable when a stored token could not be checked.
+
+The browser only ever requests the relative path `/api/v1`, with no host in the bundle. In development the Vite dev server proxies `/api` to the API. The API sends no CORS headers, so same-origin delivery is a requirement rather than a convenience, and how the built frontend is served in production is part of the deployment decision.
 
 ### Browser wallet
 
@@ -355,6 +365,8 @@ The watch set is global: `contracts` rows with `indexing_enabled = TRUE` on the 
 - Private keys remain in the browser wallet.
 - The frontend must treat connected account and chain as changeable state.
 - The UI must display contract address, network, action, and transaction status clearly.
+- The session token is held in `localStorage`, so any script on the origin can read it. One module owns that key; the token is never logged, never placed in a URL, and never sent off-origin, because the request helper rejects absolute URLs. The tradeoff is recorded in `docs/security-assumptions.md`.
+- Nothing the browser reports is trusted by the API. The server remains the authority on session validity and on expiry: the client stores no expiry and learns a session has ended from a `401`.
 
 ### API trust boundary
 
@@ -483,6 +495,9 @@ These decisions may later receive individual Architecture Decision Records in `d
 - Reorganization detection and correction are implemented for any depth stored in `indexed_blocks`; `safe` and `finalized` block tags are not used, and error classification recognizes a fixed set of transport failures, so an unfamiliar provider failure is treated as permanent and surfaces as an `error` checkpoint until the next tick.
 - Indexed dashboard data may lag direct chain state.
 - Optional WebSocket behavior is not defined and is not required for the first working version.
+- The frontend stores its session token in `localStorage`, which is readable by any script on the origin, and there is no Content Security Policy yet. There is also no cross-tab logout signal: another tab discovers an ended session on its next request.
+- The frontend does not renew a session. The token has a fixed seven-day lifetime and the user signs in again after it expires.
+- Serving the built frontend same-origin in production, whether by a static host with an API rewrite or a reverse proxy, is undecided. The development proxy covers local work only.
 
 ## Health and readiness
 
