@@ -2,7 +2,7 @@
 
 ## Status
 
-This document describes the target architecture of the Web3 Wallet Dashboard. The Go backend currently implements bearer-token authentication, wallet CRUD, supported-chain metadata, tracked-contract CRUD, a read-only EVM client in `backend/internal/evm`, and the contract indexer in `backend/internal/indexer`: the persistence layer from migration `0008` and the scanner that advances its checkpoints, wired into the API process behind an optional `EVM_RPC_URL`. The scanner retries classified transport failures and corrects a reorganized chain by comparing stored block hashes with canonical ones. HTTP exposure of indexed data remains planned, so diagrams and flows below describe the target architecture unless marked as implemented.
+This document describes the target architecture of the Web3 Wallet Dashboard. The Go backend currently implements bearer-token authentication, wallet CRUD, supported-chain metadata, tracked-contract CRUD, a read-only EVM client in `backend/internal/evm`, and the contract indexer in `backend/internal/indexer`: the persistence layer from migration `0008` and the scanner that advances its checkpoints, wired into the API process behind an optional `EVM_RPC_URL`. The scanner retries classified transport failures and corrects a reorganized chain by comparing stored block hashes with canonical ones, and the API exposes the indexed events of a tracked contract and the deployment's indexing availability at read time. The React frontend remains planned, so diagrams and flows below describe the target architecture unless marked as implemented.
 
 ## Architectural objective
 
@@ -183,7 +183,7 @@ Implemented in `backend/internal/evm`:
 
 `MultiSigReader` uses go-ethereum's ABI codec inside the package. Its consumer-side `ChainReader` seam carries plain Go values and byte slices. Transaction and confirmation reads capture one block and use it for every related call. `Client.TransactionReceipt` maps an unavailable receipt to `ErrReceiptNotFound`; that error does not distinguish a pending transaction from an unknown hash. `Client.EstimateGas` validates and copies its inputs before the reader call. `Client.BlockHeader` and `Client.BlockHeaders` read block identity, the batched form issuing one JSON-RPC batch call and returning headers in request order. `Client.FilterLogs` reads the decoded-input logs for one contract over an inclusive block range and the four supported event topics, returning the plain-Go `RawLog` the event decoder consumes. A missing block maps to `ErrBlockNotFound`, and a returned log outside the requested range or from another emitter is rejected rather than stored. Every read takes the caller's context, makes one attempt, and does not retry, time out or subscribe.
 
-The indexer's scanner consumes these reads through its own `ChainReader` seam. Still planned are the reliability policy below, which retry and reorganization recovery implement, and HTTP exposure of indexed data. Event decoding and log retrieval are implemented in `internal/evm`. The client does not hold user private keys and is not responsible for signing browser-user transactions.
+The indexer's scanner consumes these reads through its own `ChainReader` seam. The reliability policy below, retry and reorganization recovery, is implemented at that seam, and HTTP exposure of indexed data is implemented in `httpapi`. Event decoding and log retrieval are implemented in `internal/evm`. The client does not hold user private keys and is not responsible for signing browser-user transactions.
 
 ### Background event indexer
 
@@ -202,19 +202,18 @@ Implemented in `backend/internal/indexer` for the scan path. The job runs as a p
 
 `safe` or `finalized` block tags are not used, and the confirmation window is not treated as finality.
 
+The reorganization check costs one canonical header read per contract that has a stored tip, on every rotation turn, whether or not the chain moved: the stored last indexed hash is compared with the header for that height before a contract is considered caught up. A contract with no stored tip yet is skipped without a request, and the walk that follows a mismatch stays bounded by the stored block rows above the ancestor.
+
 The indexer is a Go background component. It may later run as a separate process using the same internal packages, but a message queue is not required for the initial version.
 
 ### PostgreSQL
 
-Planned responsibilities:
+Responsibilities, all implemented:
 
-- Application users and authentication data
-- Saved wallet addresses
-- Tracked contracts and chain metadata
-- Multisig transactions and confirmations
-- Decoded contract events
-- Indexer checkpoint state
-- Idempotency identifiers
+- Application users and authentication data, saved wallet addresses, tracked contracts and chain metadata, from migrations `0001` to `0007`.
+- Multisig transactions and confirmations, decoded contract events, indexed block rows and indexer checkpoint state, from migration `0008`.
+
+Idempotency does not have its own column. A stored event is identified by its occurrence, `(contract_id, block_hash, log_index)`, which is what makes a replayed range a no-op and what keeps a transaction that is re-included on another fork from colliding with the row it orphaned.
 
 PostgreSQL is the source of truth for off-chain application records and indexed dashboard views. The EVM chain remains the source of truth for contract state.
 
@@ -478,7 +477,7 @@ These decisions may later receive individual Architecture Decision Records in `d
 ## Known limitations
 
 - Readiness covers PostgreSQL connectivity only; EVM RPC availability and domain-state checks are intentionally excluded.
-- The indexer tables (`indexed_blocks`, `contract_events`, `multisig_transactions`, `transaction_confirmations`, `indexer_checkpoints`) exist in migration `0008` with the repository in `backend/internal/indexer`. The scanner that fills them is implemented, retries classified transport failures and corrects reorganizations; API exposure of indexed data is not implemented yet.
+- The indexer tables (`indexed_blocks`, `contract_events`, `multisig_transactions`, `transaction_confirmations`, `indexer_checkpoints`) exist in migration `0008` with the repository in `backend/internal/indexer`. The scanner that fills them is implemented, retries classified transport failures and corrects reorganizations, and `GET /api/v1/contracts/{contractId}/events` plus the read-time `indexingStatus` field expose the result. What is not implemented is progress reporting: no route returns the checkpoint, the observed head or a lag, so a client learns that a deployment is indexed but not how far.
 - The RPC target is Sepolia and the provider is Alchemy. Provider availability and rate limits remain external dependencies. The client stays single-attempt and the scanner's retry is bounded to three attempts per range operation, so a provider outage delays indexing rather than being absorbed.
 - Contract event coverage must be checked against the existing ABI.
 - Reorganization detection and correction are implemented for any depth stored in `indexed_blocks`; `safe` and `finalized` block tags are not used, and error classification recognizes a fixed set of transport failures, so an unfamiliar provider failure is treated as permanent and surfaces as an `error` checkpoint until the next tick.

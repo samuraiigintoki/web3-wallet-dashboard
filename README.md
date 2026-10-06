@@ -15,14 +15,16 @@ The Go backend features:
 - Full wallet CRUD (create, list, get, update label, delete), owner-scoped to the authenticated user
 - Supported-chain metadata (`GET /api/v1/chains`) with chainId validation on wallet and contract writes
 - Tracked-contract CRUD with per-user ownership
-- PostgreSQL persistence for wallets, users, sessions, chains, and contracts, wired in `cmd/api/main.go`
+- Contract event indexing: a background scanner reads `eth_getLogs` over enabled Sepolia deployments, decodes the four `MultiSigWallet` events, and persists them idempotently with derived transaction and confirmation projections
+- `GET /api/v1/contracts/{contractId}/events`, which serves a caller's indexed events newest first behind the existing bearer session, plus a read-time `indexingStatus` on every contract response
+- PostgreSQL persistence for wallets, users, sessions, chains, contracts, indexed blocks, events, projections and checkpoints, wired in `cmd/api/main.go`
 - PostgreSQL 16 container setup managed via Docker Compose
-- Versioned SQL migrations (`backend/migrations/`, 0001 through 0006) embedded with `go:embed` and managed via `cmd/migrate`
-- Table-driven unit tests plus PostgreSQL integration tests, gated by a GitHub Actions CI workflow
+- Versioned SQL migrations (`backend/migrations/`, 0001 through 0008) embedded with `go:embed` and managed via `cmd/migrate`
+- Table-driven unit tests plus PostgreSQL integration tests, including a restartable scan, reorg and rescan flow, gated by a GitHub Actions CI workflow
 
-Smart contract event indexing, React frontend, and production deployment are planned for upcoming blocks.
+The React frontend and production deployment are planned for upcoming blocks.
 
-## Planned architecture
+## Architecture
 
 ```text
 User
@@ -45,18 +47,19 @@ Go backend                EVM JSON-RPC
                        PostgreSQL -> API -> dashboard
 ```
 
+The Go backend, the indexer and the indexed reads are implemented. The React dashboard and the browser-wallet write path are not.
+
 The browser wallet will sign user transactions. The Go backend will not receive or store users' private keys.
 
 ## Capabilities
 
-Implemented in the Go backend: user registration and authentication, wallet and contract address management, filtering and pagination, automated tests and CI, Docker-based local setup, and the architecture, API, database, and security documentation.
+Implemented in the Go backend: user registration and authentication, wallet and contract address management, filtering and pagination, EVM event indexing with PostgreSQL persistence and authenticated event reads, automated tests and CI, Docker-based local setup, and the architecture, API, database, and security documentation.
 
 Planned for later weeks:
 
 - Multisig transaction submission, confirmation, revocation, and execution
 - Contract state reads and transaction writes
-- EVM event indexing and PostgreSQL persistence
-- Transaction status and error handling
+- Indexed transaction and confirmation routes, and indexing progress reporting
 - Testnet deployment and contract verification
 
 ## Repository structure
@@ -72,7 +75,9 @@ web3-wallet-dashboard/
 │   │   ├── wallet/           # Domain models, service logic, and repositories
 │   │   ├── user/             # Authentication: users, sessions, password hashing
 │   │   ├── chain/            # Supported-chain metadata and chainId validation
-│   │   └── contract/         # Tracked-contract domain, service, and repositories
+│   │   ├── contract/         # Tracked-contract domain, service, and repositories
+│   │   ├── evm/              # Read-only EVM client: headers, logs, event decoding
+│   │   └── indexer/          # Scanner, checkpointed persistence, reorg recovery
 │   └── migrations/           # Versioned SQL schema migrations
 ├── contracts/                # Solidity MultiSigWallet contracts
 ├── docs/                     # Architecture, API, and schema documentation
@@ -171,5 +176,5 @@ go build ./...
 
 ## Development status
 
-- **Current milestone:** Week 3 (authentication, wallet and contract CRUD, per-user ownership, and API documentation)
+- **Current milestone:** Week 6 complete (contract event indexer: persistence, scanner, retry, reorganization recovery, and authenticated event reads)
 - **Status:** In active development
