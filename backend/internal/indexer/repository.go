@@ -105,6 +105,16 @@ type Repository interface {
 	// called once on startup.
 	ResetRunningCheckpoints(ctx context.Context) (int64, error)
 
+	// ListIndexedBlocks returns the stored canonical block rows of one contract
+	// for an inclusive block window, ordered by descending block number. It is
+	// read-only and exists so a caller can walk stored chain state back to a
+	// common ancestor after a reorganization. The window is bounded: fromBlock
+	// and toBlock must be ordered and must span at most maxIndexedBlockWindow
+	// blocks, because a larger window is a caller bug rather than something to
+	// clamp. A window with no stored rows returns an empty slice and no error,
+	// which is how the caller learns that the stored history ends there.
+	ListIndexedBlocks(ctx context.Context, contractID int64, fromBlock, toBlock int64) ([]BlockHeader, error)
+
 	// CommitRange applies one inclusive block range in a single transaction:
 	// canonical block rows, event rows, projection changes and checkpoint
 	// advancement commit together or not at all. Repeating a commit is

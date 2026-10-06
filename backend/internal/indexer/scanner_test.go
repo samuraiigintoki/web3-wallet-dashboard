@@ -37,6 +37,12 @@ type scannerReader struct {
 	headerArgs []uint64
 	headerCall int
 
+	// canonicalHash replaces the derived hash per block number, which is how a
+	// reassigned chain is scripted for the reorganization tests. It applies to
+	// every header request, including the walk, so the reader stays consistent
+	// within a phase.
+	canonicalHash func(number uint64) string
+
 	logs        []evm.RawLog
 	logsErr     error
 	logFilters  []evm.LogFilter
@@ -58,9 +64,23 @@ func (r *scannerReader) BlockHeaders(_ context.Context, blockNumbers []uint64) (
 	}
 	headers := make([]evm.BlockHeader, 0, len(blockNumbers))
 	for _, number := range blockNumbers {
-		headers = append(headers, scannerTestHeader(number))
+		headers = append(headers, r.header(number))
 	}
 	return headers, nil
+}
+
+// header derives the canonical header for one height, through the scripted hash
+// when a test set one.
+func (r *scannerReader) header(number uint64) evm.BlockHeader {
+	hash := scannerTestHash
+	if r.canonicalHash != nil {
+		hash = r.canonicalHash
+	}
+	parentHash := "0x" + strings.Repeat("00", 32)
+	if number > 0 {
+		parentHash = hash(number - 1)
+	}
+	return evm.BlockHeader{Number: number, Hash: hash(number), ParentHash: parentHash}
 }
 
 func (r *scannerReader) FilterLogs(_ context.Context, filter evm.LogFilter) ([]evm.RawLog, error) {
@@ -94,10 +114,54 @@ type scannerRepository struct {
 	commitErr error
 
 	ensureCalls int
+
+	// storedBlocks is the canonical history the reorganization walk reads,
+	// keyed by contract and held newest first, the order the repository
+	// promises. CommitRange extends it, so a later run sees the tip it stored.
+	storedBlocks    map[int64][]BlockHeader
+	blocksErr       error
+	blockWindows    []blockWindow
+	rewindAncestors []rewindCall
+	rewindStarts    []int64
+	ancestorErr     error
+	startErr        error
+}
+
+// blockWindow records one ListIndexedBlocks read.
+type blockWindow struct {
+	contractID         int64
+	fromBlock, toBlock int64
+}
+
+// rewindCall records one RewindToAncestor call.
+type rewindCall struct {
+	contractID    int64
+	ancestorBlock int64
 }
 
 func newScannerRepository(targets ...WatchTarget) *scannerRepository {
-	return &scannerRepository{targets: targets, checkpoints: map[int64]*Checkpoint{}}
+	return &scannerRepository{
+		targets:      targets,
+		checkpoints:  map[int64]*Checkpoint{},
+		storedBlocks: map[int64][]BlockHeader{},
+	}
+}
+
+// storeBlocks records canonical history for a contract, newest block first.
+func (r *scannerRepository) storeBlocks(contractID int64, headers []BlockHeader) {
+	r.storedBlocks[contractID] = append([]BlockHeader(nil), headers...)
+	if len(headers) == 0 {
+		return
+	}
+	checkpoint, ok := r.checkpoints[contractID]
+	if !ok {
+		return
+	}
+	tip := headers[0].BlockNumber
+	hash := headers[0].BlockHash
+	checkpoint.LastIndexedBlock = &tip
+	checkpoint.LastIndexedBlockHash = &hash
+	checkpoint.NextBlock = tip + 1
 }
 
 func (r *scannerRepository) ListWatchTargets(context.Context) ([]WatchTarget, error) {
@@ -167,15 +231,97 @@ func (r *scannerRepository) CommitRange(_ context.Context, commit RangeCommit) (
 	checkpoint.LastError = nil
 	lastBlock := commit.ToBlock
 	checkpoint.LastIndexedBlock = &lastBlock
+	lastHash := ""
+	for _, header := range commit.Blocks {
+		if header.BlockNumber == commit.ToBlock {
+			lastHash = header.BlockHash
+		}
+	}
+	checkpoint.LastIndexedBlockHash = &lastHash
+
+	// The stored history mirrors what the range commit wrote, newest first.
+	stored := make([]BlockHeader, 0, len(commit.Blocks))
+	for i := len(commit.Blocks) - 1; i >= 0; i-- {
+		stored = append(stored, commit.Blocks[i])
+	}
+	r.storedBlocks[commit.ContractID] = append(stored, r.storedBlocks[commit.ContractID]...)
 	return checkpoint, nil
 }
 
-func (r *scannerRepository) RewindToAncestor(context.Context, int64, int64) (*Checkpoint, error) {
-	return nil, errors.New("rewind is not used by the scanner")
+// ListIndexedBlocks returns stored rows for the window, newest first, mirroring
+// the repository contract including the empty-window case.
+func (r *scannerRepository) ListIndexedBlocks(_ context.Context, contractID int64, fromBlock, toBlock int64) ([]BlockHeader, error) {
+	r.blockWindows = append(r.blockWindows, blockWindow{contractID: contractID, fromBlock: fromBlock, toBlock: toBlock})
+	if r.blocksErr != nil {
+		return nil, r.blocksErr
+	}
+
+	var window []BlockHeader
+	for _, header := range r.storedBlocks[contractID] {
+		if header.BlockNumber >= fromBlock && header.BlockNumber <= toBlock {
+			window = append(window, header)
+		}
+	}
+	return window, nil
 }
 
-func (r *scannerRepository) RewindToStart(context.Context, int64) (*Checkpoint, error) {
-	return nil, errors.New("rewind is not used by the scanner")
+func (r *scannerRepository) RewindToAncestor(_ context.Context, contractID int64, ancestorBlock int64) (*Checkpoint, error) {
+	r.rewindAncestors = append(r.rewindAncestors, rewindCall{contractID: contractID, ancestorBlock: ancestorBlock})
+	if r.ancestorErr != nil {
+		return nil, r.ancestorErr
+	}
+
+	checkpoint, ok := r.checkpoints[contractID]
+	if !ok {
+		return nil, ErrCheckpointNotFound
+	}
+	var ancestorHash string
+	var kept []BlockHeader
+	for _, header := range r.storedBlocks[contractID] {
+		if header.BlockNumber > ancestorBlock {
+			continue
+		}
+		if header.BlockNumber == ancestorBlock {
+			ancestorHash = header.BlockHash
+		}
+		kept = append(kept, header)
+	}
+	if ancestorHash == "" {
+		return nil, ErrAncestorNotFound
+	}
+
+	r.storedBlocks[contractID] = kept
+	checkpoint.NextBlock = ancestorBlock + 1
+	checkpoint.Status = StatusPending
+	checkpoint.LastError = nil
+	checkpoint.LastIndexedBlock = &ancestorBlock
+	checkpoint.LastIndexedBlockHash = &ancestorHash
+	return checkpoint, nil
+}
+
+func (r *scannerRepository) RewindToStart(_ context.Context, contractID int64) (*Checkpoint, error) {
+	r.rewindStarts = append(r.rewindStarts, contractID)
+	if r.startErr != nil {
+		return nil, r.startErr
+	}
+
+	checkpoint, ok := r.checkpoints[contractID]
+	if !ok {
+		return nil, ErrCheckpointNotFound
+	}
+	startBlock := int64(0)
+	for _, target := range r.targets {
+		if target.ContractID == contractID {
+			startBlock = target.StartBlock
+		}
+	}
+	r.storedBlocks[contractID] = nil
+	checkpoint.NextBlock = startBlock
+	checkpoint.Status = StatusPending
+	checkpoint.LastError = nil
+	checkpoint.LastIndexedBlock = nil
+	checkpoint.LastIndexedBlockHash = nil
+	return checkpoint, nil
 }
 
 func (r *scannerRepository) RebuildProjections(context.Context, int64) error {
