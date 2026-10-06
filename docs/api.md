@@ -853,12 +853,6 @@ A stored payload that does not satisfy those invariants returns `500 INTERNAL_SE
 
 Returns one decoded indexed event with chain identifiers and decoded payload.
 
-### `GET /api/v1/contracts/{contractId}/events/{eventId}`
-
-**Authentication:** Required
-
-Returns one decoded indexed event with chain identifiers and decoded payload.
-
 ## Indexing-status routes
 
 v1 has no dedicated indexing-status route. Every contract representation returned by `POST /api/v1/contracts`, `GET /api/v1/contracts`, `GET /api/v1/contracts/{contractId}`, and `PATCH /api/v1/contracts/{contractId}` carries `indexingStatus`, described under `GET /api/v1/contracts` above. It answers whether the deployment is being indexed at all, not how far the scanner has got.
