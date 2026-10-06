@@ -1,10 +1,11 @@
 import { render } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, useLocation } from 'react-router'
+import { MemoryRouter } from 'react-router'
 
 import { AppRoutes } from '../App.tsx'
 import { AuthProvider } from '../auth/AuthProvider.tsx'
 import { createTokenStorage, type TokenStorage } from '../auth/storage.ts'
+import { LocationProbe } from './LocationProbe.tsx'
 
 export function memoryStorage(initial: string | null = null): TokenStorage {
   const storage = createTokenStorage(() => null)
@@ -12,15 +13,6 @@ export function memoryStorage(initial: string | null = null): TokenStorage {
     storage.write(initial)
   }
   return storage
-}
-
-/** Exposes the router's current path so a redirect can be asserted. */
-function LocationProbe() {
-  const location = useLocation()
-
-  return (
-    <div data-testid="location">{`${location.pathname}${location.search}`}</div>
-  )
 }
 
 export function renderApp(

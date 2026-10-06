@@ -51,6 +51,12 @@ export function stubFetch(
   }
 }
 
+/** Reads a recorded request body as parsed JSON. */
+export function bodyOf(call: FetchCall): unknown {
+  const raw = call.init.body
+  return typeof raw === 'string' ? (JSON.parse(raw) as unknown) : undefined
+}
+
 function normaliseHeaders(headers: HeadersInit | undefined): Record<string, string> {
   if (headers === undefined) {
     return {}

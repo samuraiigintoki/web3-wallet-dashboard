@@ -1,7 +1,7 @@
 import { screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { errorResponse, jsonResponse, stubFetch } from '../test/http.ts'
+import { bodyOf, errorResponse, jsonResponse, stubFetch } from '../test/http.ts'
 import { currentPath, renderApp } from '../test/renderApp.tsx'
 
 const USER = { id: 5, email: 'ada@example.com', createdAt: '2026-10-06T12:00:00Z' }
@@ -62,7 +62,10 @@ describe('login page', () => {
       expect(currentPath()).toBe('/')
     })
     const loginCall = fetchStub.calls.find((call) => call.url.endsWith('/auth/login'))
-    expect(JSON.parse(String(loginCall?.init.body))).toEqual({
+    if (loginCall === undefined) {
+      throw new Error('the login request was never sent')
+    }
+    expect(bodyOf(loginCall)).toEqual({
       email: 'ada@example.com',
       password: '  spaced secret  ',
     })
