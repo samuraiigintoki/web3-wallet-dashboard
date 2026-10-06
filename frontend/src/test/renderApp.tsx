@@ -16,14 +16,15 @@ export function memoryStorage(initial: string | null = null): TokenStorage {
 }
 
 export function renderApp(
-  options: { path?: string; storage?: TokenStorage } = {},
+  options: { path?: string; storage?: TokenStorage; state?: unknown } = {},
 ) {
   const storage = options.storage ?? memoryStorage()
   const user = userEvent.setup()
+  const entry = { pathname: options.path ?? '/', state: options.state ?? null }
 
   const utils = render(
     <AuthProvider storage={storage}>
-      <MemoryRouter initialEntries={[options.path ?? '/']}>
+      <MemoryRouter initialEntries={[entry]}>
         <LocationProbe />
         <AppRoutes />
       </MemoryRouter>

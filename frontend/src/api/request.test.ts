@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   emptyProxyFailure,
   errorResponse,
+  failingBodyResponse,
+  hangingBodyResponse,
   hangingFetch,
   jsonResponse,
   plainTextResponse,
@@ -389,7 +391,21 @@ describe('request helper, unauthorized handling', () => {
     expect(onUnauthorized).not.toHaveBeenCalled()
   })
 
-  it('never fires onUnauthorized for a 401 on a call that sent no token', async () => {
+  it('never fires onUnauthorized when the call opted in but no token was stored', async () => {
+    stubFetch(() => errorResponse(401, 'UNAUTHENTICATED'))
+    const onUnauthorized = vi.fn()
+    // Opting in with nothing stored sends no header, so this 401 is not a
+    // rejected session and must not end one.
+    const request = createRequest(deps({ getToken: () => null, onUnauthorized }))
+
+    await expect(
+      request({ method: 'GET', path: '/users/me', auth: true, guard: isUser }),
+    ).rejects.toMatchObject({ code: 'UNAUTHENTICATED' })
+
+    expect(onUnauthorized).not.toHaveBeenCalled()
+  })
+
+  it('never fires onUnauthorized for a 401 on a route that never opts in', async () => {
     stubFetch(() => errorResponse(401, 'UNAUTHENTICATED'))
     const onUnauthorized = vi.fn()
     const request = createRequest(deps({ getToken: () => TOKEN, onUnauthorized }))
@@ -399,6 +415,75 @@ describe('request helper, unauthorized handling', () => {
     ).rejects.toMatchObject({ code: 'UNAUTHENTICATED' })
 
     expect(onUnauthorized).not.toHaveBeenCalled()
+  })
+})
+
+describe('request helper, body phase', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('maps a body that fails after the headers to an ApiError, not a raw TypeError', async () => {
+    stubFetch(() => failingBodyResponse(200))
+    const request = createRequest(deps())
+
+    const error = await request({
+      method: 'GET',
+      path: '/users/me',
+      guard: isUser,
+    }).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error).toMatchObject({ code: 'NETWORK_ERROR', status: 0 })
+  })
+
+  it('maps a failing body on an error response to an ApiError too', async () => {
+    stubFetch(() => failingBodyResponse(500))
+    const request = createRequest(deps())
+
+    const error = await request({
+      method: 'GET',
+      path: '/users/me',
+      guard: isUser,
+    }).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error).toMatchObject({ code: 'NETWORK_ERROR' })
+  })
+
+  it('times out a body that never arrives, so the timeout bounds the whole call', async () => {
+    stubFetch(() => hangingBodyResponse(200))
+    const request = createRequest(deps({ timeoutMs: 20 }))
+
+    const started = Date.now()
+    const error = await request({
+      method: 'GET',
+      path: '/users/me',
+      guard: isUser,
+    }).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error).toMatchObject({ code: 'TIMEOUT', status: 0 })
+    expect(Date.now() - started).toBeLessThan(2_000)
+  })
+
+  it('maps a caller abort during the body read to ABORTED', async () => {
+    stubFetch(() => hangingBodyResponse(200))
+    const request = createRequest(deps())
+    const controller = new AbortController()
+
+    const pending = request({
+      method: 'GET',
+      path: '/users/me',
+      guard: isUser,
+      signal: controller.signal,
+    })
+    const settled = pending.catch((caught: unknown) => caught)
+    controller.abort()
+
+    const error = await settled
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error).toMatchObject({ code: 'ABORTED', status: 0 })
   })
 })
 

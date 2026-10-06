@@ -46,6 +46,28 @@ describe('route guard', () => {
     expect(screen.getByRole('heading', { name: 'Contracts' })).toBeDefined()
   })
 
+  it('ignores a protocol-relative return path and lands on the overview', async () => {
+    stubFetch((url) =>
+      url.endsWith('/auth/login')
+        ? jsonResponse({ data: { token: 'tok', expiresAt: '2026-10-13T00:00:00Z' } })
+        : jsonResponse({ data: USER }),
+    )
+    // A path starting with two slashes is another origin to the browser.
+    const { user } = renderApp({
+      path: '/login',
+      state: { from: '//evil.example.com/takeover' },
+    })
+
+    await user.type(screen.getByLabelText('Email'), 'ada@example.com')
+    await user.type(screen.getByLabelText('Password'), 'secret')
+    await user.click(screen.getByRole('button', { name: 'Sign in' }))
+
+    await waitFor(() => {
+      expect(currentPath()).toBe('/')
+    })
+    expect(currentPath()).not.toContain('evil.example.com')
+  })
+
   it('falls back to the overview when there was no origin path', async () => {
     stubFetch((url) =>
       url.endsWith('/auth/login')
@@ -234,7 +256,7 @@ describe('shell', () => {
     })
     expect(storage.read()).toBeNull()
     expect(
-      screen.getByText(/the server could not be reached to end the session/i),
+      screen.getByText(/the session could not be ended on the server/i),
     ).toBeDefined()
   })
 })

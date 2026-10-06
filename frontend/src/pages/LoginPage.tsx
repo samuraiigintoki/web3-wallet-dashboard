@@ -76,8 +76,8 @@ export function LoginPage() {
 
       {logoutProblem !== null && (
         <p className="notice" role="status">
-          You were signed out on this device, but the server could not be reached to
-          end the session. {logoutProblem}
+          You were signed out on this device, but the session could not be ended on
+          the server. {logoutProblem}
         </p>
       )}
 

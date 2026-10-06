@@ -297,6 +297,59 @@ describe('logout', () => {
   })
 })
 
+describe('retry from the unavailable state', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('retries the restore when a token is still stored', async () => {
+    let attempts = 0
+    stubFetch(() => {
+      attempts += 1
+      if (attempts === 1) {
+        throw new TypeError('Failed to fetch')
+      }
+      return jsonResponse({ data: USER })
+    })
+    const { result } = renderAuth(memoryStorage('stored-token'))
+
+    await waitFor(() => {
+      expect(result.current.session.status).toBe('unavailable')
+    })
+
+    act(() => {
+      result.current.retryRestore()
+    })
+
+    await waitFor(() => {
+      expect(result.current.session.status).toBe('authenticated')
+    })
+  })
+
+  it('goes anonymous instead of restoring forever when the token is gone', async () => {
+    stubFetch(() => {
+      throw new TypeError('Failed to fetch')
+    })
+    const storage = memoryStorage('stored-token')
+    const { result } = renderAuth(storage)
+
+    await waitFor(() => {
+      expect(result.current.session.status).toBe('unavailable')
+    })
+
+    // What another tab's sign-out does to the shared key.
+    storage.clear()
+
+    act(() => {
+      result.current.retryRestore()
+    })
+
+    await waitFor(() => {
+      expect(result.current.session.status).toBe('anonymous')
+    })
+  })
+})
+
 describe('superseded results', () => {
   beforeEach(() => {
     vi.unstubAllGlobals()

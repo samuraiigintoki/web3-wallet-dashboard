@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { errorResponse, jsonResponse, stubFetch } from '../test/http.ts'
+import { errorResponse, hangingFetch, jsonResponse, stubFetch } from '../test/http.ts'
 import { createApiClient } from './client.ts'
 import { API_BASE } from './request.ts'
+import type { LoginRequest, RegisterRequest } from './types.ts'
 
 const TOKEN = 'client-session-token'
 
@@ -108,13 +109,44 @@ describe('api client', () => {
     expect(fetchStub.headers()['authorization']).toBeUndefined()
   })
 
-  it('passes a caller abort signal through', async () => {
-    stubFetch((_url, init) => {
-      expect(init.signal).toBeDefined()
-      return jsonResponse({ data: USER })
-    })
+  it('register sends only the two contract fields, whatever the caller hands over', async () => {
+    const fetchStub = stubFetch(() => jsonResponse({ data: USER }, { status: 201 }))
+    // What a form object looks like before anyone thinks about the wire. The
+    // server rejects unknown keys, so confirmPassword must not travel.
+    const formValues = {
+      email: 'grace@example.com',
+      password: 'pw',
+      confirmPassword: 'pw',
+    } as unknown as RegisterRequest
+
+    await client().register(formValues)
+
+    expect(fetchStub.body()).toEqual({ email: 'grace@example.com', password: 'pw' })
+  })
+
+  it('login sends only the two contract fields, whatever the caller hands over', async () => {
+    const fetchStub = stubFetch(() =>
+      jsonResponse({ data: { token: 't', expiresAt: '2026-10-13T09:00:00Z' } }),
+    )
+    const formValues = {
+      email: 'grace@example.com',
+      password: 'pw',
+      remember: true,
+    } as unknown as LoginRequest
+
+    await client().login(formValues)
+
+    expect(fetchStub.body()).toEqual({ email: 'grace@example.com', password: 'pw' })
+  })
+
+  it('cancels the call when the caller aborts their signal', async () => {
+    stubFetch(hangingFetch)
 
     const controller = new AbortController()
-    await client(() => TOKEN).getMe({ signal: controller.signal })
+    const pending = client(() => TOKEN).getMe({ signal: controller.signal })
+    const settled = pending.catch((error: unknown) => error)
+    controller.abort()
+
+    expect(await settled).toMatchObject({ code: 'ABORTED', status: 0 })
   })
 })

@@ -107,6 +107,32 @@ function parseRetryAfterSeconds(header: string | null): number | undefined {
   return Number.parseInt(header.trim(), 10)
 }
 
+/**
+ * Reads the body under the same signal that bounds the request.
+ *
+ * A body arrives after the headers do, so a response can be "received" while
+ * its body stalls or fails. Racing the read against the signal keeps the
+ * timeout meaningful for the whole call rather than only the headers.
+ */
+async function readBodyText(response: Response, signal: AbortSignal): Promise<string> {
+  const abortedBeforeBody = new Promise<never>((_resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException('The operation was aborted.', 'AbortError'))
+      return
+    }
+
+    signal.addEventListener(
+      'abort',
+      () => {
+        reject(new DOMException('The operation was aborted.', 'AbortError'))
+      },
+      { once: true },
+    )
+  })
+
+  return await Promise.race([response.text(), abortedBeforeBody])
+}
+
 function unexpectedResponse(status: number, requestId?: string): ApiError {
   return new ApiError({
     code: 'UNEXPECTED_RESPONSE',
@@ -137,12 +163,17 @@ export function createRequest(dependencies: RequestDependencies): RequestFn {
       headers['Content-Type'] = 'application/json'
     }
 
+    // Opting in is not the same as sending one. With no token stored there is
+    // no header, so a 401 says nothing about a session and must not end one.
+    let sentToken = false
+
     if (auth) {
       const token = getToken()
       if (token !== null && token !== '') {
         // The server checks the case-sensitive prefix "Bearer ", so the
         // spelling here is load bearing.
         headers['Authorization'] = `Bearer ${token}`
+        sentToken = true
       }
     }
 
@@ -157,6 +188,7 @@ export function createRequest(dependencies: RequestDependencies): RequestFn {
         : AbortSignal.any([signal, timeoutController.signal])
 
     let response: Response
+    let text: string
     try {
       response = await fetchImpl(`${API_BASE}${path}`, {
         method,
@@ -168,6 +200,12 @@ export function createRequest(dependencies: RequestDependencies): RequestFn {
         credentials: 'omit',
         cache: 'no-store',
       })
+
+      // The body is read here, inside the same try and before the timeout is
+      // cleared. Reading it afterwards would let a stalled body hang the call
+      // with no bound, and let a failed read escape as a raw TypeError or
+      // DOMException instead of an ApiError.
+      text = await readBodyText(response, combinedSignal)
     } catch {
       if (timeoutController.signal.aborted) {
         throw new ApiError({
@@ -195,10 +233,9 @@ export function createRequest(dependencies: RequestDependencies): RequestFn {
     }
 
     const requestId = response.headers.get(REQUEST_ID_HEADER) ?? undefined
-    const text = await response.text()
 
     if (!response.ok) {
-      throw toApiError(response, text, requestId, auth, onUnauthorized)
+      throw toApiError(response, text, requestId, sentToken, onUnauthorized)
     }
 
     if (response.status === 204 || text === '') {
@@ -230,7 +267,7 @@ function toApiError(
   response: Response,
   text: string,
   requestId: string | undefined,
-  auth: boolean,
+  sentToken: boolean,
   onUnauthorized: () => void,
 ): ApiError {
   const retryAfterSeconds =
@@ -258,8 +295,9 @@ function toApiError(
   }
 
   // Only a request that actually carried a token can have had it rejected.
-  // Login's 401 is INVALID_CREDENTIALS and never reaches this branch.
-  if (auth && response.status === 401 && code === 'UNAUTHENTICATED') {
+  // Login's 401 is INVALID_CREDENTIALS and never reaches this branch, and a
+  // call that opted in with nothing stored sent no header to reject.
+  if (sentToken && response.status === 401 && code === 'UNAUTHENTICATED') {
     onUnauthorized()
   }
 

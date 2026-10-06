@@ -53,10 +53,14 @@ export function createApiClient(dependencies: RequestDependencies): ApiClient {
     async register(body, init) {
       // No auth: the caller has no token yet, and sending one would be
       // meaningless on a route that creates an account.
+      //
+      // The fields are selected here rather than forwarded, because the
+      // server rejects unknown keys. A caller that hands over its whole form
+      // object, confirm-password and all, still sends exactly two fields.
       const result = await request({
         method: 'POST',
         path: '/auth/register',
-        body,
+        body: { email: body.email, password: body.password },
         guard: isUser,
         signal: init?.signal,
       })
@@ -65,10 +69,11 @@ export function createApiClient(dependencies: RequestDependencies): ApiClient {
     },
 
     async login(body, init) {
+      // Selected, not forwarded, for the same reason register selects.
       const result = await request({
         method: 'POST',
         path: '/auth/login',
-        body,
+        body: { email: body.email, password: body.password },
         guard: isLoginResult,
         signal: init?.signal,
       })

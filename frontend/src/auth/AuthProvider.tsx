@@ -153,9 +153,18 @@ export function AuthProvider({ children, storage = tokenStorage }: AuthProviderP
   }, [beginExclusiveRequest, client, storage])
 
   const retryRestore = useCallback(() => {
+    // Decide here the way the initializer does, because the token can be gone
+    // by now: another tab's logout clears the same key. The restore effect
+    // makes no request without a token, so setting `restoring` on its own
+    // would leave the screen loading with nothing coming.
+    if (storage.read() === null) {
+      setSession({ status: 'anonymous' })
+      return
+    }
+
     setSession({ status: 'restoring' })
     setRestoreAttempt((attempt) => attempt + 1)
-  }, [])
+  }, [storage])
 
   const signOutLocally = useCallback(() => {
     activeRequest.current?.abort()

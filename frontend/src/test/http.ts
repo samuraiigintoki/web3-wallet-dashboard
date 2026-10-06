@@ -122,6 +122,31 @@ export function emptyProxyFailure(): Response {
   })
 }
 
+/**
+ * A response whose headers arrive but whose body fails while being read.
+ * Real fetch does this when the connection drops mid-stream.
+ */
+export function failingBodyResponse(status = 200): Response {
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.error(new TypeError('network error while reading the body'))
+    },
+  })
+
+  return new Response(body, { status })
+}
+
+/** A response whose body never arrives and never fails. */
+export function hangingBodyResponse(status = 200): Response {
+  const body = new ReadableStream<Uint8Array>({
+    start() {
+      // Never enqueues and never closes.
+    },
+  })
+
+  return new Response(body, { status })
+}
+
 /** A fetch that never settles until the request is aborted. */
 export function hangingFetch(_url: string, init: RequestInit): Promise<Response> {
   return new Promise<Response>((_resolve, reject) => {
