@@ -80,9 +80,13 @@ func run(ctx context.Context, logger *slog.Logger) (runErr error) {
 	contractRepo := contract.NewPostgresRepository(db)
 	contractSvc := contract.NewService(contractRepo, chainSvc)
 
+	// One indexer repository serves both the read route and the scanner: the API
+	// exposes indexed events whether or not this process is indexing them.
+	indexerRepo := indexer.NewPostgresRepository(db)
+
 	globalLimiter := newTokenBucketLimiter(globalLimitPerMinute, globalLimitBurst)
 	authLimiter := newTokenBucketLimiter(authLimitPerMinute, authLimitBurst)
-	handler := httpapi.NewRouter(walletSvc, userSvc, chainSvc, contractSvc, logger, databaseReadiness{db: db}, globalLimiter, authLimiter)
+	handler := httpapi.NewRouter(walletSvc, userSvc, chainSvc, contractSvc, indexerRepo, logger, databaseReadiness{db: db}, globalLimiter, authLimiter)
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -102,7 +106,7 @@ func run(ctx context.Context, logger *slog.Logger) (runErr error) {
 
 	// The indexer is optional, and a misconfigured endpoint fails startup here,
 	// before any worker runs and before the server serves its first request.
-	indexing, err := startIndexer(ctx, indexer.NewPostgresRepository(db), logger)
+	indexing, err := startIndexer(ctx, indexerRepo, logger)
 	if err != nil {
 		return err
 	}

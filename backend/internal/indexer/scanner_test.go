@@ -216,6 +216,12 @@ func (r *scannerRepository) ResetRunningCheckpoints(context.Context) (int64, err
 	return 0, nil
 }
 
+// ListContractEvents is unused by the scanner. It exists because the scanner
+// takes the whole repository port, which now carries the API's read as well.
+func (r *scannerRepository) ListContractEvents(context.Context, int64, EventPage) ([]Event, int, error) {
+	return nil, 0, errors.New("list contract events is not used by the scanner")
+}
+
 func (r *scannerRepository) CommitRange(_ context.Context, commit RangeCommit) (*Checkpoint, error) {
 	if r.commitErr != nil {
 		return nil, r.commitErr

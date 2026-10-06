@@ -76,14 +76,14 @@ func (r *PostgresRepository) InsertTracking(ctx context.Context, userID int64, c
 
 func (r *PostgresRepository) GetTracking(ctx context.Context, userID int64, contractID int64) (*TrackedContract, error) {
 	const query = `
-		SELECT c.id, c.address, c.chain_id, c.start_block, uc.label, uc.enabled, uc.created_at
+		SELECT c.id, c.address, c.chain_id, c.indexing_enabled, c.start_block, uc.label, uc.enabled, uc.created_at
 		FROM user_contracts uc
 		JOIN contracts c ON uc.contract_id = c.id
 		WHERE uc.user_id = $1 AND uc.contract_id = $2
 	`
 	var tc TrackedContract
 	err := r.db.QueryRowContext(ctx, query, userID, contractID).Scan(
-		&tc.ID, &tc.Address, &tc.ChainID, &tc.StartBlock, &tc.Label, &tc.Enabled, &tc.CreatedAt,
+		&tc.ID, &tc.Address, &tc.ChainID, &tc.IndexingEnabled, &tc.StartBlock, &tc.Label, &tc.Enabled, &tc.CreatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrContractNotFound
@@ -141,7 +141,7 @@ func (r *PostgresRepository) ListForUser(ctx context.Context, userID int64, filt
 	offset := (filter.Page - 1) * filter.PageSize
 
 	selectQuery := fmt.Sprintf(`
-		SELECT c.id, c.address, c.chain_id, c.start_block, uc.label, uc.enabled, uc.created_at
+		SELECT c.id, c.address, c.chain_id, c.indexing_enabled, c.start_block, uc.label, uc.enabled, uc.created_at
 		FROM user_contracts uc
 		JOIN contracts c ON uc.contract_id = c.id
 		%s
@@ -160,7 +160,7 @@ func (r *PostgresRepository) ListForUser(ctx context.Context, userID int64, filt
 	var list []TrackedContract
 	for rows.Next() {
 		var tc TrackedContract
-		err := rows.Scan(&tc.ID, &tc.Address, &tc.ChainID, &tc.StartBlock, &tc.Label, &tc.Enabled, &tc.CreatedAt)
+		err := rows.Scan(&tc.ID, &tc.Address, &tc.ChainID, &tc.IndexingEnabled, &tc.StartBlock, &tc.Label, &tc.Enabled, &tc.CreatedAt)
 		if err != nil {
 			return nil, 0, err
 		}

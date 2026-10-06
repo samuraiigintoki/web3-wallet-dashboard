@@ -33,7 +33,23 @@ type ContractResponse struct {
 	Enabled    bool      `json:"enabled"`
 	StartBlock int64     `json:"startBlock"`
 	CreatedAt  time.Time `json:"createdAt"`
+	// IndexingStatus is the deployment's indexing availability, computed at read
+	// time. It never carries the scanner's internal state or its error text.
+	IndexingStatus string `json:"indexingStatus"`
 }
+
+// The chain the indexer serves. A deployment on any other chain is not scanned,
+// so the API reports it as unsupported rather than pending.
+const sepoliaChainID int64 = 11155111
+
+// The three values indexingStatus can take. They describe whether indexing is
+// available for a deployment, not how far a scan has progressed, so the
+// scanner's running, idle and error states stay inside the process.
+const (
+	indexingStatusPending     = "pending"
+	indexingStatusDisabled    = "disabled"
+	indexingStatusUnsupported = "unsupported"
+)
 
 // 4. Outbound Envelopes
 type ContractResponseEnvelope struct {
@@ -295,13 +311,29 @@ func (h *Handler) deleteContract(w http.ResponseWriter, r *http.Request) {
 // contractToResponse hand-maps the domain record onto the wire DTO.
 func contractToResponse(tc *contract.TrackedContract) ContractResponse {
 	return ContractResponse{
-		ID:         tc.ID,
-		Address:    tc.Address,
-		ChainID:    tc.ChainID,
-		Label:      tc.Label,
-		Enabled:    tc.Enabled,
-		StartBlock: tc.StartBlock,
-		CreatedAt:  tc.CreatedAt,
+		ID:             tc.ID,
+		Address:        tc.Address,
+		ChainID:        tc.ChainID,
+		Label:          tc.Label,
+		Enabled:        tc.Enabled,
+		StartBlock:     tc.StartBlock,
+		CreatedAt:      tc.CreatedAt,
+		IndexingStatus: indexingStatusFor(tc),
+	}
+}
+
+// indexingStatusFor maps a deployment onto one of three read-time values.
+// Global indexing being off wins over the chain, because a disabled deployment
+// is not scanned on any chain. The caller's own enabled toggle is deliberately
+// not consulted: it is a display preference, not an indexing decision.
+func indexingStatusFor(tc *contract.TrackedContract) string {
+	switch {
+	case !tc.IndexingEnabled:
+		return indexingStatusDisabled
+	case tc.ChainID != sepoliaChainID:
+		return indexingStatusUnsupported
+	default:
+		return indexingStatusPending
 	}
 }
 

@@ -239,5 +239,5 @@ func newRateLimitTestRouter(global, auth RateLimiter) http.Handler {
 	userSvc := user.NewService(user.NewInMemoryRepository())
 	contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-	return NewRouter(walletSvc, userSvc, chainSvc, contractSvc, testLogger(), &stubReadinessChecker{}, global, auth)
+	return NewRouter(walletSvc, userSvc, chainSvc, contractSvc, testEventReader(), testLogger(), &stubReadinessChecker{}, global, auth)
 }

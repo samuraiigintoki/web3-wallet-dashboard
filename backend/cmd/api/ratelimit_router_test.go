@@ -15,6 +15,7 @@ import (
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/chain"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/contract"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/httpapi"
+	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/indexer"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/user"
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
 )
@@ -139,7 +140,7 @@ func newRateLimitedTestRouter(clock *fakeClock) http.Handler {
 	auth := newTokenBucketLimiter(authLimitPerMinute, authLimitBurst)
 	auth.now = clock.Now
 
-	return httpapi.NewRouter(walletSvc, userSvc, chainSvc, contractSvc, discardLogger(), stubReadinessCheck{}, global, auth)
+	return httpapi.NewRouter(walletSvc, userSvc, chainSvc, contractSvc, stubIndexedEvents{}, discardLogger(), stubReadinessCheck{}, global, auth)
 }
 
 func get(t *testing.T, router http.Handler, path, address, token string) *httptest.ResponseRecorder {
@@ -164,4 +165,12 @@ func postJSON(t *testing.T, router http.Handler, path, address, body string) *ht
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	return rec
+}
+
+// stubIndexedEvents satisfies the router's events seam for tests that do not
+// exercise indexed events.
+type stubIndexedEvents struct{}
+
+func (stubIndexedEvents) ListContractEvents(context.Context, int64, indexer.EventPage) ([]indexer.Event, int, error) {
+	return nil, 0, nil
 }

@@ -45,7 +45,7 @@ func TestHealthEndpointSuccess(t *testing.T) {
 
 	contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc, testLogger(), &stubReadinessChecker{}, unlimitedRateLimiter(), unlimitedRateLimiter())
+	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc, testEventReader(), testLogger(), &stubReadinessChecker{}, unlimitedRateLimiter(), unlimitedRateLimiter())
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 
@@ -86,7 +86,7 @@ func TestHealthEndpointMethodNotAllowed(t *testing.T) {
 
 	contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc, testLogger(), &stubReadinessChecker{}, unlimitedRateLimiter(), unlimitedRateLimiter())
+	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc, testEventReader(), testLogger(), &stubReadinessChecker{}, unlimitedRateLimiter(), unlimitedRateLimiter())
 
 	req := httptest.NewRequest(http.MethodPost, "/health", nil)
 	rec := httptest.NewRecorder()
@@ -280,7 +280,7 @@ func newHealthTestRouter(checker ReadinessChecker, logger *slog.Logger) http.Han
 	if logger == nil {
 		logger = testLogger()
 	}
-	return NewRouter(walletSvc, userSvc, chainSvc, contractSvc, logger, checker, unlimitedRateLimiter(), unlimitedRateLimiter())
+	return NewRouter(walletSvc, userSvc, chainSvc, contractSvc, testEventReader(), logger, checker, unlimitedRateLimiter(), unlimitedRateLimiter())
 }
 
 func assertNotReadyResponse(t *testing.T, rec *httptest.ResponseRecorder) {

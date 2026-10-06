@@ -143,6 +143,66 @@ func (r *PostgresRepository) ResetRunningCheckpoints(ctx context.Context) (int64
 	return reset, nil
 }
 
+// ListContractEvents reads one page of canonical events, newest first, and the
+// total canonical count. Two statements are used, the same shape the other list
+// endpoints use: the count first, then the page.
+func (r *PostgresRepository) ListContractEvents(ctx context.Context, contractID int64, page EventPage) ([]Event, int, error) {
+	if contractID <= 0 {
+		return nil, 0, ValidationError{Field: "contractId", Message: "must be positive"}
+	}
+	normalized, err := page.Normalize()
+	if err != nil {
+		return nil, 0, err
+	}
+
+	const countQuery = `
+		SELECT COUNT(*)
+		FROM contract_events
+		WHERE contract_id = $1 AND removed = FALSE
+	`
+	var total int
+	if err := r.db.QueryRowContext(ctx, countQuery, contractID).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count contract events: %w", err)
+	}
+
+	// The ordering matches idx_contract_events_contract_order, so the page is a
+	// backward index scan rather than a sort.
+	const pageQuery = `
+		SELECT event_name, block_number, block_hash, transaction_hash, transaction_index,
+		       log_index, COALESCE(actor_address, ''), COALESCE(multisig_tx_index::text, ''),
+		       payload::text, removed
+		FROM contract_events
+		WHERE contract_id = $1 AND removed = FALSE
+		ORDER BY block_number DESC, transaction_index DESC, log_index DESC
+		LIMIT $2 OFFSET $3
+	`
+
+	rows, err := r.db.QueryContext(ctx, pageQuery, contractID, normalized.PageSize, normalized.Offset())
+	if err != nil {
+		return nil, 0, fmt.Errorf("list contract events: %w", err)
+	}
+	defer rows.Close()
+
+	events := make([]Event, 0, normalized.PageSize)
+	for rows.Next() {
+		event := Event{ContractID: contractID}
+		var payload string
+		if err := rows.Scan(
+			&event.EventName, &event.BlockNumber, &event.BlockHash, &event.TransactionHash,
+			&event.TransactionIndex, &event.LogIndex, &event.ActorAddress, &event.MultisigTxIndex,
+			&payload, &event.Removed,
+		); err != nil {
+			return nil, 0, fmt.Errorf("scan contract event: %w", err)
+		}
+		event.Payload = []byte(payload)
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("list contract events: %w", err)
+	}
+	return events, total, nil
+}
+
 // maxIndexedBlockWindow caps one ListIndexedBlocks read. It mirrors the scanner
 // range cap and the EVM client's header batch cap, so one window is one stored
 // read and one batched header read.
