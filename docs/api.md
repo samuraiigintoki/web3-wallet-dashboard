@@ -711,6 +711,8 @@ These routes return direct or recently fetched chain state and must identify the
 
 ### `GET /api/v1/contracts/{contractId}/state`
 
+**Status:** Planned
+
 **Authentication:** Required
 
 Planned response:
@@ -733,6 +735,8 @@ Large on-chain integers may be serialized as decimal strings to avoid JavaScript
 
 ### `GET /api/v1/contracts/{contractId}/owners`
 
+**Status:** Planned
+
 **Authentication:** Required
 
 Returns owner addresses from direct chain state or a documented cached representation.
@@ -742,6 +746,8 @@ Returns owner addresses from direct chain state or a documented cached represent
 These routes expose eventually consistent PostgreSQL projections produced by the indexer.
 
 ### `GET /api/v1/contracts/{contractId}/transactions`
+
+**Status:** Planned
 
 **Authentication:** Required
 
@@ -771,6 +777,8 @@ Response entries should include:
 
 ### `GET /api/v1/contracts/{contractId}/transactions/{txIndex}`
 
+**Status:** Planned
+
 **Authentication:** Required
 
 Returns one indexed multisig transaction and its current confirmation projection.
@@ -778,6 +786,8 @@ Returns one indexed multisig transaction and its current confirmation projection
 A missing indexed transaction does not prove that it does not exist on-chain; the API should communicate indexing lag where relevant.
 
 ### `GET /api/v1/contracts/{contractId}/transactions/{txIndex}/confirmations`
+
+**Status:** Planned
 
 **Authentication:** Required
 
@@ -896,13 +906,15 @@ The Go API may provide contract metadata, normalized reads, and indexed results.
 
 ## Pagination defaults
 
-Initial proposal:
+Implemented and shared by `GET /api/v1/wallets`, `GET /api/v1/contracts` and `GET /api/v1/contracts/{contractId}/events`:
 
 - Default `page`: `1`
+- Maximum `page`: `10000`
 - Default `pageSize`: `20`
 - Maximum `pageSize`: `100`
+- Omitted, `0` or negative values take the defaults; a value above a cap is a `400 VALIDATION_ERROR`, and a non-integer is the same `400`.
 
-Exact limits may change after implementation measurements.
+A page past the end returns `200` with an empty `data` array and the true `totalItems` and `totalPages`.
 
 ## Rate limiting
 
