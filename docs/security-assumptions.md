@@ -7,3 +7,10 @@
 ## Credentials Management
 - Database passwords and sensitive keys must never be hardcoded in application source code or default fallbacks.
 - Configuration must fail closed: if required environment variables (e.g., `DATABASE_URL`) are missing or empty at startup, the application terminates immediately.
+
+## Browser Session Storage
+- **Accepted tradeoff:** the frontend keeps the session token in `localStorage`, under one namespaced key, holding the token string only. Any script running on the origin can read it, so a successful XSS is a session compromise. This is a recorded limitation of the current frontend, not a defect to be filed.
+- **Why not an `HttpOnly` cookie today:** the API authenticates with a bearer header and sets no cookie, and the client sends `credentials: 'omit'`. Moving to a cookie is an API change plus a CSRF design, which is a deliberate decision rather than a frontend detail.
+- **Containment while it stands:** the token is written and read in exactly one module, never logged, never placed in a URL or an error message, and never sent anywhere but this origin, because the request helper rejects absolute URLs. `index.html` loads no third-party script.
+- **Not yet in place:** there is no Content Security Policy. Adding one belongs with the deployment design, since it depends on how the built frontend is served.
+
