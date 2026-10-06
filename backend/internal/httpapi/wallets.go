@@ -61,15 +61,17 @@ type Handler struct {
 	userSvc     *user.Service
 	chainSvc    *chain.Service
 	contractSvc *contract.Service
+	events      IndexedEventsReader
 }
 
 // Handler constructor
-func NewHandler(walletSvc *wallet.Service, userSvc *user.Service, chainSvc *chain.Service, contractSvc *contract.Service) *Handler {
+func NewHandler(walletSvc *wallet.Service, userSvc *user.Service, chainSvc *chain.Service, contractSvc *contract.Service, events IndexedEventsReader) *Handler {
 	return &Handler{
 		walletSvc:   walletSvc,
 		userSvc:     userSvc,
 		chainSvc:    chainSvc,
 		contractSvc: contractSvc,
+		events:      events,
 	}
 }
 

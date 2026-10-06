@@ -4,7 +4,7 @@
 
 Machine-readable spec: [docs/openapi.yaml](openapi.yaml).
 
-This document is the living REST API design. `GET /health/live` (`GET /health` is its compatibility alias), `GET /health/ready`, `POST /api/v1/wallets`, `GET /api/v1/wallets`, `GET /api/v1/wallets/{id}`, `PATCH /api/v1/wallets/{id}`, `DELETE /api/v1/wallets/{id}`, `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, `POST /api/v1/auth/revoke-all`, `GET /api/v1/users/me`, `GET /api/v1/chains`, `POST /api/v1/contracts`, `GET /api/v1/contracts`, `GET /api/v1/contracts/{id}`, `PATCH /api/v1/contracts/{id}` and `DELETE /api/v1/contracts/{id}` are implemented. Additional routes remain planned.
+This document is the living REST API design. `GET /health/live` (`GET /health` is its compatibility alias), `GET /health/ready`, `POST /api/v1/wallets`, `GET /api/v1/wallets`, `GET /api/v1/wallets/{id}`, `PATCH /api/v1/wallets/{id}`, `DELETE /api/v1/wallets/{id}`, `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, `POST /api/v1/auth/revoke-all`, `GET /api/v1/users/me`, `GET /api/v1/chains`, `POST /api/v1/contracts`, `GET /api/v1/contracts`, `GET /api/v1/contracts/{id}`, `PATCH /api/v1/contracts/{id}`, `DELETE /api/v1/contracts/{id}` and `GET /api/v1/contracts/{contractId}/events` are implemented. Additional routes remain planned.
 
 ## Design principles
 
@@ -352,6 +352,8 @@ Query parameters:
 
 Sort: `createdAt` descending, then `id` descending.
 
+Every entry carries `indexingStatus`, the read-time indexing availability of that deployment: `disabled` (the deployment is excluded from indexing), `unsupported` (the deployment is not on the chain the indexer follows, currently Sepolia), or `pending` (indexed, so far with no progress to report). The values are a description of what the backend can do, never a live scanner state: the scanner's own `running` / `idle` / `error` states and its error text are not part of any response in v1. `indexingStatus` never changes `enabled`, and `enabled` never changes `indexingStatus`.
+
 A page past the last page returns `200` with `"data": []` and the true `totalItems` / `totalPages`.
 
 `createdAt` is RFC3339 from `time.Time` (UTC if the value is UTC).
@@ -613,7 +615,8 @@ Success: `200 OK`.
       "label": "beta tracked contract",
       "enabled": true,
       "startBlock": 19000000,
-      "createdAt": "2026-09-23T12:00:00Z"
+      "createdAt": "2026-09-23T12:00:00Z",
+      "indexingStatus": "unsupported"
     }
   ],
   "pagination": {
@@ -631,7 +634,7 @@ Success: `200 OK`.
 
 **Authentication:** Required
 
-Returns the saved metadata for one tracked contract. `indexingStatus` is not part of the response: indexing status is deferred to Week 6, and this route gains that field only when the indexer ships.
+Returns the saved metadata for one tracked contract, including `indexingStatus` with the same three read-time values, and the same rules, as the collection route above.
 
 `404 RESOURCE_NOT_FOUND` when the caller does not track the id — including when the id exists only for another user, and when it does not exist at all. The two cases return byte-identical bodies.
 
@@ -784,27 +787,67 @@ Returns current confirmation state derived from confirm and revoke events.
 
 ### `GET /api/v1/contracts/{contractId}/events`
 
+**Status:** Implemented — PostgreSQL projections written by the indexer
+
 **Authentication:** Required
+
+Returns one page of the events the indexer has stored for a deployment, newest first. The route reads the `contract_events` projection only; it never calls the RPC, and it never triggers indexing.
+
+Authorization is the caller's own `user_contracts` row for `contractId`, the same association the other contract routes use. A contract the caller does not track, including one tracked only by another user and one that does not exist at all, returns `404 RESOURCE_NOT_FOUND` with a byte-identical body. The association authorizes the read even when the caller's `enabled` display toggle is `false`: `enabled` filters what a user wants to see, it never changes what the indexer follows.
+
+Only canonical events are returned. An event the indexer later marked `removed` after a chain reorg is excluded from both the page and `totalItems`, so the count and the page always agree. Rows are ordered by `(blockNumber, transactionIndex, logIndex)` descending, which is chain order reversed.
 
 Query parameters:
 
-- `page`
-- `pageSize`
-- `eventName`
-- `actor`
-- `transactionHash`
-- `fromBlock`
-- `toBlock`
+- `page` — optional integer. Default `1`. Maximum `10000`. Omitted, `0`, or negative uses the default. Non-integer or greater than `10000` → `400 VALIDATION_ERROR`.
+- `pageSize` — optional integer. Default `20`. Maximum `100`. Omitted, `0`, or negative uses the default. Non-integer or greater than `100` → `400 VALIDATION_ERROR`.
 
-Supported event names initially correspond to the actual contract ABI:
+There are no further filters in v1: no `eventName`, `actor`, `transactionHash`, or block range. They arrive once the projection has a query shape that can serve them without scanning. There is no WebSocket or streaming variant of this route; clients poll it.
 
-- `SubmitTransaction`
-- `ConfirmTransaction`
-- `RevokeConfirmation`
-- `ExecuteTransaction`
-- `Deposit`, if added in the integration revision
+A page past the last page returns `200` with `"data": []` and the true `totalItems` / `totalPages`.
+
+Success: `200 OK`.
+
+```json
+{
+  "data": [
+    {
+      "contractId": 2,
+      "eventName": "SubmitTransaction",
+      "blockNumber": 1234567,
+      "blockHash": "0x6f4d4b0a4a5b3c7f0f5b0e1a2d3c4b5a69788796a5b4c3d2e1f0a9b8c7d6e5f40",
+      "transactionHash": "0x1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809",
+      "transactionIndex": 3,
+      "logIndex": 12,
+      "actorAddress": "0x00000000000000000000000000000000000000aa",
+      "multisigTxIndex": "7",
+      "payload": {
+        "to": "0x00000000000000000000000000000000000000bb",
+        "valueWei": "1000000000000000000",
+        "data": "0x"
+      }
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "pageSize": 20,
+    "totalItems": 41,
+    "totalPages": 3
+  }
+}
+```
+
+Encoding rules, which hold for every event name:
+
+- `uint256` values are decimal strings: `multisigTxIndex` here, and `valueWei` inside a `SubmitTransaction` payload. They are never JSON numbers, so nothing above 2^53 is rounded.
+- `bytes` values are lowercase `0x` hex strings; an empty value is `"0x"`.
+- `SubmitTransaction` payloads are `{to, valueWei, data}`. `ConfirmTransaction`, `RevokeConfirmation`, and `ExecuteTransaction` carry an empty object `{}`, because their subject and transaction index are already top-level fields.
+
+A stored payload that does not satisfy those invariants returns `500 INTERNAL_SERVER_ERROR` rather than a partial or re-shaped body. The handler re-validates every payload through the same decoders the writer used before it is serialized.
 
 ### `GET /api/v1/contracts/{contractId}/events/{eventId}`
+
+**Status:** Planned
 
 **Authentication:** Required
 
@@ -812,27 +855,15 @@ Returns one decoded indexed event with chain identifiers and decoded payload.
 
 ## Indexing-status routes
 
+v1 has no dedicated indexing-status route. Every contract representation returned by `POST /api/v1/contracts`, `GET /api/v1/contracts`, `GET /api/v1/contracts/{contractId}`, and `PATCH /api/v1/contracts/{contractId}` carries `indexingStatus`, described under `GET /api/v1/contracts` above. It answers whether the deployment is being indexed at all, not how far the scanner has got.
+
 ### `GET /api/v1/contracts/{contractId}/indexing-status`
 
-**Status:** Planned — deferred to Week 6
+**Status:** Planned
 
 **Authentication:** Required
 
-Planned response:
-
-```json
-{
-  "data": {
-    "state": "running",
-    "startBlock": "1234567",
-    "lastIndexedBlock": "1234999",
-    "latestObservedBlock": "1235005",
-    "lagBlocks": "6",
-    "lastError": null,
-    "updatedAt": "2026-08-18T00:00:00Z"
-  }
-}
-```
+Reserved for per-deployment progress: the checkpoint block, the last indexed block, the observed chain head, and the resulting lag. If it ever ships, it reports a derived lag and a coarse state, never the scanner's internal error text and never provider URLs or secrets.
 
 Do not expose secrets or raw provider URLs.
 

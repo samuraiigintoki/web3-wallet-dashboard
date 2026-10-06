@@ -12,13 +12,17 @@ type Contract struct {
 }
 
 type TrackedContract struct {
-	ID         int64
-	Address    string
-	ChainID    int64
-	StartBlock int64
-	Label      string
-	Enabled    bool
-	CreatedAt  time.Time
+	ID      int64
+	Address string
+	ChainID int64
+	// IndexingEnabled is the deployment-wide flag, not the caller's display
+	// preference. It is what the API reports as the deployment's indexing
+	// availability.
+	IndexingEnabled bool
+	StartBlock      int64
+	Label           string
+	Enabled         bool
+	CreatedAt       time.Time
 }
 
 type ListFilter struct {

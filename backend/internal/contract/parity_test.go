@@ -181,14 +181,14 @@ func (p *parityProbe) trackingFacts(tc *contract.TrackedContract) string {
 	if tc == nil {
 		return "<nil>"
 	}
-	return fmt.Sprintf("%s address=%s chainId=%d startBlock=%d label=%q enabled=%t createdAtSet=%t",
-		p.deploymentRef(tc.ID), tc.Address, tc.ChainID, tc.StartBlock, tc.Label, tc.Enabled, !tc.CreatedAt.IsZero())
+	return fmt.Sprintf("%s address=%s chainId=%d startBlock=%d indexingEnabled=%t label=%q enabled=%t createdAtSet=%t",
+		p.deploymentRef(tc.ID), tc.Address, tc.ChainID, tc.StartBlock, tc.IndexingEnabled, tc.Label, tc.Enabled, !tc.CreatedAt.IsZero())
 }
 
 func (p *parityProbe) listFacts(list []contract.TrackedContract, total int) string {
 	items := make([]string, 0, len(list))
 	for _, tc := range list {
-		items = append(items, fmt.Sprintf("%s{label=%q enabled=%t}", p.deploymentRef(tc.ID), tc.Label, tc.Enabled))
+		items = append(items, fmt.Sprintf("%s{indexingEnabled=%t label=%q enabled=%t}", p.deploymentRef(tc.ID), tc.IndexingEnabled, tc.Label, tc.Enabled))
 	}
 	// An empty result renders identically whether the backend returned a nil
 	// slice (PostgreSQL with no rows) or an empty slice (in-memory offset guard).

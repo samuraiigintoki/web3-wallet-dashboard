@@ -115,6 +115,13 @@ type Repository interface {
 	// which is how the caller learns that the stored history ends there.
 	ListIndexedBlocks(ctx context.Context, contractID int64, fromBlock, toBlock int64) ([]BlockHeader, error)
 
+	// ListContractEvents returns one page of a contract's canonical events,
+	// newest first by block number, transaction index and log index, plus the
+	// total number of canonical events. Rows marked removed are excluded from
+	// both the page and the count, and the page is validated the way every other
+	// API collection validates it. It is read-only.
+	ListContractEvents(ctx context.Context, contractID int64, page EventPage) ([]Event, int, error)
+
 	// CommitRange applies one inclusive block range in a single transaction:
 	// canonical block rows, event rows, projection changes and checkpoint
 	// advancement commit together or not at all. Repeating a commit is

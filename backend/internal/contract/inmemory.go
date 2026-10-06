@@ -112,13 +112,14 @@ func (r *InMemoryRepository) GetTracking(ctx context.Context, userID int64, cont
 	}
 
 	return &TrackedContract{
-		ID:         dep.ID,
-		Address:    dep.Address,
-		ChainID:    dep.ChainID,
-		StartBlock: dep.StartBlock,
-		Label:      rec.Label,
-		Enabled:    rec.Enabled,
-		CreatedAt:  rec.CreatedAt,
+		ID:              dep.ID,
+		Address:         dep.Address,
+		ChainID:         dep.ChainID,
+		IndexingEnabled: dep.IndexingEnabled,
+		StartBlock:      dep.StartBlock,
+		Label:           rec.Label,
+		Enabled:         rec.Enabled,
+		CreatedAt:       rec.CreatedAt,
 	}, nil
 }
 
@@ -156,13 +157,14 @@ func (r *InMemoryRepository) ListForUser(ctx context.Context, userID int64, filt
 		}
 
 		matching = append(matching, TrackedContract{
-			ID:         dep.ID,
-			Address:    dep.Address,
-			ChainID:    dep.ChainID,
-			StartBlock: dep.StartBlock,
-			Label:      rec.Label,
-			Enabled:    rec.Enabled,
-			CreatedAt:  rec.CreatedAt,
+			ID:              dep.ID,
+			Address:         dep.Address,
+			ChainID:         dep.ChainID,
+			IndexingEnabled: dep.IndexingEnabled,
+			StartBlock:      dep.StartBlock,
+			Label:           rec.Label,
+			Enabled:         rec.Enabled,
+			CreatedAt:       rec.CreatedAt,
 		})
 	}
 
@@ -215,13 +217,14 @@ func (r *InMemoryRepository) UpdateTracking(ctx context.Context, userID int64, c
 	rec.UpdatedAt = time.Now().UTC()
 
 	return &TrackedContract{
-		ID:         dep.ID,
-		Address:    dep.Address,
-		ChainID:    dep.ChainID,
-		StartBlock: dep.StartBlock,
-		Label:      rec.Label,
-		Enabled:    rec.Enabled,
-		CreatedAt:  rec.CreatedAt,
+		ID:              dep.ID,
+		Address:         dep.Address,
+		ChainID:         dep.ChainID,
+		IndexingEnabled: dep.IndexingEnabled,
+		StartBlock:      dep.StartBlock,
+		Label:           rec.Label,
+		Enabled:         rec.Enabled,
+		CreatedAt:       rec.CreatedAt,
 	}, nil
 }
 

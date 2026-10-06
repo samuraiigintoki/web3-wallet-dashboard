@@ -613,6 +613,75 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /api/v1/contracts/{id}/events:
+    parameters:
+      - $ref: '#/components/parameters/id'
+    get:
+      tags: [contracts]
+      operationId: listContractEvents
+      summary: List one page of the caller's indexed contract events, newest first.
+      description: >-
+        Reads the indexed projection only. The caller's own tracking association
+        authorizes the read, so a contract tracked only by another user is
+        indistinguishable from a missing one. The association applies even when the
+        caller's enabled toggle is false. Events marked removed by a reorg are
+        excluded from both the page and totalItems. There are no further filters in
+        v1 and no streaming variant; clients poll. A stored payload that violates
+        the documented encoding returns 500 rather than a partial body.
+      security:
+        - httpBearer: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/pageSize'
+      responses:
+        '200':
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
+          description: Canonical events and pagination, newest first by block, transaction and log index.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, pagination]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/event'
+                  pagination:
+                    $ref: '#/components/schemas/pagination'
+              example:
+                data:
+                  - contractId: 2
+                    eventName: SubmitTransaction
+                    blockNumber: 1234567
+                    blockHash: '0x6f4d4b0a4a5b3c7f0f5b0e1a2d3c4b5a69788796a5b4c3d2e1f0a9b8c7d6e5f40'
+                    transactionHash: '0x1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809'
+                    transactionIndex: 3
+                    logIndex: 12
+                    actorAddress: '0x00000000000000000000000000000000000000aa'
+                    multisigTxIndex: '7'
+                    payload:
+                      to: '0x00000000000000000000000000000000000000bb'
+                      valueWei: '1000000000000000000'
+                      data: '0x'
+                pagination:
+                  page: 1
+                  pageSize: 20
+                  totalItems: 41
+                  totalPages: 3
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
 components:
   securitySchemes:
     httpBearer:
@@ -753,8 +822,17 @@ components:
           format: date-time
     contract:
       type: object
-      required: [id, address, chainId, label, enabled, startBlock, createdAt]
+      required: [id, address, chainId, label, enabled, startBlock, createdAt, indexingStatus]
       properties:
+        indexingStatus:
+          type: string
+          enum: [pending, disabled, unsupported]
+          description: >-
+            Read-time indexing availability, not live scanner state. disabled means
+            the deployment is excluded from indexing; unsupported means it is not on
+            the chain the indexer follows; pending means it is indexed but has no
+            progress to report. The scanner's running/idle/error states and its error
+            text are never exposed. Does not depend on the caller's enabled toggle.
         id:
           type: integer
           format: int64
@@ -773,6 +851,62 @@ components:
         createdAt:
           type: string
           format: date-time
+    submitPayload:
+      type: object
+      description: >-
+        Payload of a SubmitTransaction event. valueWei is a decimal string because
+        uint256 does not fit a JSON number; data is lowercase 0x hex, and an empty
+        calldata is "0x".
+      required: [to, valueWei, data]
+      properties:
+        to:
+          type: string
+        valueWei:
+          type: string
+          pattern: '^[0-9]+$'
+        data:
+          type: string
+          pattern: '^0x([0-9a-fA-F]{2})*$'
+    event:
+      type: object
+      required:
+        [contractId, eventName, blockNumber, blockHash, transactionHash, transactionIndex, logIndex, actorAddress, multisigTxIndex, payload]
+      properties:
+        contractId:
+          type: integer
+          format: int64
+        eventName:
+          type: string
+          enum: [SubmitTransaction, ConfirmTransaction, RevokeConfirmation, ExecuteTransaction]
+        blockNumber:
+          type: integer
+          format: int64
+        blockHash:
+          type: string
+          pattern: '^0x[0-9a-fA-F]{64}$'
+        transactionHash:
+          type: string
+          pattern: '^0x[0-9a-fA-F]{64}$'
+        transactionIndex:
+          type: integer
+        logIndex:
+          type: integer
+        actorAddress:
+          type: string
+        multisigTxIndex:
+          type: string
+          description: uint256 as a decimal string.
+          pattern: '^[0-9]+$'
+        payload:
+          description: >-
+            Typed per event. SubmitTransaction carries a submitPayload;
+            ConfirmTransaction, RevokeConfirmation and ExecuteTransaction carry an
+            empty object, since their subject and index are already top-level fields.
+          oneOf:
+            - $ref: '#/components/schemas/submitPayload'
+            - type: object
+              maxProperties: 0
+              additionalProperties: false
     pagination:
       type: object
       required: [page, pageSize, totalItems, totalPages]

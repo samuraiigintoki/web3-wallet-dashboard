@@ -10,9 +10,9 @@ import (
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/wallet"
 )
 
-func NewRouter(walletSvc *wallet.Service, userSvc *user.Service, chainSvc *chain.Service, contractSvc *contract.Service, logger *slog.Logger, readinessChecker ReadinessChecker, globalLimiter RateLimiter, authLimiter RateLimiter) http.Handler {
+func NewRouter(walletSvc *wallet.Service, userSvc *user.Service, chainSvc *chain.Service, contractSvc *contract.Service, events IndexedEventsReader, logger *slog.Logger, readinessChecker ReadinessChecker, globalLimiter RateLimiter, authLimiter RateLimiter) http.Handler {
 	mux := http.NewServeMux()
-	h := NewHandler(walletSvc, userSvc, chainSvc, contractSvc)
+	h := NewHandler(walletSvc, userSvc, chainSvc, contractSvc, events)
 
 	// Liveness never consults dependencies; /health remains a compatibility alias.
 	// Health probes are infrastructure traffic and no limiter counts them.
@@ -52,6 +52,9 @@ func NewRouter(walletSvc *wallet.Service, userSvc *user.Service, chainSvc *chain
 	mux.Handle("GET /api/v1/contracts/{id}", authenticated(http.HandlerFunc(h.getContract)))
 	mux.Handle("PATCH /api/v1/contracts/{id}", authenticated(http.HandlerFunc(h.updateContract)))
 	mux.Handle("DELETE /api/v1/contracts/{id}", authenticated(http.HandlerFunc(h.deleteContract)))
+
+	// indexed events (owner-scoped through the same user_contracts association)
+	mux.Handle("GET /api/v1/contracts/{id}/events", authenticated(http.HandlerFunc(h.listContractEvents)))
 
 	// The global tier is one chain-wide wrap, above route matching and above
 	// authentication, so an invalid token is counted before requireAuth reaches

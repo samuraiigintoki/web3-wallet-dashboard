@@ -40,7 +40,7 @@ func newContractsHarness(t *testing.T) *contractsHarness {
 	userSvc := user.NewService(user.NewInMemoryRepository())
 	contractSvc := contract.NewService(contract.NewInMemoryRepository(), chainSvc)
 
-	return &contractsHarness{t: t, router: NewRouter(walletSvc, userSvc, chainSvc, contractSvc, testLogger(), &stubReadinessChecker{}, unlimitedRateLimiter(), unlimitedRateLimiter())}
+	return &contractsHarness{t: t, router: NewRouter(walletSvc, userSvc, chainSvc, contractSvc, testEventReader(), testLogger(), &stubReadinessChecker{}, unlimitedRateLimiter(), unlimitedRateLimiter())}
 }
 
 func (h *contractsHarness) do(method, path, body, token string) *httptest.ResponseRecorder {
@@ -126,18 +126,19 @@ func contractAddr(seed int) string {
 	return fmt.Sprintf("0x%040x", seed)
 }
 
-// assertContractKeyset is the field-leak tripwire: exactly seven keys, no more.
+// assertContractKeyset is the field-leak tripwire: exactly eight keys, no more.
 func assertContractKeyset(t *testing.T, raw map[string]any) {
 	t.Helper()
 
 	allowed := map[string]bool{
-		"id":         true,
-		"address":    true,
-		"chainId":    true,
-		"label":      true,
-		"enabled":    true,
-		"startBlock": true,
-		"createdAt":  true,
+		"id":             true,
+		"address":        true,
+		"chainId":        true,
+		"label":          true,
+		"enabled":        true,
+		"startBlock":     true,
+		"createdAt":      true,
+		"indexingStatus": true,
 	}
 
 	if len(raw) != len(allowed) {
@@ -147,6 +148,14 @@ func assertContractKeyset(t *testing.T, raw map[string]any) {
 		if !allowed[k] {
 			t.Fatalf("unexpected leaked key %q in contract object: %v", k, raw)
 		}
+	}
+
+	// The value is a read-time category, never a scanner state: running, idle
+	// and error must not reach a client through this field.
+	switch raw["indexingStatus"] {
+	case indexingStatusPending, indexingStatusDisabled, indexingStatusUnsupported:
+	default:
+		t.Fatalf("indexingStatus %v is not one of the three read-time values: %v", raw["indexingStatus"], raw)
 	}
 }
 
@@ -913,7 +922,7 @@ func TestCurrentUser_IdenticalHouse401(t *testing.T) {
 	chainSvc := chain.NewService(chain.NewInMemoryRepository())
 	h := NewHandler(wallet.NewService(wallet.NewInMemoryWalletRepo(), chainSvc),
 		user.NewService(user.NewInMemoryRepository()), chainSvc,
-		contract.NewService(contract.NewInMemoryRepository(), chainSvc))
+		contract.NewService(contract.NewInMemoryRepository(), chainSvc), testEventReader())
 
 	rec := httptest.NewRecorder()
 	u, ok := h.currentUser(rec, httptest.NewRequest(http.MethodGet, "/api/v1/contracts", nil))

@@ -115,6 +115,49 @@ type Event struct {
 	Removed bool
 }
 
+// EventPage is the pagination of one canonical-event read. The defaults and
+// maximums are the ones every other API collection uses, so the events route
+// cannot drift from the rest of the API.
+type EventPage struct {
+	Page     int
+	PageSize int
+}
+
+const (
+	// DefaultEventPage and DefaultEventPageSize are what an omitted value means.
+	DefaultEventPage     = 1
+	DefaultEventPageSize = 20
+
+	// MaxEventPage and MaxEventPageSize bound a read. A larger value is a caller
+	// error rather than something to clamp.
+	MaxEventPage     = 10000
+	MaxEventPageSize = 100
+)
+
+// Normalize applies the collection defaults and rejects a page or page size
+// above the shared maximums.
+func (p EventPage) Normalize() (EventPage, error) {
+	if p.Page <= 0 {
+		p.Page = DefaultEventPage
+	}
+	if p.PageSize <= 0 {
+		p.PageSize = DefaultEventPageSize
+	}
+	if p.Page > MaxEventPage {
+		return EventPage{}, ValidationError{Field: "page", Message: fmt.Sprintf("page must not exceed %d", MaxEventPage)}
+	}
+	if p.PageSize > MaxEventPageSize {
+		return EventPage{}, ValidationError{Field: "pageSize", Message: fmt.Sprintf("pageSize must not exceed %d", MaxEventPageSize)}
+	}
+	return p, nil
+}
+
+// Offset is the first row of the page, matching the shape the other
+// collections use.
+func (p EventPage) Offset() int {
+	return (p.Page - 1) * p.PageSize
+}
+
 // RangeCommit is one inclusive block range ready to be committed atomically.
 // Blocks must cover every block in the range and Events must be in canonical
 // order: block number, then transaction index, then log index.
