@@ -65,7 +65,7 @@ func (h *contractsHarness) do(method, path, body, token string) *httptest.Respon
 func (h *contractsHarness) token(email string) string {
 	h.t.Helper()
 
-	creds := fmt.Sprintf(`{"email":%q,"password":"password123"}`, email)
+	creds := fmt.Sprintf(`{"email":%q,"password":%q}`, email, testPassword)
 
 	rec := h.do(http.MethodPost, "/api/v1/auth/register", creds, "")
 	if rec.Code != http.StatusCreated {

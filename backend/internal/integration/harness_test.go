@@ -40,6 +40,9 @@ const (
 	// never touches public, so it can run beside the other packages.
 	integrationSchema = "integration_test"
 
+	// testPassword satisfies the registration policy: 21 code points.
+	testPassword = "correct-horse-battery"
+
 	flowChainID    int64 = 11155111
 	flowAddress          = "0x5b324f41e5889cf94cba8e909089683a1a97c318"
 	flowOwnerA           = "0x14912965632cd9ab70c046e8d23e9b8dfa9f2746"
@@ -499,7 +502,7 @@ func (api *flowAPI) do(method, path, body, token string) *httptest.ResponseRecor
 func (api *flowAPI) token(email string) string {
 	api.t.Helper()
 
-	credentials := fmt.Sprintf(`{"email":%q,"password":"password123"}`, email)
+	credentials := fmt.Sprintf(`{"email":%q,"password":%q}`, email, testPassword)
 	if rec := api.do(http.MethodPost, "/api/v1/auth/register", credentials, ""); rec.Code != http.StatusCreated {
 		api.t.Fatalf("register %s: expected 201, got %d body=%s", email, rec.Code, rec.Body.String())
 	}
