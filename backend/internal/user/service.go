@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -22,8 +23,17 @@ func NewService(r UserRepository) *Service {
 }
 
 const (
-	SessionTTL       = 7 * 24 * time.Hour
+	SessionTTL = 7 * 24 * time.Hour
+	// MaxPasswordBytes is bcrypt's input limit. The service rejects a longer
+	// password rather than truncating it, so the bytes a user sends are the
+	// bytes that are hashed.
 	MaxPasswordBytes = 72
+	// MinPasswordRunes is the registration minimum, counted in Unicode code
+	// points because that is the unit the length guidance uses. It applies
+	// where a password is set, never at login: an account created under the
+	// earlier rule keeps working, and rejecting it at login could not
+	// strengthen a hash that is already stored.
+	MinPasswordRunes = 15
 )
 
 // timing-oracle mitigation: dynamically generate a cryptographically valid 60-byte
@@ -42,6 +52,17 @@ func (s *Service) Register(ctx context.Context, email, password string) (User, e
 	trimmedEmail := strings.TrimSpace(strings.ToLower(email))
 	if trimmedEmail == "" || !strings.Contains(trimmedEmail, "@") {
 		return User{}, &ValidationError{Field: "email", Message: "must contain @"}
+	}
+	// Blank first, so a password of only spaces is reported as blank rather
+	// than short. The password is measured exactly as received: no trimming
+	// and no normalization, so the value checked here is the value hashed.
+	if strings.TrimSpace(password) == "" {
+		return User{}, &ValidationError{Field: "password", Message: "password must not be blank"}
+	}
+	// The minimum counts code points and the ceiling counts bytes. They cannot
+	// both fail, because a password under 15 code points is at most 56 bytes.
+	if utf8.RuneCountInString(password) < MinPasswordRunes {
+		return User{}, &ValidationError{Field: "password", Message: "password must be at least 15 characters"}
 	}
 	if len(password) > MaxPasswordBytes {
 		return User{}, &ValidationError{Field: "password", Message: "password exceeds maximum allowed length of 72 bytes"}

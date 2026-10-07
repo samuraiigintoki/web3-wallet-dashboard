@@ -1364,7 +1364,7 @@ func newAuthedRouter(t *testing.T, walletSvc *wallet.Service, userSvc *user.Serv
 	t.Helper()
 
 	plain := NewRouter(walletSvc, userSvc, chainSvc, contractSvc, testEventReader(), testLogger(), &stubReadinessChecker{}, unlimitedRateLimiter(), unlimitedRateLimiter())
-	creds := `{"email":"wallet-suite@example.com","password":"password123"}`
+	creds := `{"email":"wallet-suite@example.com","password":"` + testPassword + `"}`
 
 	registerRec := httptest.NewRecorder()
 	plain.ServeHTTP(registerRec, httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(creds)))
@@ -1437,7 +1437,7 @@ func newWalletOwnershipHarness(t *testing.T) *walletOwnershipHarness {
 func mintWalletSession(t *testing.T, router http.Handler, email string) string {
 	t.Helper()
 
-	creds := fmt.Sprintf(`{"email":%q,"password":"password123"}`, email)
+	creds := fmt.Sprintf(`{"email":%q,"password":%q}`, email, testPassword)
 
 	registerRec := httptest.NewRecorder()
 	router.ServeHTTP(registerRec, httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(creds)))

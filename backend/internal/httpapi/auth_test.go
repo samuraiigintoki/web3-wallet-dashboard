@@ -177,11 +177,15 @@ func TestRequireAuth_Middleware(t *testing.T) {
 	})
 }
 
+// testPassword satisfies the registration policy: 21 code points, 21 bytes.
+// Fixtures across this package use it rather than their own short strings.
+const testPassword = "correct-horse-battery"
+
 func TestRegisterHandler(t *testing.T) {
 	router := newTestRouter(nil)
 
 	t.Run("201 Created Valid Payload", func(t *testing.T) {
-		body := `{"email":"new@example.com","password":"validpassword"}`
+		body := `{"email":"new@example.com","password":"` + testPassword + `"}`
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
@@ -202,7 +206,7 @@ func TestRegisterHandler(t *testing.T) {
 	})
 
 	t.Run("409 Conflict Duplicate Email", func(t *testing.T) {
-		body := `{"email":"new@example.com","password":"validpassword"}`
+		body := `{"email":"new@example.com","password":"` + testPassword + `"}`
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
@@ -276,7 +280,7 @@ func TestLoginHandler_Identical401(t *testing.T) {
 
 	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc, testEventReader(), testLogger(), &stubReadinessChecker{}, unlimitedRateLimiter(), unlimitedRateLimiter())
 
-	_, err := userSvc.Register(ctx, "registered@example.com", "correctpassword")
+	_, err := userSvc.Register(ctx, "registered@example.com", testPassword)
 	if err != nil {
 		t.Fatalf("failed to register user: %v", err)
 	}
@@ -309,7 +313,7 @@ func TestLoginHandler_Identical401(t *testing.T) {
 
 	// Subtest 3: Success
 	t.Run("Valid Credentials 200 OK", func(t *testing.T) {
-		reqValid := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"email":"registered@example.com","password":"correctpassword"}`))
+		reqValid := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"email":"registered@example.com","password":"`+testPassword+`"}`))
 		reqValid.Header.Set("Content-Type", "application/json")
 		recValid := httptest.NewRecorder()
 
@@ -349,12 +353,12 @@ func TestLogoutHandler(t *testing.T) {
 
 	router := NewRouter(walletSvc, userSvc, chainSvc, contractSvc, testEventReader(), testLogger(), &stubReadinessChecker{}, unlimitedRateLimiter(), unlimitedRateLimiter())
 
-	_, err := userSvc.Register(ctx, "logoutuser@example.com", "mypassword")
+	_, err := userSvc.Register(ctx, "logoutuser@example.com", testPassword)
 	if err != nil {
 		t.Fatalf("failed to register user: %v", err)
 	}
 
-	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"email":"logoutuser@example.com","password":"mypassword"}`))
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"email":"logoutuser@example.com","password":"`+testPassword+`"}`))
 	loginReq.Header.Set("Content-Type", "application/json")
 	loginRec := httptest.NewRecorder()
 	router.ServeHTTP(loginRec, loginReq)
@@ -484,4 +488,87 @@ func TestRevokeAllSessionsHandler(t *testing.T) {
 			t.Fatalf("expected 500 %s, got %d body=%s", CodeInternalError, rec.Code, rec.Body.String())
 		}
 	})
+}
+
+// TestRegisterHandler_PasswordMinimum checks the wire shape of a rejected
+// registration: 422, the validation code, only the password key in details,
+// the exact message, and no trace of the submitted password anywhere.
+func TestRegisterHandler_PasswordMinimum(t *testing.T) {
+	cases := []struct {
+		name     string
+		password string
+		message  string
+	}{
+		{name: "empty", password: "", message: "password must not be blank"},
+		{name: "fourteen characters", password: strings.Repeat("a", 14), message: "password must be at least 15 characters"},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			router := newTestRouter(nil)
+			payload, err := json.Marshal(RegisterRequest{Email: "minimum@example.com", Password: testCase.password})
+			if err != nil {
+				t.Fatalf("failed to marshal payload: %v", err)
+			}
+
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewReader(payload))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("expected 422 Unprocessable Entity, got: %d, body: %s", rec.Code, rec.Body.String())
+			}
+
+			var response struct {
+				Error struct {
+					Code    string            `json:"code"`
+					Message string            `json:"message"`
+					Details map[string]string `json:"details"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+				t.Fatalf("failed to decode body %s: %v", rec.Body.String(), err)
+			}
+
+			if response.Error.Code != CodeValidationError {
+				t.Fatalf("expected code %s, got: %s", CodeValidationError, response.Error.Code)
+			}
+			if len(response.Error.Details) != 1 {
+				t.Fatalf("expected only the password key in details, got: %v", response.Error.Details)
+			}
+			if response.Error.Details["password"] != testCase.message {
+				t.Fatalf("expected message %q, got: %q", testCase.message, response.Error.Details["password"])
+			}
+
+			// The rejected value must not come back to the caller.
+			if testCase.password != "" && strings.Contains(rec.Body.String(), testCase.password) {
+				t.Fatalf("expected the submitted password to be absent from the body, got: %s", rec.Body.String())
+			}
+		})
+	}
+}
+
+// TestRegisterHandler_OverByteCeiling keeps the byte ceiling reporting its own
+// message, so a long multibyte passphrase is not mistaken for a short one.
+func TestRegisterHandler_OverByteCeiling(t *testing.T) {
+	router := newTestRouter(nil)
+	payload, err := json.Marshal(RegisterRequest{Email: "ceiling@example.com", Password: strings.Repeat("𝄞", 19)})
+	if err != nil {
+		t.Fatalf("failed to marshal payload: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 Unprocessable Entity, got: %d, body: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "password exceeds maximum allowed length of 72 bytes") {
+		t.Fatalf("expected the byte ceiling message, got: %s", rec.Body.String())
+	}
 }
