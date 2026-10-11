@@ -150,12 +150,14 @@ One short continuity motion, 240ms, transform and opacity, reduced motion respec
 - No dark patterns: no fake urgency, no auto-dismissing errors, no confirmation delay to upsell.
 - No em dashes or en dashes in interface copy. Ranges use hyphens.
 
-## Open at the block
+## Decisions at the block
 
-1. Accent hue: amber (chosen) versus chartreuse, one decision, decided with both ramps rendered.
-2. Font: Geist versus Instrument Sans, decided by rendering the same screen in both.
-3. Light surface: deferred by the recorded design call, so tokens are defined dark-first only and no light theme is stubbed.
-4. Compact rail in list rows: on by default, or detail only. Decide after seeing density with real row counts.
+Each question below is settled by the criterion recorded with it. The losing option leaves no token, file or rule in the tree.
+
+1. Accent hue: still open. Amber against chartreuse, decided with both ramps rendered and both run through the gate.
+2. Font: still open. Geist against Instrument Sans, decided by rendering the same screen in both.
+3. Light surface: deferred. The trigger has not occurred and the cost is already known, so nothing is rendered. Trigger: a real need after the Week 12 deployment, not before. Cost: a second value for each of the 28 colours in the tables, fewer once the aliases are counted, a second gate pass over all four surfaces on both measures, and a second set of screenshots plus hover and focus checks. Components need no change if they reference tokens only. Until then `color-scheme: dark` stands and no light value is stubbed.
+4. Compact rail in list rows: still open. On by default or detail only, decided with real row counts.
 
 ## How this is used
 
