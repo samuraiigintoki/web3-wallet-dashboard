@@ -23,8 +23,11 @@ Warm near-black ground, one saturated accent. Values are OKLCH with the sRGB equ
 | `--bg-1` raised panel | `0.190 0.008 75` | `#161310` | cards, panels, sidebar |
 | `--bg-2` inset | `0.120 0.007 75` | `#070504` | wells, code, table header |
 | `--bg-3` hover wash | `0.230 0.009 75` | `#1F1C18` | row and control hover |
-| `--line` | `0.280 0.008 75` | `#2B2825` | 1px structure |
+| `--line` | `0.280 0.008 75` | `#2B2825` | 1px structure, never a control boundary |
 | `--line-strong` | `0.360 0.010 75` | `#403C37` | focus-adjacent, active tabs |
+| `--line-control` | `0.600 0.006 75` | `#82807C` | control and input borders, 4.3 to 5.1:1 and Lc 33 to 35 on all four surfaces |
+
+A control boundary needs 3:1 and Lc 30. `--line` measures 1.27:1 and `--line-strong` 1.70:1 on `--bg-1`, so neither can bound an input; `--line-control` is the token that does.
 
 ### Text
 
@@ -46,6 +49,8 @@ Signal amber, hue 72. It is the brand and the waiting state, because waiting for
 | `--accent-press` | `0.720 0.150 72` | `#DD9314` | press only |
 | `--accent-soft` | `0.280 0.050 72` | `#382409` | chip and row tint |
 | `--accent-ink` | `0.200 0.030 72` | `#1E1406` | text on accent, 8.9:1 |
+
+The focus ring is `--accent`, 2px solid with a 2px offset, measured 9.0:1 on `--bg-1`.
 
 ### Transaction and indexing states
 
@@ -80,10 +85,26 @@ One family plus one mono, both OFL, self-hosted, subset.
 - Tabular numerals on every figure, always. No fluid clamp sizing in the app.
 - Line height 1.5 body, 1.25 headings. Body measure 65 to 75ch in prose, tables may run denser.
 
+Family tokens: `--font-sans: "Geist Sans", system-ui, sans-serif` and `--font-mono: "Geist Mono", ui-monospace, monospace`.
+
+| Step token | Size | Use | Line height |
+|---|---|---|---|
+| `--type-meta` | 12px | meta only, paired with `--text-1` or `--text-2` | `--leading-body` |
+| `--type-label` | 13px | labels, paired with `--text-1` or `--text-2` | `--leading-body` |
+| `--type-body` | 14px | body | `--leading-body` |
+| `--type-lead` | 16px | lead paragraphs and inputs | `--leading-body` |
+| `--type-section` | 19px | section headings | `--leading-heading` |
+| `--type-panel` | 23px | panel titles | `--leading-heading` |
+| `--type-page` | 28px | page titles | `--leading-heading` |
+| `--type-headline` | 40px | auth headline only | `--leading-heading` |
+
+Line height: `--leading-body: 1.5`, `--leading-heading: 1.25`.
+
 ## Space, radius, elevation
 
-- 4px base: 4, 8, 12, 16, 24, 32, 48, 64. Table row 44px, panel padding 20px, page gutter 24px.
-- Radius: 10 controls, 14 cards and overlays, pill for chips and small toggles. Nothing above 16 on a panel; over-rounded product UI reads soft.
+- Spacing, 4px base: `--space-1: 4px`, `--space-2: 8px`, `--space-3: 12px`, `--space-4: 16px`, `--space-5: 24px`, `--space-6: 32px`, `--space-7: 48px`, `--space-8: 64px`.
+- Named layout sizes: `--row-height: 44px` table row, `--pad-panel: 20px` panel padding, `--gutter-page: 24px` page gutter.
+- Radius: `--radius-control: 10px`, `--radius-panel: 14px`, `--radius-pill: 999px` for chips and small toggles. Nothing above 16 on a panel; over-rounded product UI reads soft.
 - Structure comes from `--line`, not shadow. Overlays only (menu, modal, toast) get one shadow token with offset and blur. Never border plus shadow on a resting card, and never a zero-offset colored glow.
 
 ## Motion
@@ -94,7 +115,7 @@ Three easing tokens, from the vendored motion standards:
 - `--ease-in-out: cubic-bezier(0.77, 0, 0.175, 1)` for movement already on screen.
 - `--ease-drawer: cubic-bezier(0.32, 0.72, 0, 1)` for drawers and sheets.
 
-Durations: 120 press, 180 hover and feedback, 240 state change, 320 the moment's settle, 480 ceiling for overlays and route transitions. Transform and opacity only. Never `transition: all`, never `ease-in` on UI, never `scale(0)`. Anything a user sees a hundred times a day does not animate. Every transition that moves more than a few pixels respects `prefers-reduced-motion`.
+Durations, named: `--duration-press: 120ms`, `--duration-feedback: 180ms` for hover and feedback, `--duration-state: 240ms`, `--duration-settle: 320ms`, and `--duration-ceiling: 480ms` for overlays and route transitions. Transform and opacity only. Never `transition: all`, never `ease-in` on UI, never `scale(0)`. Anything a user sees a hundred times a day does not animate. Every transition that moves more than a few pixels respects `prefers-reduced-motion`.
 
 ### The one authored moment: the block-time rail
 
