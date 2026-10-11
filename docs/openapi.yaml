@@ -128,7 +128,23 @@ paths:
         '400':
           $ref: '#/components/responses/InvalidJSON'
         '422':
-          $ref: '#/components/responses/Validation422'
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
+          description: >-
+            The email or the password failed validation. details carries one
+            key. A password is rejected when it is blank, under 15 code points,
+            or over 72 UTF-8 bytes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/error'
+              example:
+                error:
+                  code: VALIDATION_ERROR
+                  message: validation failed
+                  details:
+                    password: password must be at least 15 characters
         '409':
           $ref: '#/components/responses/UserConflict'
         '429':
@@ -953,6 +969,15 @@ components:
           format: email
         password:
           type: string
+          minLength: 15
+          description: >-
+            At least 15 Unicode code points and at most 72 UTF-8 bytes, and not
+            whitespace only. minLength counts code points, which is the unit the
+            server counts. The 72 byte ceiling is bcrypt's and is not expressed
+            as maxLength, because maxLength would count code points: a 19
+            character passphrase of four-byte code points is 76 bytes and is
+            rejected. The value is hashed exactly as sent, with no trimming and
+            no normalization.
     loginRequest:
       type: object
       required: [email, password]
@@ -962,6 +987,10 @@ components:
           format: email
         password:
           type: string
+          description: >-
+            No length minimum applies at login. Accounts created before the
+            registration minimum keep working, and the password is compared
+            exactly as sent.
     walletCreate:
       type: object
       required: [address, chainId, label]

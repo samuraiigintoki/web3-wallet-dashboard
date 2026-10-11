@@ -101,7 +101,7 @@ func (h *eventsHarness) do(method, path, body, token string) *httptest.ResponseR
 func (h *eventsHarness) token(email string) string {
 	h.t.Helper()
 
-	creds := fmt.Sprintf(`{"email":%q,"password":"password123"}`, email)
+	creds := fmt.Sprintf(`{"email":%q,"password":%q}`, email, testPassword)
 
 	if rec := h.do(http.MethodPost, "/api/v1/auth/register", creds, ""); rec.Code != http.StatusCreated {
 		h.t.Fatalf("register %s: expected 201, got %d body=%s", email, rec.Code, rec.Body.String())

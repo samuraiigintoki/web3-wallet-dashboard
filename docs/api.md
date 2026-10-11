@@ -170,7 +170,10 @@ Request:
 
 Behavior:
 - Normalize email (trimmed and lowercased).
-- Hard validation: email must contain `@` (simple MVP rule), password length <= 72 bytes (pre-bcrypt check).
+- Hard validation: email must contain `@` (simple MVP rule); the password must not be whitespace only, must be at least 15 Unicode code points, and must be at most 72 UTF-8 bytes (pre-bcrypt check).
+- The checks run in that order, so a password of only spaces reports blank rather than short. The minimum counts code points and the ceiling counts bytes, so a 19 character passphrase of four-byte code points is 76 bytes and is rejected.
+- No trimming and no normalization: the password is hashed exactly as received, and leading or trailing spaces are part of it.
+- The minimum applies here only. Login has no minimum, so accounts created before this rule keep working.
 - Store cost-10 bcrypt password hash, never plaintext.
 - Duplicate email rejected with `409 USER_CONFLICT`.
 - Does not expose password or hash in response.
@@ -196,11 +199,13 @@ Errors:
       "code": "VALIDATION_ERROR",
       "message": "validation failed",
       "details": {
-        "password": "password exceeds maximum allowed length of 72 bytes"
+        "password": "password must be at least 15 characters"
       }
     }
   }
   ```
+
+  `details` carries one key. The password messages are `password must not be blank`, `password must be at least 15 characters`, and `password exceeds maximum allowed length of 72 bytes`. The submitted password never appears in the response.
 
 ### `POST /api/v1/auth/login`
 
@@ -221,6 +226,7 @@ Behavior:
 - Stores `sha256(token)` in `user_sessions` with 7-day TTL.
 - Constant-time unknown-email verification via dummy bcrypt hash prevents timing oracle.
 - Returns identical 401 `INVALID_CREDENTIALS` for both unknown email and wrong password.
+- No password length rule is applied. The registration minimum is not re-checked here, so an account created before that rule still logs in.
 
 Success: `200 OK`.
 ```json
