@@ -157,7 +157,7 @@ Each question below is settled by the criterion recorded with it. The losing opt
 1. Accent hue: still open. Amber against chartreuse, decided with both ramps rendered and both run through the gate.
 2. Font: still open. Geist against Instrument Sans, decided by rendering the same screen in both.
 3. Light surface: deferred. The trigger has not occurred and the cost is already known, so nothing is rendered. Trigger: a real need after the Week 12 deployment, not before. Cost: a second value for each of the 28 colours in the tables, fewer once the aliases are counted, a second gate pass over all four surfaces on both measures, and a second set of screenshots plus hover and focus checks. Components need no change if they reference tokens only. Until then `color-scheme: dark` stands and no light value is stubbed.
-4. Compact rail in list rows: still open. On by default or detail only, decided with real row counts.
+4. Compact rail in list rows: detail only until Week 9. Week 8 rows know only "seen in block N", there is no head and no real row count, and the direction bans fake data and says to decide this with real row counts. It reopens when the Week 9 head read lands and real rows exist. On return it must carry meaning without the head, have a text equivalent, and follow the finality copy (indexed, seen in block N, reversible window; never "confirmed", never "final").
 
 ## How this is used
 
