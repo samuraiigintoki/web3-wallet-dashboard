@@ -228,6 +228,46 @@ describe('register page', () => {
     deferred.release?.()
   })
 
+  it('blocks fourteen ASCII code points at the field and calls nothing', async () => {
+    const fetchStub = stubRegister(() => jsonResponse({ data: USER }, { status: 201 }))
+    const { user } = renderApp({ path: '/register' })
+
+    await fill(user, {
+      email: 'grace@example.com',
+      password: 'a'.repeat(14),
+      confirmation: 'a'.repeat(14),
+    })
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+
+    expect(
+      screen.getByText('Your password must be at least 15 characters.'),
+    ).toBeDefined()
+    expect(fetchStub.mock).not.toHaveBeenCalled()
+  })
+
+  it('blocks fourteen astral code points, whose string length is 28', async () => {
+    const fetchStub = stubRegister(() => jsonResponse({ data: USER }, { status: 201 }))
+    const { user } = renderApp({ path: '/register' })
+
+    // 打谱音符 U+1D11E is a surrogate pair, so `length` reads 28 for 14 code
+    // points. The server counts code points, so this must be rejected here
+    // rather than sent and answered with a 422.
+    const fourteen = '\u{1D11E}'.repeat(14)
+    expect(fourteen.length).toBe(28)
+
+    await fill(user, {
+      email: 'grace@example.com',
+      password: fourteen,
+      confirmation: fourteen,
+    })
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+
+    expect(
+      screen.getByText('Your password must be at least 15 characters.'),
+    ).toBeDefined()
+    expect(fetchStub.mock).not.toHaveBeenCalled()
+  })
+
   it('uses the new-password autocomplete hint on both password inputs', () => {
     stubRegister(() => jsonResponse({ data: USER }, { status: 201 }))
     renderApp({ path: '/register' })

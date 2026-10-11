@@ -27,6 +27,50 @@ export function utf8ByteLength(value: string): number {
 }
 
 /**
+ * The whitespace the server treats as blank, which is not the set `.trim()`
+ * strips.
+ *
+ * The API calls Go's `strings.TrimSpace`, which uses `unicode.IsSpace`. Two
+ * points differ from JavaScript's `\\s` and both were reproduced against the
+ * running service: fifteen U+0085 NEXT LINE characters are blank to the server
+ * and are accepted by `.trim()`, and fifteen U+FEFF characters are accepted by
+ * the server and are blank to `.trim()`. The ranges below are Go's set, and
+ * the value is never trimmed or normalized, only classified.
+ */
+const SERVER_SPACE_RANGES: ReadonlyArray<readonly [number, number]> = [
+  [0x09, 0x0d],
+  [0x20, 0x20],
+  [0x85, 0x85],
+  [0xa0, 0xa0],
+  [0x1680, 0x1680],
+  [0x2000, 0x200a],
+  [0x2028, 0x2029],
+  [0x202f, 0x202f],
+  [0x205f, 0x205f],
+  [0x3000, 0x3000],
+]
+
+/** True when every code point is whitespace to the server, so it reads as blank. */
+export function isBlankToServer(value: string): boolean {
+  if (value === '') {
+    return true
+  }
+
+  for (const character of value) {
+    const codePoint = character.codePointAt(0)
+    const isSpace = SERVER_SPACE_RANGES.some(
+      ([low, high]) => codePoint !== undefined && codePoint >= low && codePoint <= high,
+    )
+
+    if (!isSpace) {
+      return false
+    }
+  }
+
+  return true
+}
+
+/**
  * Counts Unicode code points, the unit the API counts in.
  *
  * `value.length` counts UTF-16 units, so it would call 14 astral characters a
@@ -80,7 +124,7 @@ export function validatePassword(value: string): string | null {
  * through and turn into a 422 the form could have caught.
  */
 export function validateNewPassword(value: string): string | null {
-  if (value.trim() === '') {
+  if (isBlankToServer(value)) {
     return 'Enter your password.'
   }
 

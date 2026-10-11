@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   codePointLength,
+  utf8ByteLength,
   MAX_PASSWORD_BYTES,
   MIN_PASSWORD_RUNES,
   validateNewPassword,
@@ -32,6 +33,24 @@ describe('validateNewPassword', () => {
   it('rejects a whitespace-only password as blank, however long', () => {
     expect(validateNewPassword('')).toBe('Enter your password.')
     expect(validateNewPassword(' '.repeat(MIN_PASSWORD_RUNES))).toBe('Enter your password.')
+  })
+
+  it('treats U+0085 as blank, because the server does and .trim() does not', () => {
+    // Reproduced against the API: fifteen of these are blank to Go, and
+    // JavaScript's trim() leaves them alone.
+    const nextLines = '\u0085'.repeat(MIN_PASSWORD_RUNES)
+    expect(nextLines.trim()).not.toBe('')
+    expect(utf8ByteLength(nextLines)).toBe(30)
+    expect(validateNewPassword(nextLines)).toBe('Enter your password.')
+  })
+
+  it('accepts U+FEFF, because the server does and .trim() treats it as blank', () => {
+    // The mirror image: fifteen of these satisfy the server's rules at 15 code
+    // points and 45 bytes, and JavaScript's trim() would call them empty.
+    const byteOrderMarks = '\uFEFF'.repeat(MIN_PASSWORD_RUNES)
+    expect(byteOrderMarks.trim()).toBe('')
+    expect(utf8ByteLength(byteOrderMarks)).toBe(45)
+    expect(validateNewPassword(byteOrderMarks)).toBeNull()
   })
 
   it('counts the padding, so fifteen code points including spaces are accepted', () => {
