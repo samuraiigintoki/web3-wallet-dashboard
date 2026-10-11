@@ -50,8 +50,9 @@
   --state-disabled: var(--text-disabled);
   --state-unsupported: var(--state-indexing);
 
-  /* Tints. --accent-soft is the awaiting tint; a chip label is --text-1 on any
-     of these, because --text-2 measures Lc 74.5 to 75.0 on them. */
+  /* Tints. --accent-soft is the awaiting tint. A chip label is --text-1 on any
+     of these: --text-2 measures Lc 74.5 to 75.0 across them, which is the bar
+     itself rather than clear of it. */
   --tint-executed: oklch(0.280 0.050 155);
   --tint-revoked: oklch(0.280 0.050 20);
   --tint-vanished: oklch(0.280 0.050 260);
