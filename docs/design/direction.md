@@ -15,6 +15,22 @@ The palette, type and motion below all exist to make that rail legible. Everythi
 
 Warm near-black ground, one saturated accent. Values are OKLCH with the sRGB equivalent. Contrast is measured WCAG against the stated background and independently with APCA; the stricter of the two decides, and every figure below is measured rather than estimated.
 
+### Contrast gate
+
+Every pair is measured on both scales and the stricter figure decides. A threshold is never lowered to make a value pass.
+
+| Role | Size | APCA | WCAG |
+|---|---|---|---|
+| Reading text | below 24px | Lc 75 | 4.5:1 |
+| Supporting text | 14px and above | Lc 60 | 4.5:1 |
+| Headings | 24px and above | Lc 45 | 3:1 |
+| Non-text boundary, focus indicator | any | Lc 30 | 3:1 |
+| Disabled text | any | Lc 15 minimum | not claimed |
+
+Disabled text never carries information and is never the only way to read a state. Inactive controls are exempt from the ordinary text thresholds, and no compliance with them is claimed here.
+
+A label on the accent fill uses the supporting role, at 14px and above at weight 600.
+
 ### Surfaces and lines
 
 | Token | OKLCH | Hex | Notes |
@@ -38,7 +54,7 @@ A control boundary needs 3:1 and Lc 30. `--line` measures 1.27:1 and `--line-str
 | `--text-3` | `0.780 0.005 75` | `#B9B7B4` | 9.8:1 on `--bg-0`, Lc 61 or better on all four surfaces, 14px and above only |
 | `--text-disabled` | `0.485 0.005 75` | `#615F5C` | 3.05:1 on `--bg-0`, never carries information |
 
-Text at 12px and 13px uses `--text-1` or `--text-2`, where the reading bar is Lc 75. At the previous values `--text-2` measured Lc 62 to 64 and `--text-3` Lc 39 to 41, so neither could carry small text; `--text-3` now starts at 14px, where the supporting bar of Lc 60 applies. Text on a tint is `--text-1` in every case, including a selected row on `--accent-soft`, because `--text-2` measures Lc 74.5 to 75.0 there, a hair under the Lc 75 bar.
+Text at 12px and 13px uses `--text-1` or `--text-2`, where the reading bar is Lc 75. At the previous values `--text-2` measured Lc 62 to 64 and `--text-3` Lc 39 to 41, so neither could carry small text; `--text-3` now starts at 14px, where the supporting bar of Lc 60 applies. Text on a tint is `--text-1` in every case, including a selected row on `--accent-soft`. `--text-2` measures Lc 74.5 to 75.0 across the five tints, so it sits on the reading bar rather than clear of it, with no margin at all on any of them.
 
 ### Accent
 
