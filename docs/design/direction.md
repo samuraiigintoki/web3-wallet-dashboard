@@ -106,7 +106,7 @@ Line height: `--leading-body: 1.5`, `--leading-heading: 1.25`.
 - Spacing, 4px base: `--space-1: 4px`, `--space-2: 8px`, `--space-3: 12px`, `--space-4: 16px`, `--space-5: 24px`, `--space-6: 32px`, `--space-7: 48px`, `--space-8: 64px`.
 - Named layout sizes: `--row-height: 44px` table row, `--pad-panel: 20px` panel padding, `--gutter-page: 24px` page gutter.
 - Radius: `--radius-control: 10px`, `--radius-panel: 14px`, `--radius-pill: 999px` for chips and small toggles. Nothing above 16 on a panel; over-rounded product UI reads soft.
-- Structure comes from `--line`, not shadow. Overlays only (menu, modal, toast) get one shadow token with offset and blur. Never border plus shadow on a resting card, and never a zero-offset colored glow.
+- Structure comes from `--line`, not shadow. Overlays only (menu, modal, toast) get one shadow token with offset and blur; that token is deferred with the overlays, because nothing in this block renders one. Never border plus shadow on a resting card, and never a zero-offset colored glow.
 
 ## Motion
 
@@ -132,7 +132,7 @@ What it shows, week by week, using only real data:
 
 ### Auth surfaces
 
-`/login` and `/register` carry the same rail as a vertical spine: as the page scrolls, ticks land at real product facts, in the product's own words, ending at the form. It is the product's only scroll-driven sequence, built on IntersectionObserver and CSS, no library.
+`/login` and `/register` carry the same rail as a vertical spine: as the page scrolls, ticks land at real product facts, in the product's own words, ending at the form. It is the product's only scroll-driven sequence, built on IntersectionObserver and CSS, no library. The spine is parked as its own later block: the design system restyles both pages as quiet forms built from the primitives, the form visible without scrolling, with the 240ms auth-to-app transition and no scroll sequence.
 
 No WebGL, no 3D, no illustration, no mesh background, no scroll cue, no "scroll to explore". The form is visible without scrolling, and the headline is set in the product's own words, not a slogan.
 
@@ -157,6 +157,6 @@ One short continuity motion, 240ms, transform and opacity, reduced motion respec
 
 ## How this is used
 
-- Tokens land as CSS custom properties plus one TypeScript constant module. No styling framework, no component library.
-- Every component ships default, hover, focus, active, disabled, loading and error. Skeleton rather than spinner for content.
+- Tokens land as CSS custom properties. No styling framework, no component library. The TypeScript constant module is deferred, because nothing in this block reads a token from code; it lands with the first thing that does.
+- Every component ships default, hover, focus, active, disabled, loading and error, where each applies. Skeleton rather than spinner for content: the restoring screen is a static skeleton, and the spinner belongs to buttons.
 - The review pass before any frontend PR sweeps the change against the vendored acceptance checklist and reports findings as `file:line`.
