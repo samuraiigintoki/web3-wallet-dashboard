@@ -13,7 +13,7 @@ The palette, type and motion below all exist to make that rail legible. Everythi
 
 ## Palette
 
-Warm near-black ground, one saturated accent. Values are OKLCH with the sRGB equivalent. Contrast is measured WCAG against the stated background; the build verifies again with APCA as the checklist requires.
+Warm near-black ground, one saturated accent. Values are OKLCH with the sRGB equivalent. Contrast is measured WCAG against the stated background and independently with APCA; the stricter of the two decides, and every figure below is measured rather than estimated.
 
 ### Surfaces and lines
 
@@ -33,10 +33,12 @@ A control boundary needs 3:1 and Lc 30. `--line` measures 1.27:1 and `--line-str
 
 | Token | OKLCH | Hex | Contrast on `--bg-0` |
 |---|---|---|---|
-| `--text-1` | `0.950 0.003 75` | `#F0EEEC` | 16.9:1 |
-| `--text-2` | `0.780 0.004 75` | `#B9B7B5` | 9.8:1 |
-| `--text-3` meta only | `0.640 0.005 75` | `#8E8C89` | 5.8:1 |
-| `--text-disabled` | `0.480 0.005 75` | `#5F5D5A` | 3.0:1, never carries information |
+| `--text-1` | `0.950 0.003 75` | `#F0EEEC` | 16.9:1 on `--bg-0`, Lc 95 or better on all four surfaces |
+| `--text-2` | `0.860 0.004 75` | `#D2D1CE` | 12.8:1 on `--bg-0`, Lc 77 or better on all four surfaces |
+| `--text-3` | `0.780 0.005 75` | `#B9B7B4` | 9.8:1 on `--bg-0`, Lc 62 or better on all four surfaces, 14px and above only |
+| `--text-disabled` | `0.485 0.005 75` | `#615F5C` | 3.05:1 on `--bg-0`, never carries information |
+
+Text at 12px and 13px uses `--text-1` or `--text-2`, where the reading bar is Lc 75. At the previous values `--text-2` measured Lc 62 to 64 and `--text-3` Lc 39 to 41, so neither could carry small text; `--text-3` now starts at 14px, where the supporting bar of Lc 60 applies.
 
 ### Accent
 
@@ -45,27 +47,26 @@ Signal amber, hue 72. It is the brand and the waiting state, because waiting for
 | Token | OKLCH | Hex | Use |
 |---|---|---|---|
 | `--accent` | `0.780 0.150 72` | `#F2A635` | primary action, awaiting confirmations, current selection |
-| `--accent-hover` | `0.830 0.140 72` | `#FFB755` | hover only |
-| `--accent-press` | `0.720 0.150 72` | `#DD9314` | press only |
+| `--accent-hover` | `0.830 0.139 72` | `#FFB757` | hover only, label Lc 71.7 |
 | `--accent-soft` | `0.280 0.050 72` | `#382409` | chip and row tint |
 | `--accent-ink` | `0.200 0.030 72` | `#1E1406` | text on accent, 8.9:1 |
 
-The focus ring is `--accent`, 2px solid with a 2px offset, measured 9.0:1 on `--bg-1`.
+The focus ring is `--accent`, 2px solid with a 2px offset, measured 9.0:1 on `--bg-1`. Chroma on `--accent-hover` is 0.139 because 0.140 is outside sRGB, where a browser clips it silently. Press is the 120ms transform on the rest colour, not a darker fill: a press colour at `0.720 0.150 72` measures Lc 53.2 for the label against Lc 63.0 at rest.
 
 ### Transaction and indexing states
 
-| State | OKLCH | Hex | Chip text on soft | Meaning |
+| State | OKLCH | Hex | Chip tint | Meaning |
 |---|---|---|---|---|
-| indexing, data not yet available | `0.640 0.005 75` | `#8E8C89` | neutral, no hue | submitted to the chain, no indexed row yet |
-| awaiting confirmations | `0.780 0.150 72` | `#F2A635` | 8.0:1 | included in a block, confirmations counting up to the reversible window |
-| executed | `0.740 0.130 155` | `#5EC386` | 7.3:1 | `ExecuteTransaction` indexed |
-| revoked | `0.660 0.120 20` | `#D17273` | 4.9:1 | `RevokeConfirmation` indexed |
-| vanished | `0.680 0.020 260` | `#9199A5` | 5.8:1 | was visible, no longer in the canonical result |
-| error | `0.700 0.170 27` | `#F66D62` | 5.8:1 | request or indexer failure |
-| disabled indexing | `0.480 0.005 75` | `#5F5D5A` | muted, no hue | contract-level flag off |
-| unsupported chain | `0.640 0.005 75` | `#8E8C89` | neutral, with explanation | contract-level |
+| indexing, data not yet available | `0.640 0.005 75` | `#8E8C89` | no tint | submitted to the chain, no indexed row yet |
+| awaiting confirmations | `0.780 0.150 72` | `#F2A635` | `0.280 0.050 72` `#382409` | included in a block, confirmations counting up to the reversible window |
+| executed | `0.740 0.130 155` | `#5EC386` | `0.280 0.050 155` `#12301E` | `ExecuteTransaction` indexed |
+| revoked | `0.660 0.120 20` | `#D17273` | `0.280 0.050 20` `#3E1E1E` | `RevokeConfirmation` indexed |
+| vanished | `0.680 0.020 260` | `#9199A5` | `0.280 0.050 260` `#1A2941` | was visible, no longer in the canonical result |
+| error | `0.700 0.170 27` | `#F66D62` | `0.280 0.050 27` `#3E1F1B` | request or indexer failure |
+| disabled indexing | `0.480 0.005 75` | `#5F5D5A` | no tint | contract-level flag off |
+| unsupported chain | `0.640 0.005 75` | `#8E8C89` | no tint | contract-level |
 
-Chip tints at 0.25 to 0.27 lightness in the same hue, all pairs above 4.9:1. `disabled` and `unsupported` are never colored; they are explained in words.
+Chip tints are pinned above at 0.28 lightness in the state's own hue. A chip draws its label in `--text-1`, measured Lc 93 and 12.4 to 12.9:1 on every tint, and puts the state hue on the border and fill only, where it measures 4.5 to 7.2:1 and Lc 38 to 59 against its own tint, clear of the 3:1 and Lc 30 bar for non-text. Colored chip text would score Lc 38 to 59 and is not used. `disabled` and `unsupported` are never colored; they are explained in words.
 
 Naming mapping, presentation only: the interface label `indexing` renders the wire value `pending`. The API's three-value contract is unchanged, and the backend's read-time mapping still governs the wire. `indexing` is not a backend state and must not be read as one. `disabled` and `unsupported` render neutral and worded, never colored.
 
