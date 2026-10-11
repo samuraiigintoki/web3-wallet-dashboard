@@ -72,7 +72,13 @@ const pairs: Pair[] = [
     background: surface,
     role: 'Non-text boundary, focus indicator',
   })),
-  { name: '--accent focus ring on --bg-1', text: '--accent', background: '--bg-1', role: 'Non-text boundary, focus indicator' },
+  // The focus ring has to clear the bar on every surface it can land on.
+  ...surfaces.map((surface): Pair => ({
+    name: `--accent focus ring on ${surface}`,
+    text: '--accent',
+    background: surface,
+    role: 'Non-text boundary, focus indicator',
+  })),
   // A state hue against its own tint, where the hue goes on the border.
   ...Object.entries(stateTints).map(([state, tint]): Pair => ({
     name: `${state} on ${tint}`,
@@ -155,6 +161,11 @@ describe('every declared pair clears its role on both measures', () => {
       const used = pairs.some((pair) => pair.text === token || pair.background === token)
       expect(used, `${token} appears in no pair`).toBe(true)
     }
+  })
+
+  it('covers the focus ring on all four surfaces', () => {
+    const ringed = pairs.filter((pair) => pair.text === '--accent').map((pair) => pair.background)
+    expect([...new Set(ringed)].sort()).toEqual([...surfaces])
   })
 
   it('covers the four surfaces and the five tints', () => {
@@ -256,6 +267,7 @@ describe('the printed table', () => {
     })
 
     console.log(`\ncontrast table, ${String(pairs.length)} pairs\n` + rows.join('\n'))
+    expect(pairs).toHaveLength(40)
     expect(rows).toHaveLength(pairs.length)
   })
 })

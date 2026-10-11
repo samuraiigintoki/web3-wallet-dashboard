@@ -25,43 +25,72 @@ export function checkComponentCss(source: string, path: string): Finding[] {
 
   for (const match of withoutComments.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     const selector = match[1]?.trim() ?? ''
-    const declarations = match[2] ?? ''
+    const declared = declarationsIn(match[2] ?? '')
+    const colour = declared.get('color') ?? ''
+    const size = declared.get('font-size') ?? ''
 
     // --text-3 starts at 14px. Below that the reading bar applies and only
-    // --text-1 or --text-2 may carry the text.
-    if (/color:\s*var\(--text-3\)/.test(declarations)) {
-      const size = /font-size:\s*([^;]+)/.exec(declarations)?.[1]?.trim() ?? ''
-      const allowed = ABOVE_BODY.some((token) => size.includes(token)) || size === ''
-      if (!allowed) {
+    // --text-1 or --text-2 may carry the text. Only the `color` property
+    // counts: a border painted with a text token is not a foreground.
+    if (/var\(--text-3\)/.test(colour) && size !== '') {
+      const large = ABOVE_BODY.some((token) => size.includes(token))
+      if (!large) {
         findings.push({
           path,
           rule: 'text-3 below 14px',
-          detail: `${selector} sets --text-3 at ${size === '' ? 'an unstated size' : size}`,
+          detail: `${selector} sets --text-3 at ${size}`,
         })
       }
     }
 
-    // Text on a tint is --text-1 in every case.
-    if (new RegExp(`background(?:-color)?:\\s*var\\((${TINTS})`).test(declarations)) {
-      if (!/color:\s*var\(--text-1\)/.test(declarations)) {
-        findings.push({
-          path,
-          rule: 'text on a tint',
-          detail: `${selector} paints a tint without --text-1 for the label`,
-        })
-      }
+    // Text on a tint is --text-1 in every case, and again only `color` is the
+    // label: a tint background with --text-2 as `color` is the rule broken.
+    const background = declared.get('background') ?? declared.get('background-color') ?? ''
+    if (new RegExp(`var\\((${TINTS})`).test(background) && !/var\(--text-1\)/.test(colour)) {
+      findings.push({
+        path,
+        rule: 'text on a tint',
+        detail: `${selector} paints a tint without --text-1 for the label`,
+      })
     }
 
     // A control boundary is --line-control. --line and --line-strong are
     // structure and fall short of the 3:1 and Lc 30 a boundary needs.
-    if (CONTROLS.test(selector) && /\bborder(?:-[a-z]+)?:\s*[^;]*var\(--line(-strong)?\)/.test(declarations)) {
-      findings.push({
-        path,
-        rule: 'control boundary',
-        detail: `${selector} bounds a control with --line or --line-strong`,
-      })
+    if (CONTROLS.test(selector)) {
+      for (const [property, value] of declared) {
+        if (!property.startsWith('border')) {
+          continue
+        }
+        if (value.includes('var(--line)') || value.includes('var(--line-strong)')) {
+          findings.push({
+            path,
+            rule: 'control boundary',
+            detail: `${selector} bounds a control with --line or --line-strong`,
+          })
+        }
+      }
     }
   }
 
   return findings
+}
+
+/** The declarations of one rule, by property name. Only `color` is `color`. */
+function declarationsIn(block: string): Map<string, string> {
+  const declared = new Map<string, string>()
+
+  for (const part of block.split(';')) {
+    const colon = part.indexOf(':')
+    if (colon <= 0) {
+      continue
+    }
+
+    const property = part.slice(0, colon).trim().toLowerCase()
+    const value = part.slice(colon + 1).trim()
+    if (property !== '' && value !== '') {
+      declared.set(property, value)
+    }
+  }
+
+  return declared
 }

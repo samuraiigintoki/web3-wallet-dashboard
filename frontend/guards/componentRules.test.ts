@@ -34,6 +34,13 @@ describe('the rules, against a fixture that breaks each one', () => {
       rule: 'text on a tint',
     },
     {
+      // A border painted with a text token is not a foreground. This one has
+      // --text-1 on the border and --text-2 where the label actually is.
+      name: 'a tint whose border colour hides the wrong foreground',
+      css: '.chip { background: var(--accent-soft); border-color: var(--text-1); color: var(--text-2); }',
+      rule: 'text on a tint',
+    },
+    {
       name: 'a control bounded by a decorative line',
       css: '.field input { border: 1px solid var(--line); }',
       rule: 'control boundary',
@@ -63,6 +70,15 @@ describe('the rules, against a fixture that breaks each one', () => {
     {
       name: 'a control bounded by --line-control',
       css: '.field input { border: 1px solid var(--line-control); }',
+    },
+    {
+      // A border is not a foreground, so this is not a below-size text rule.
+      name: 'a border colour of --text-3 with no foreground set',
+      css: '.badge { font-size: var(--type-meta); border-color: var(--text-3); }',
+    },
+    {
+      name: 'a border colour of --text-3 alongside a real 12px foreground',
+      css: '.badge { font-size: var(--type-meta); color: var(--text-2); border-color: var(--text-3); }',
     },
   ]
 
