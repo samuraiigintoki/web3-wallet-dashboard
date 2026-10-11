@@ -82,7 +82,7 @@ Violet or indigo on near-black, any neon glow, halo shadows, gradient text, glas
 
 One family plus one mono, both OFL, self-hosted, subset.
 
-- `Geist Sans` for everything, weights 400, 500, 600. Swap candidate if it reads too adjacent to the template ecosystem: `Instrument Sans`. One swap, decided at the block.
+- `Geist Sans` for everything, weights 400, 500, 600. The `Instrument Sans` swap was rendered side by side with it and declined, on the pairing recorded below.
 - `Geist Mono` for addresses, transaction hashes, block numbers and wei amounts. Nowhere else. Mono is not a costume for technical.
 - Fixed rem scale, ratio about 1.2: 12 meta, 13 labels, 14 body, 16 lead, 19 section, 23 panel title, 28 page title. Auth headline may reach 40, app surfaces do not.
 - Tabular numerals on every figure, always. No fluid clamp sizing in the app.
@@ -165,7 +165,15 @@ Each question below is settled by the criterion recorded with it. The losing opt
    Amber is chosen on the criterion that the accent must stay distinct from every state hue. It doubles as the awaiting hue, so it has to sit apart from the states it is drawn beside, and chartreuse sits 0.111 and 33 degrees from executed, the one state it must not resemble. Chartreuse does not escape that by being lifted: at `0.845 0.204 122` `#B7DF07`, the most chroma that lightness holds in sRGB, it is still only 0.158 from executed, where amber's nearest state is 0.147 away as approved and 0.188 at 0.845.
 
    The measured cost is recorded rather than hidden. A label on the accent fill reaches at most Lc 64.2 with black ink and Lc 63.0 with `--accent-ink`, under the Lc 75 reading bar, and chartreuse at the approved lightness reaches only Lc 67.3, so it does not clear the bar either. A label on the accent is therefore held at 14px and weight 600 and above, which clears the large or bold bar of Lc 45 and the 3:1 bar for non-text; the reading bar is not claimed for that role. If a label on the accent must clear Lc 75, the measured remedy is to lift the accent to `0.845 0.126 72` `#FFBE6A`, where a black label measures Lc 75.7, at the price of a paler amber than the approved brand colour.
-2. Font: still open. Geist against Instrument Sans, decided by rendering the same screen in both.
+2. Font: Geist Sans, decided by rendering the same screen in both.
+
+   Both faces are legible at 14px and 16px on the ground and both carry working tabular figures: with `font-variant-numeric: tabular-nums` a digit measures 8px at 14px in each, and a string of zeros and a string of ones measure the same, so a column of figures holds its alignment.
+
+   Weights: Geist offers 100 to 900, Instrument Sans 400 to 700. This block uses 400, 500 and 600, which both cover, so the wider range is headroom rather than a reason.
+
+   Pairing decides it. The mono that stays either way is Geist Mono, and Geist Sans comes from the same superfamily, so a row that sets ordinary text beside a hash keeps one skeleton and one weight axis. Instrument Sans has no mono sibling here.
+
+   The one measure in Instrument Sans's favour is recorded: it is about 6 percent narrower, 310px against 329px for the same 40-character hash line at 13px, which is a real gain in a dense table. It does not outweigh the pairing.
 3. Light surface: deferred. The trigger has not occurred and the cost is already known, so nothing is rendered. Trigger: a real need after the Week 12 deployment, not before. Cost: a second value for each of the 28 colours in the tables, fewer once the aliases are counted, a second gate pass over all four surfaces on both measures, and a second set of screenshots plus hover and focus checks. Components need no change if they reference tokens only. Until then `color-scheme: dark` stands and no light value is stubbed.
 4. Compact rail in list rows: detail only until Week 9. Week 8 rows know only "seen in block N", there is no head and no real row count, and the direction bans fake data and says to decide this with real row counts. It reopens when the Week 9 head read lands and real rows exist. On return it must carry meaning without the head, have a text equivalent, and follow the finality copy (indexed, seen in block N, reversible window; never "confirmed", never "final").
 
