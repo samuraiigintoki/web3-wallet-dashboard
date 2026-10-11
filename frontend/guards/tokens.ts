@@ -16,6 +16,7 @@ export const files = {
   indexHtml: resolve(frontendRoot, 'index.html'),
   src: resolve(frontendRoot, 'src'),
   direction: resolve(repoRoot, 'docs/design/direction.md'),
+  notice: resolve(repoRoot, 'docs/design/NOTICE.md'),
   packageJson: resolve(frontendRoot, 'package.json'),
 } as const
 
@@ -279,4 +280,37 @@ export function pxToRem(value: string): string | null {
   }
 
   return `${Number(match[1]) / 16}rem`
+}
+
+export type NoticedFont = { bytes: string; sha256: string }
+
+/**
+ * The vendored fonts as docs/design/NOTICE.md records them, by file name.
+ *
+ * The notice is the licence record a reviewer reads, so it is treated as a
+ * source of truth and checked against the bytes on disk.
+ */
+export function parseNoticeFonts(markdown: string): Map<string, NoticedFont> {
+  const noticed = new Map<string, NoticedFont>()
+
+  for (const line of markdown.split('\n')) {
+    if (!line.startsWith('|')) {
+      continue
+    }
+
+    const cells = line
+      .replace(/^\|/, '')
+      .split('|')
+      .map((cell) => cell.trim().replace(/^`|`$/g, ''))
+
+    const file = cells.find((cell) => /^[\w.-]+\.woff2$/.test(cell))
+    const bytes = cells.find((cell) => /^[\d,]+$/.test(cell))
+    const sha256 = cells.find((cell) => /^[0-9a-f]{64}$/.test(cell))
+
+    if (file !== undefined && bytes !== undefined && sha256 !== undefined) {
+      noticed.set(file, { bytes: bytes.replaceAll(',', ''), sha256 })
+    }
+  }
+
+  return noticed
 }

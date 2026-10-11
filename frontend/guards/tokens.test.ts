@@ -156,8 +156,10 @@ describe('theme-color', () => {
     expect(ground).not.toBeNull()
     expect(meta?.[1]?.toUpperCase()).toBe(toHex(fromOklch(splitTriple(ground ?? ''))))
 
+    // Fonts are binaries. Scanning them as text is meaningless, so they are
+    // skipped rather than decoded.
     const offenders: string[] = []
-    for (const path of [files.indexHtml, ...filesUnder(files.src, () => true)]) {
+    for (const path of [files.indexHtml, ...filesUnder(files.src, isTextSource)]) {
       for (const match of read(path).matchAll(/#[0-9a-fA-F]{3,8}(?![0-9a-zA-Z_-])/g)) {
         if (path === files.indexHtml && match[0].toUpperCase() === meta?.[1]?.toUpperCase()) {
           continue
@@ -210,20 +212,28 @@ describe('the scales are usable as tokens', () => {
   })
 })
 
+/** Anything that is text: binaries such as .woff2 are not scanned as source. */
+function isTextSource(name: string): boolean {
+  return !/\.(?:woff2?|ttf|otf|eot|png|jpe?g|gif|webp|avif|ico|pdf)$/i.test(name)
+}
+
 describe('the stylesheet is loaded once, from the entry', () => {
   it('imports tokens before styles, and nothing else imports tokens', () => {
     const entry = resolve(files.src, 'main.tsx')
     const source = read(entry)
     const stylesheets = [...source.matchAll(/^import '([^']+\.css)'$/gm)].map((match) => match[1])
 
-    // Order matters: the layer statement in tokens.css has to be evaluated
-    // before any stylesheet that adds to a layer.
-    expect(stylesheets).toEqual(['./styles/tokens.css', './styles.css'])
+    // Order matters, and the list is exact rather than a subset: tokens first,
+    // because the layer statement has to be evaluated before any stylesheet
+    // that adds to a layer; then the faces; then the application stylesheet.
+    expect(stylesheets).toEqual(['./styles/tokens.css', './styles/fonts.css', './styles.css'])
 
-    const importers = filesUnder(files.src, (name) => /\.(?:ts|tsx)$/.test(name)).filter((path) =>
-      read(path).includes('tokens.css'),
-    )
-    expect(importers).toEqual([entry])
+    for (const stylesheet of ['tokens.css', 'fonts.css']) {
+      const importers = filesUnder(files.src, (name) => /\.(?:ts|tsx)$/.test(name)).filter((path) =>
+        read(path).includes(stylesheet),
+      )
+      expect(importers, stylesheet).toEqual([entry])
+    }
   })
 
   it('keeps index.html free of a stylesheet link', () => {

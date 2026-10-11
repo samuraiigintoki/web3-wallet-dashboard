@@ -6,48 +6,23 @@
  * say so rather than trusting a scan that could miss it.
  */
 import { describe, expect, it } from 'vitest'
-import { build } from 'vite'
 
-import { files } from './tokens.ts'
-
-async function productionBundle(): Promise<string> {
-  const result = await build({
-    root: files.src + '/..',
-    logLevel: 'silent',
-    build: { write: false, minify: true },
-  })
-
-  const outputs = Array.isArray(result) ? result : [result]
-  let code = ''
-
-  for (const output of outputs) {
-    // A watch build returns a watcher rather than an output; this never asks
-    // for one, and the narrowing keeps the type honest.
-    if (!('output' in output)) {
-      continue
-    }
-
-    for (const item of output.output) {
-      if (item.type === 'chunk') {
-        code += item.code
-      } else if (typeof item.source === 'string') {
-        code += item.source
-      } else {
-        code += Buffer.from(item.source).toString('utf8')
-      }
-    }
-  }
-
-  return code
-}
+import { productionBuild } from './build.ts'
 
 describe('production output', () => {
   it('contains no trace of colorjs.io', async () => {
-    const code = await productionBundle()
-    expect(code.length).toBeGreaterThan(0)
+    const { assets } = await productionBuild()
 
+    let text = ''
+    for (const [name, bytes] of assets) {
+      if (/\.(?:js|css)$/.test(name)) {
+        text += bytes.toString('utf8')
+      }
+    }
+
+    expect(text.length).toBeGreaterThan(0)
     for (const marker of ['colorjs', 'contrastAPCA', 'ColorSpace', 'toGamut']) {
-      expect(code, marker).not.toContain(marker)
+      expect(text, marker).not.toContain(marker)
     }
   }, 120_000)
 })
