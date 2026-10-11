@@ -154,7 +154,17 @@ One short continuity motion, 240ms, transform and opacity, reduced motion respec
 
 Each question below is settled by the criterion recorded with it. The losing option leaves no token, file or rule in the tree.
 
-1. Accent hue: still open. Amber against chartreuse, decided with both ramps rendered and both run through the gate.
+1. Accent hue: amber. Both ramps were rendered on the same screen and both run through the gate in full.
+
+   Amber, as amended: accent `0.780 0.150 72` `#F2A635`, hover `0.830 0.139 72` `#FFB757`, soft `0.280 0.050 72` `#382409`, ink `0.200 0.030 72` `#1E1406`. Measured: ink on accent 8.85:1 and Lc 63.0, accent on `--bg-0` 9.53:1 Lc 62.4, on `--bg-1` 9.01:1 Lc 61.9, accent on its own tint 7.17:1 Lc 59.0, `--text-1` on that tint 12.70:1 Lc 93.3, ink on the hover 10.53:1 Lc 71.7.
+
+   Chartreuse, built to the same shape with in-gamut chroma: accent `0.780 0.185 122` `#A4C915`, hover `0.830 0.170 122` `#B5D84A`, soft `0.280 0.055 122` `#242D0B`, ink `0.150 0.030 122` `#090D02`. Measured: ink on accent 10.19:1 Lc 67.0, accent on `--bg-0` 10.15:1 Lc 65.6.
+
+   Distance from the accent to every state colour, in OKLab. Amber: error 0.147, revoked 0.171, executed 0.190, vanished 0.197, indexing 0.202, disabled 0.329, and 83 degrees of hue from executed. Chartreuse: executed 0.111, vanished 0.224, indexing 0.229, revoked 0.269, error 0.274, disabled 0.346, and 33 degrees from executed.
+
+   Amber is chosen on the criterion that the accent must stay distinct from every state hue. It doubles as the awaiting hue, so it has to sit apart from the states it is drawn beside, and chartreuse sits 0.111 and 33 degrees from executed, the one state it must not resemble. Chartreuse does not escape that by being lifted: at `0.845 0.204 122` `#B7DF07`, the most chroma that lightness holds in sRGB, it is still only 0.158 from executed, where amber's nearest state is 0.147 away as approved and 0.188 at 0.845.
+
+   The measured cost is recorded rather than hidden. A label on the accent fill reaches at most Lc 64.2 with black ink and Lc 63.0 with `--accent-ink`, under the Lc 75 reading bar, and chartreuse at the approved lightness reaches only Lc 67.3, so it does not clear the bar either. A label on the accent is therefore held at 14px and weight 600 and above, which clears the large or bold bar of Lc 45 and the 3:1 bar for non-text; the reading bar is not claimed for that role. If a label on the accent must clear Lc 75, the measured remedy is to lift the accent to `0.845 0.126 72` `#FFBE6A`, where a black label measures Lc 75.7, at the price of a paler amber than the approved brand colour.
 2. Font: still open. Geist against Instrument Sans, decided by rendering the same screen in both.
 3. Light surface: deferred. The trigger has not occurred and the cost is already known, so nothing is rendered. Trigger: a real need after the Week 12 deployment, not before. Cost: a second value for each of the 28 colours in the tables, fewer once the aliases are counted, a second gate pass over all four surfaces on both measures, and a second set of screenshots plus hover and focus checks. Components need no change if they reference tokens only. Until then `color-scheme: dark` stands and no light value is stubbed.
 4. Compact rail in list rows: detail only until Week 9. Week 8 rows know only "seen in block N", there is no head and no real row count, and the direction bans fake data and says to decide this with real row counts. It reopens when the Week 9 head read lands and real rows exist. On return it must carry meaning without the head, have a text equivalent, and follow the finality copy (indexed, seen in block N, reversible window; never "confirmed", never "final").
