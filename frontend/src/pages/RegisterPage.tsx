@@ -6,8 +6,9 @@ import { useAuth } from '../auth/useAuth.ts'
 import { fieldErrorsFrom } from '../forms/serverErrors.ts'
 import {
   MAX_PASSWORD_BYTES,
+  MIN_PASSWORD_RUNES,
   validateEmail,
-  validatePassword,
+  validateNewPassword,
   validatePasswordConfirmation,
 } from '../forms/validation.ts'
 
@@ -36,7 +37,7 @@ export function RegisterPage() {
     }
 
     const nextEmailError = validateEmail(email)
-    const nextPasswordError = validatePassword(password)
+    const nextPasswordError = validateNewPassword(password)
     const nextConfirmationError = validatePasswordConfirmation(password, confirmation)
     setEmailError(nextEmailError)
     setPasswordError(nextPasswordError)
@@ -125,7 +126,8 @@ export function RegisterPage() {
             aria-invalid={passwordError !== null}
           />
           <span className="field__error">
-            Up to {MAX_PASSWORD_BYTES} bytes. There is no password reset, so keep it
+            At least {MIN_PASSWORD_RUNES} characters and up to{' '}
+            {MAX_PASSWORD_BYTES} bytes. There is no password reset, so keep it
             somewhere safe.
           </span>
           {passwordError !== null && (

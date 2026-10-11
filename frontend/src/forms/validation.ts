@@ -8,6 +8,13 @@
 /** backend/internal/user/service.go: MaxPasswordBytes. */
 export const MAX_PASSWORD_BYTES = 72
 
+/**
+ * backend/internal/user/service.go: MinPasswordRunes. Registration only: the
+ * floor applies where a password is set, and login leaves it out so an account
+ * created before the rule still signs in.
+ */
+export const MIN_PASSWORD_RUNES = 15
+
 const encoder = new TextEncoder()
 
 /**
@@ -17,6 +24,17 @@ const encoder = new TextEncoder()
  */
 export function utf8ByteLength(value: string): number {
   return encoder.encode(value).length
+}
+
+/**
+ * Counts Unicode code points, the unit the API counts in.
+ *
+ * `value.length` counts UTF-16 units, so it would call 14 astral characters a
+ * length of 28. Grapheme clusters are deliberately not counted: the server
+ * counts code points, and `Intl.Segmenter` would answer a different question.
+ */
+export function codePointLength(value: string): number {
+  return Array.from(value).length
 }
 
 export function validateEmail(value: string): string | null {
@@ -36,10 +54,38 @@ export function validateEmail(value: string): string | null {
 /**
  * The password is checked but never trimmed: leading and trailing spaces are
  * part of it, and the server compares what was registered.
+ *
+ * This is the login rule as well, and login applies no minimum, so a short
+ * legacy password still submits.
  */
 export function validatePassword(value: string): string | null {
   if (value === '') {
     return 'Enter your password.'
+  }
+
+  if (utf8ByteLength(value) > MAX_PASSWORD_BYTES) {
+    return `Your password must be ${String(MAX_PASSWORD_BYTES)} bytes or fewer.`
+  }
+
+  return null
+}
+
+/**
+ * The registration rule, mirroring the API: not whitespace only, at least
+ * MIN_PASSWORD_RUNES code points, and the byte ceiling.
+ *
+ * The count is code points, not UTF-16 length. A string of 14 astral
+ * characters has a length of 28 and is still too short. The server counts the
+ * same way, so a check on `value.length` would let a rejected password
+ * through and turn into a 422 the form could have caught.
+ */
+export function validateNewPassword(value: string): string | null {
+  if (value.trim() === '') {
+    return 'Enter your password.'
+  }
+
+  if (codePointLength(value) < MIN_PASSWORD_RUNES) {
+    return `Your password must be at least ${String(MIN_PASSWORD_RUNES)} characters.`
   }
 
   if (utf8ByteLength(value) > MAX_PASSWORD_BYTES) {

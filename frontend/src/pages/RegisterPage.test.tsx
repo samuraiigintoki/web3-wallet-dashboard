@@ -108,8 +108,8 @@ describe('register page', () => {
 
     await fill(user, {
       email: 'grace@example.com',
-      password: ' padded ',
-      confirmation: ' padded ',
+      password: '  padded-password  ',
+      confirmation: '  padded-password  ',
     })
     await user.click(screen.getByRole('button', { name: 'Create account' }))
 
@@ -118,7 +118,7 @@ describe('register page', () => {
     })
     expect(fetchStub.body()).toEqual({
       email: 'grace@example.com',
-      password: ' padded ',
+      password: '  padded-password  ',
     })
   })
 
