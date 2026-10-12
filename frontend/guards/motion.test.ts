@@ -204,6 +204,17 @@ describe('reduced motion', () => {
     expect(reduced).toContain('animation: none')
   })
 
+  it('stops the shell entrance', () => {
+    const shell = stylesheets.find(({ path }) => path.endsWith('Shell.module.css'))
+    const reduced = /@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n  \}/.exec(
+      shell?.css ?? '',
+    )?.[1]
+
+    expect(reduced).toBeDefined()
+    expect(reduced).toContain('.shell')
+    expect(reduced).toContain('animation: none')
+  })
+
   it('stops the press transform', () => {
     const button = stylesheets.find(({ path }) => path.endsWith('Button.module.css'))
     const reduced = /@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n  \}/.exec(
