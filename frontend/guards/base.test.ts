@@ -43,6 +43,24 @@ const body = baseRules.get('body') ?? new Map<string, string>()
 const focus = baseRules.get(':focus-visible') ?? new Map<string, string>()
 const controls = baseRules.get('input, select, textarea, button') ?? new Map<string, string>()
 
+/** The layer a stylesheet's rules actually land in, checked rule by rule. */
+function layerOf(path: string): { name: string | null; selectors: string[] } {
+  const { blocks, unlayered } = parseLayers(read(path))
+  const names = [...blocks.keys()]
+
+  if (unlayered.length > 0) {
+    return { name: null, selectors: unlayered }
+  }
+  if (names.length !== 1) {
+    return { name: null, selectors: names }
+  }
+
+  const name = names[0] ?? null
+  const block = blocks.get(name ?? '') ?? ''
+
+  return { name, selectors: [...parseRules(block).keys()] }
+}
+
 describe('layer placement', () => {
   it('declares no layer order of its own', () => {
     // The statement is written once, in tokens.css. A second one would reorder
@@ -62,6 +80,37 @@ describe('layer placement', () => {
     expect(baseLayers.unlayered).toEqual([])
     expect(baseLayers.blocks.get('reset')?.trim()).not.toBe('')
     expect(baseLayers.blocks.get('base')?.trim()).not.toBe('')
+  })
+
+  it('puts each module\'s own rules in the components layer', () => {
+    // Not the layer name appearing in the file: the rules themselves, read out
+    // of the block. A module left unlayered outranks every layer, so the
+    // declared cascade would stop governing component rules entirely.
+    expect(modules.length).toBeGreaterThan(0)
+
+    for (const path of modules) {
+      const { name, selectors } = layerOf(path)
+      expect(name, path).toBe('components')
+      expect(selectors.length, `${path} declares no rule`).toBeGreaterThan(0)
+      expect(
+        selectors.every((selector) => !selector.startsWith('@')),
+        `${path} keeps a rule outside the layer`,
+      ).toBe(true)
+    }
+  })
+
+  it('puts the reset and base declarations in their own layers', () => {
+    expect(layerOf(resolve(files.src, 'styles/base.css'))).toEqual({
+      name: null,
+      selectors: ['reset', 'base'],
+    })
+    expect(parseRules(baseLayers.blocks.get('reset') ?? '').size).toBeGreaterThan(0)
+    expect(parseRules(baseLayers.blocks.get('base') ?? '').size).toBeGreaterThan(0)
+
+    // tokens.css and fonts.css are declarations and at-rules, not rules that
+    // compete with anything, so they stay where they are.
+    expect(parseLayers(read(resolve(files.src, 'styles/tokens.css'))).blocks.size).toBe(0)
+    expect(parseLayers(read(resolve(files.src, 'styles/fonts.css'))).blocks.size).toBe(0)
   })
 
   it('keeps every declaration file to the three named ones', () => {
@@ -274,7 +323,7 @@ describe('the rules, against a fixture that breaks each one', () => {
 })
 
 describe('the production stylesheet', () => {
-  it('keeps the three layers, in the declared order', async () => {
+  it('keeps the three layers, in the declared order, with the rules inside them', async () => {
     const { css } = await productionBuild()
 
     // The minifier drops the order statement and relies on first appearance
@@ -282,6 +331,24 @@ describe('the production stylesheet', () => {
     const positions = ['reset', 'base', 'components'].map((layer) => css.indexOf(`@layer ${layer}`))
     expect(positions, css.slice(0, 120)).not.toContain(-1)
     expect(positions).toEqual([...positions].sort((one, other) => one - other))
+
+    // And the rules have to be inside those blocks, not merely after them.
+    const built = parseLayers(css)
+    const components = built.blocks.get('components') ?? ''
+    const baseBlock = built.blocks.get('base') ?? ''
+    const resetBlock = built.blocks.get('reset') ?? ''
+
+    expect(components.length).toBeGreaterThan(1000)
+    expect(components).toContain('min-block-size:var(--row-height)')
+    expect(components).toMatch(/\[data-vite-dev-id|_button_|\._\w+_\w+_\d+/)
+    expect(baseBlock).toContain('font-variant-numeric:tabular-nums')
+    expect(resetBlock).toContain('box-sizing:border-box')
+
+    // Nothing escapes. What sits outside the layers is the declarations and
+    // the faces, which compete with nothing; a rule outside them would be the
+    // highest priority rule on the page.
+    expect(built.unlayered).toEqual([':root', '@font-face', '@font-face'])
+    expect(baseBlock).not.toContain('min-block-size:var(--row-height)')
   }, 120_000)
 
   it('ships the base defaults it is supposed to', async () => {

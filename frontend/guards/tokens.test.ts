@@ -254,6 +254,18 @@ describe('the stylesheet is loaded once, from the entry', () => {
     // application stylesheet.
     expect(stylesheets).toEqual(['./styles/tokens.css', './styles/fonts.css', './styles/base.css'])
 
+    // And before any local module: App brings the module stylesheets with it,
+    // and the layer order statement has to be evaluated before the first
+    // stylesheet that writes into a layer. The package imports above them are
+    // unrelated and stay where they are.
+    const firstLocal = /^import\s+[^\n]*from\s+'\.\.?\//m.exec(source)
+    expect(firstLocal).not.toBeNull()
+    for (const stylesheet of stylesheets) {
+      const at = source.indexOf(`import '${String(stylesheet)}'`)
+      expect(at, stylesheet).toBeGreaterThanOrEqual(0)
+      expect(at, stylesheet).toBeLessThan(firstLocal?.index ?? 0)
+    }
+
     for (const stylesheet of ['tokens.css', 'fonts.css', 'base.css']) {
       const importers = filesUnder(files.src, (name) => /\.(?:ts|tsx)$/.test(name)).filter((path) =>
         read(path).includes(stylesheet),
