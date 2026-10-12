@@ -1,0 +1,23 @@
+/*
+ * Off screen until it is focused, then a control on top of the header.
+ *
+ * It is the first thing in the shell, so it is the first thing the keyboard
+ * meets, which is the whole point of it.
+ */
+
+.skip {
+  position: absolute;
+  inset-block-start: var(--space-2);
+  inset-inline-start: var(--space-4);
+  z-index: 1;
+  padding: var(--space-2) var(--space-3);
+  color: var(--text-1);
+  background: var(--bg-1);
+  border: 1px solid var(--line-control);
+  border-radius: var(--radius-control);
+  transform: translateY(-200%);
+}
+
+.skip:focus {
+  transform: none;
+}

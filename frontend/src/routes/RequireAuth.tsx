@@ -1,6 +1,9 @@
 import { Navigate, Outlet, useLocation } from 'react-router'
 
 import { useAuth } from '../auth/useAuth.ts'
+import { Button } from '../ui/Button.tsx'
+import { Notice } from '../ui/Notice.tsx'
+import { Page } from '../ui/Page.tsx'
 
 export function RequireAuth() {
   const { session, retryRestore, signOutLocally } = useAuth()
@@ -10,31 +13,31 @@ export function RequireAuth() {
     // Never redirect while the answer is still unknown. Bouncing to /login
     // here would sign out every reload of an open session.
     return (
-      <main className="page" aria-busy="true">
-        <p role="status">Restoring your session.</p>
-      </main>
+      <Page busy>
+        <Notice>Restoring your session.</Notice>
+      </Page>
     )
   }
 
   if (session.status === 'unavailable') {
     return (
-      <main className="page">
-        <div className="status">
-          <h1>The service is unavailable</h1>
-          <p role="status">
-            Your session could not be checked, so you have not been signed out. The
-            API may be stopped or unreachable.
-          </p>
-          <div className="status__actions">
-            <button type="button" onClick={retryRestore}>
-              Retry
-            </button>
-            <button type="button" onClick={signOutLocally}>
-              Sign out
-            </button>
-          </div>
-        </div>
-      </main>
+      <Page title="The service is unavailable">
+        <Notice
+          actions={
+            <>
+              <Button variant="secondary" onClick={retryRestore}>
+                Retry
+              </Button>
+              <Button variant="secondary" onClick={signOutLocally}>
+                Sign out
+              </Button>
+            </>
+          }
+        >
+          Your session could not be checked, so you have not been signed out. The
+          API may be stopped or unreachable.
+        </Notice>
+      </Page>
     )
   }
 

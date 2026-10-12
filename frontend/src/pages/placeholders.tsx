@@ -1,3 +1,5 @@
+import { Page } from '../ui/Page.tsx'
+
 /**
  * Placeholder sections.
  *
@@ -8,39 +10,35 @@
 
 export function DashboardPage() {
   return (
-    <main className="page">
-      <h1>Overview</h1>
+    <Page title="Overview">
       <p>
         You are signed in. Wallet, contract and indexed event views are not built
         yet.
       </p>
-    </main>
+    </Page>
   )
 }
 
 export function WalletsPage() {
   return (
-    <main className="page">
-      <h1>Wallets</h1>
+    <Page title="Wallets">
       <p>Wallet management is not built yet.</p>
-    </main>
+    </Page>
   )
 }
 
 export function ContractsPage() {
   return (
-    <main className="page">
-      <h1>Contracts</h1>
+    <Page title="Contracts">
       <p>Tracked contracts and their indexed events are not built yet.</p>
-    </main>
+    </Page>
   )
 }
 
 export function NotFoundPage() {
   return (
-    <main className="page">
-      <h1>Page not found</h1>
+    <Page title="Page not found">
       <p>That address does not match a page in this application.</p>
-    </main>
+    </Page>
   )
 }

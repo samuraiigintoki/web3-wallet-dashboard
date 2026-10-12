@@ -1,0 +1,34 @@
+/*
+ * The frame the signed in screens sit in: a header with the product name,
+ * the section navigation and the identity, above the page itself.
+ */
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  min-block-size: 100vh;
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--gutter-page);
+  border-block-end: 1px solid var(--line);
+}
+
+.nav ul {
+  display: flex;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.identity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-inline-start: auto;
+}

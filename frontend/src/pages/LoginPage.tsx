@@ -1,19 +1,21 @@
-import { useId, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { Link, useLocation } from 'react-router'
 
 import { describeApiError } from '../api/index.ts'
 import { useAuth } from '../auth/useAuth.ts'
 import { fieldErrorsFrom } from '../forms/serverErrors.ts'
+import { useInvalidFocus } from '../forms/useInvalidFocus.ts'
 import { validateEmail, validatePassword } from '../forms/validation.ts'
 import { readLocationState } from '../routes/locationState.ts'
+import { Button } from '../ui/Button.tsx'
+import { Notice } from '../ui/Notice.tsx'
+import { Page, PageForm } from '../ui/Page.tsx'
+import { TextField } from '../ui/TextField.tsx'
 
 export function LoginPage() {
   const { login, logoutProblem } = useAuth()
   const location = useLocation()
   const incoming = readLocationState(location.state)
-
-  const emailId = useId()
-  const passwordId = useId()
 
   const [email, setEmail] = useState(incoming.email ?? '')
   const [password, setPassword] = useState('')
@@ -21,6 +23,8 @@ export function LoginPage() {
   const [passwordError, setPasswordError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
+
+  const formRef = useInvalidFocus([emailError, passwordError])
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault()
@@ -65,73 +69,51 @@ export function LoginPage() {
   }
 
   return (
-    <main className="page page--narrow">
-      <h1>Sign in</h1>
-
-      {incoming.notice !== undefined && (
-        <p className="notice" role="status">
-          {incoming.notice}
-        </p>
-      )}
+    <Page title="Sign in" narrow>
+      {incoming.notice !== undefined && <Notice>{incoming.notice}</Notice>}
 
       {logoutProblem !== null && (
-        <p className="notice" role="status">
+        <Notice>
           You were signed out on this device, but the session could not be ended on
           the server. {logoutProblem}
-        </p>
+        </Notice>
       )}
 
-      <form className="form" onSubmit={handleSubmit} noValidate>
-        <div className="field">
-          <label htmlFor={emailId}>Email</label>
-          <input
-            id={emailId}
-            name="email"
-            type="email"
-            autoComplete="email"
-            value={email}
-            onChange={(event) => {
-              setEmail(event.target.value)
-            }}
-            aria-invalid={emailError !== null}
-          />
-          {emailError !== null && (
-            <span className="field__error" role="alert">
-              {emailError}
-            </span>
-          )}
-        </div>
+      <PageForm ref={formRef} onSubmit={handleSubmit}>
+        <TextField
+          label="Email"
+          name="email"
+          type="email"
+          autoComplete="email"
+          value={email}
+          onChange={(event) => {
+            setEmail(event.target.value)
+          }}
+          error={emailError}
+        />
 
-        <div className="field">
-          <label htmlFor={passwordId}>Password</label>
-          <input
-            id={passwordId}
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(event) => {
-              setPassword(event.target.value)
-            }}
-            aria-invalid={passwordError !== null}
-          />
-          {passwordError !== null && (
-            <span className="field__error" role="alert">
-              {passwordError}
-            </span>
-          )}
-        </div>
+        <TextField
+          label="Password"
+          name="password"
+          type="password"
+          autoComplete="current-password"
+          value={password}
+          onChange={(event) => {
+            setPassword(event.target.value)
+          }}
+          error={passwordError}
+        />
 
-        {formError !== null && <p role="alert">{formError}</p>}
+        {formError !== null && <Notice urgency="alert">{formError}</Notice>}
 
-        <button type="submit" disabled={pending}>
-          {pending ? 'Signing in' : 'Sign in'}
-        </button>
-      </form>
+        <Button type="submit" pending={pending}>
+          Sign in
+        </Button>
+      </PageForm>
 
       <p>
         No account yet? <Link to="/register">Create one</Link>.
       </p>
-    </main>
+    </Page>
   )
 }

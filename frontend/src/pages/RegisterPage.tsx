@@ -1,9 +1,10 @@
-import { useId, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 
 import { describeApiError } from '../api/index.ts'
 import { useAuth } from '../auth/useAuth.ts'
 import { fieldErrorsFrom } from '../forms/serverErrors.ts'
+import { useInvalidFocus } from '../forms/useInvalidFocus.ts'
 import {
   MAX_PASSWORD_BYTES,
   MIN_PASSWORD_RUNES,
@@ -11,14 +12,18 @@ import {
   validateNewPassword,
   validatePasswordConfirmation,
 } from '../forms/validation.ts'
+import { Button } from '../ui/Button.tsx'
+import { Notice } from '../ui/Notice.tsx'
+import { Page, PageForm } from '../ui/Page.tsx'
+import { TextField } from '../ui/TextField.tsx'
+
+const PASSWORD_HINT = `At least ${String(MIN_PASSWORD_RUNES)} characters and up to ${String(
+  MAX_PASSWORD_BYTES,
+)} bytes. There is no password reset, so keep it somewhere safe.`
 
 export function RegisterPage() {
   const { register } = useAuth()
   const navigate = useNavigate()
-
-  const emailId = useId()
-  const passwordId = useId()
-  const confirmationId = useId()
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -28,6 +33,8 @@ export function RegisterPage() {
   const [confirmationError, setConfirmationError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
+
+  const formRef = useInvalidFocus([emailError, passwordError, confirmationError])
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault()
@@ -88,85 +95,55 @@ export function RegisterPage() {
   }
 
   return (
-    <main className="page page--narrow">
-      <h1>Create an account</h1>
+    <Page title="Create an account" narrow>
+      <PageForm ref={formRef} onSubmit={handleSubmit}>
+        <TextField
+          label="Email"
+          name="email"
+          type="email"
+          autoComplete="email"
+          value={email}
+          onChange={(event) => {
+            setEmail(event.target.value)
+          }}
+          error={emailError}
+        />
 
-      <form className="form" onSubmit={handleSubmit} noValidate>
-        <div className="field">
-          <label htmlFor={emailId}>Email</label>
-          <input
-            id={emailId}
-            name="email"
-            type="email"
-            autoComplete="email"
-            value={email}
-            onChange={(event) => {
-              setEmail(event.target.value)
-            }}
-            aria-invalid={emailError !== null}
-          />
-          {emailError !== null && (
-            <span className="field__error" role="alert">
-              {emailError}
-            </span>
-          )}
-        </div>
+        <TextField
+          label="Password"
+          name="password"
+          type="password"
+          autoComplete="new-password"
+          value={password}
+          onChange={(event) => {
+            setPassword(event.target.value)
+          }}
+          hint={PASSWORD_HINT}
+          error={passwordError}
+        />
 
-        <div className="field">
-          <label htmlFor={passwordId}>Password</label>
-          <input
-            id={passwordId}
-            name="password"
-            type="password"
-            autoComplete="new-password"
-            value={password}
-            onChange={(event) => {
-              setPassword(event.target.value)
-            }}
-            aria-invalid={passwordError !== null}
-          />
-          <span className="field__error">
-            At least {MIN_PASSWORD_RUNES} characters and up to{' '}
-            {MAX_PASSWORD_BYTES} bytes. There is no password reset, so keep it
-            somewhere safe.
-          </span>
-          {passwordError !== null && (
-            <span className="field__error" role="alert">
-              {passwordError}
-            </span>
-          )}
-        </div>
+        <TextField
+          label="Confirm password"
+          name="confirmation"
+          type="password"
+          autoComplete="new-password"
+          value={confirmation}
+          onChange={(event) => {
+            setConfirmation(event.target.value)
+          }}
+          error={confirmationError}
+        />
 
-        <div className="field">
-          <label htmlFor={confirmationId}>Confirm password</label>
-          <input
-            id={confirmationId}
-            name="confirmation"
-            type="password"
-            autoComplete="new-password"
-            value={confirmation}
-            onChange={(event) => {
-              setConfirmation(event.target.value)
-            }}
-            aria-invalid={confirmationError !== null}
-          />
-          {confirmationError !== null && (
-            <span className="field__error" role="alert">
-              {confirmationError}
-            </span>
-          )}
-        </div>
+        {formError !== null && <Notice urgency="alert">{formError}</Notice>}
 
-        {formError !== null && <p role="alert">{formError}</p>}
-
-        <button type="submit" disabled={pending}>
-          {pending ? 'Creating account' : 'Create account'}
-        </button>
-      </form>
+        <Button type="submit" pending={pending}>
+          Create account
+        </Button>
+      </PageForm>
 
       <p>
         Already have an account? <Link to="/login">Sign in</Link>.
       </p>
-    </main>
+    </Page>
   )
 }

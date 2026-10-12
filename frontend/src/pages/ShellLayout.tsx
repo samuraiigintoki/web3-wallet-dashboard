@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { NavLink, Outlet } from 'react-router'
 
 import { useAuth } from '../auth/useAuth.ts'
+import { Button } from '../ui/Button.tsx'
+import { Shell } from '../ui/Shell.tsx'
 
 export function ShellLayout() {
   const { session, logout } = useAuth()
@@ -21,35 +23,32 @@ export function ShellLayout() {
   }
 
   return (
-    <div className="shell">
-      <header className="shell__header">
-        <strong>Web3 Wallet Dashboard</strong>
-
-        <nav className="shell__nav" aria-label="Sections">
-          <ul>
-            <li>
-              <NavLink to="/" end>
-                Overview
-              </NavLink>
-            </li>
-            <li>
-              <NavLink to="/wallets">Wallets</NavLink>
-            </li>
-            <li>
-              <NavLink to="/contracts">Contracts</NavLink>
-            </li>
-          </ul>
-        </nav>
-
-        <div className="shell__identity">
+    <Shell
+      nav={
+        <ul>
+          <li>
+            <NavLink to="/" end>
+              Overview
+            </NavLink>
+          </li>
+          <li>
+            <NavLink to="/wallets">Wallets</NavLink>
+          </li>
+          <li>
+            <NavLink to="/contracts">Contracts</NavLink>
+          </li>
+        </ul>
+      }
+      identity={
+        <>
           <span>{email}</span>
-          <button type="button" onClick={handleLogout} disabled={signingOut}>
-            {signingOut ? 'Signing out' : 'Sign out'}
-          </button>
-        </div>
-      </header>
-
+          <Button variant="secondary" pending={signingOut} onClick={handleLogout}>
+            Sign out
+          </Button>
+        </>
+      }
+    >
       <Outlet />
-    </div>
+    </Shell>
   )
 }

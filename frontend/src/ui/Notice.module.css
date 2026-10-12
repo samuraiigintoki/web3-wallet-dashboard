@@ -1,0 +1,23 @@
+/*
+ * One notice, two urgencies.
+ *
+ * The difference between them is carried by the role, not by colour: an
+ * informational notice is polite, a form level error interrupts. Both are
+ * plain structure. Tone variants land with the screen restyle.
+ */
+
+.notice {
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+}
+
+.message {
+  margin: 0;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-block-start: var(--space-3);
+}
