@@ -52,4 +52,15 @@
     font-size: max(1rem, 1em);
     color: inherit;
   }
+
+  /* Every element a thumb lands on. The one gesture this blocks is the
+     double-tap zoom; panning and pinch zoom are untouched. */
+  a,
+  button,
+  input,
+  select,
+  textarea,
+  label {
+    touch-action: manipulation;
+  }
 }

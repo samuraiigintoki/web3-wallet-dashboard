@@ -196,6 +196,15 @@ describe('the body defaults', () => {
   })
 })
 
+describe('touch targets', () => {
+  it('sets touch-action: manipulation on every tappable element', () => {
+    // The one gesture this blocks is the double-tap zoom. Panning and pinch
+    // zoom are not named, so they stay as the platform sets them.
+    const tappables = baseRules.get('a, button, input, select, textarea, label')
+    expect(tappables?.get('touch-action')).toBe('manipulation')
+  })
+})
+
 describe('tabular numerals', () => {
   it('sets them once, on the body, so a figure inherits them', () => {
     expect(body.get('font-variant-numeric')).toBe('tabular-nums')
