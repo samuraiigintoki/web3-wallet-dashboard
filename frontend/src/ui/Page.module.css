@@ -54,6 +54,12 @@
     text-decoration: underline;
     text-decoration-color: var(--line-strong);
     text-underline-offset: 0.2em;
+    /* The words stay as they are and the line does not grow: inline padding
+       is not part of the line box, and the matching negative margin pulls
+       the neighbours back where they were. The target grows to the 44px
+       row height without moving a single reviewed pixel. */
+    padding: var(--space-4) var(--space-1);
+    margin: calc(var(--space-4) * -1) calc(var(--space-1) * -1);
   }
 
   .page a:hover {
