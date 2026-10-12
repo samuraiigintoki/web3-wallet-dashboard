@@ -163,8 +163,13 @@ describe('login page', () => {
     await user.type(screen.getByLabelText('Password'), 'secret')
     await user.click(screen.getByRole('button', { name: 'Sign in' }))
 
-    const button = screen.getByRole('button', { name: 'Signing in' })
+    // The name is the same one that was pressed. The state is carried by
+    // aria-busy and by the spinner, so a person searching for "Sign in" at
+    // that moment still finds the control they just used.
+    const button = screen.getByRole('button', { name: 'Sign in' })
+    expect(button.getAttribute('aria-busy')).toBe('true')
     expect(button.hasAttribute('disabled')).toBe(true)
+    expect(button.querySelector('[aria-hidden="true"]')).not.toBeNull()
 
     await user.click(button)
     expect(fetchStub.mock).toHaveBeenCalledTimes(1)

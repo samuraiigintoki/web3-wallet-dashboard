@@ -252,12 +252,7 @@ describe('the stylesheet is loaded once, from the entry', () => {
     // because the layer statement has to be evaluated before any stylesheet
     // that adds to a layer; then the faces; then the base layer; then the
     // application stylesheet.
-    expect(stylesheets).toEqual([
-      './styles/tokens.css',
-      './styles/fonts.css',
-      './styles/base.css',
-      './styles.css',
-    ])
+    expect(stylesheets).toEqual(['./styles/tokens.css', './styles/fonts.css', './styles/base.css'])
 
     for (const stylesheet of ['tokens.css', 'fonts.css', 'base.css']) {
       const importers = filesUnder(files.src, (name) => /\.(?:ts|tsx)$/.test(name)).filter((path) =>

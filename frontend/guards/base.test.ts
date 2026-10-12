@@ -13,6 +13,7 @@ import { productionBuild } from './build.ts'
 import { checkComponentCss } from './componentRules.ts'
 import {
   files,
+  filesUnder,
   minimumRem,
   parseCssTokens,
   parseLayers,
@@ -23,15 +24,17 @@ import {
 
 // base.css sits with the other declaration files; the application stylesheet
 // still sits at the source root, where B1 put it.
-const readStyle = (name: string): string =>
-  read(name === 'styles.css' ? resolve(files.src, name) : resolve(files.src, 'styles', name))
+const readStyle = (name: string): string => read(resolve(files.src, 'styles', name))
 
 const base = readStyle('base.css')
-const styles = readStyle('styles.css')
 const tokens = parseCssTokens(read(files.tokens))
 
 const baseLayers = parseLayers(base)
-const stylesLayers = parseLayers(styles)
+
+/** Every stylesheet in the tree, by path. */
+const stylesheets = filesUnder(files.src, (name) => name.endsWith('.css'))
+const modules = stylesheets.filter((path) => path.endsWith('.module.css'))
+const declarations = stylesheets.filter((path) => !modules.includes(path))
 
 const resetRules = parseRules(baseLayers.blocks.get('reset') ?? '')
 const baseRules = parseRules(baseLayers.blocks.get('base') ?? '')
@@ -45,7 +48,13 @@ describe('layer placement', () => {
     // The statement is written once, in tokens.css. A second one would reorder
     // the layers for everything loaded after it.
     expect(baseLayers.order).toBeNull()
-    expect(stylesLayers.order).toBeNull()
+
+    for (const path of [...modules, ...declarations]) {
+      if (path.endsWith('tokens.css')) {
+        continue
+      }
+      expect(parseLayers(read(path)).order, path).toBeNull()
+    }
   })
 
   it('puts every rule in the reset or base layer', () => {
@@ -55,33 +64,36 @@ describe('layer placement', () => {
     expect(baseLayers.blocks.get('base')?.trim()).not.toBe('')
   })
 
-  it('keeps the B1 rules, and only those, in the components layer', () => {
-    expect([...stylesLayers.blocks.keys()]).toEqual(['components'])
-    expect(stylesLayers.unlayered).toEqual([])
-    // Unchanged: the rules B1 shipped, named one by one rather than counted,
-    // so a rule that moves out of this layer is visible here.
-    expect([...parseRules(stylesLayers.blocks.get('components') ?? '').keys()]).toEqual([
-      '#root',
-      '.page',
-      '.page--narrow',
-      '.shell',
-      '.shell__header',
-      '.shell__nav ul',
-      '.shell__identity',
-      '.form',
-      '.field',
-      '.field__error',
-      '.notice',
-      '.status',
-      '.status__actions',
+  it('keeps every declaration file to the three named ones', () => {
+    // tokens, fonts and base, and nothing else unlayered. Everything a
+    // component paints belongs in a module, where it is scoped to that
+    // component instead of reaching the whole page.
+    expect(declarations.map((path) => path.slice(files.src.length + 1)).sort()).toEqual([
+      'styles/base.css',
+      'styles/fonts.css',
+      'styles/tokens.css',
     ])
+
+    for (const path of modules) {
+      expect(read(path).length, path).toBeGreaterThan(0)
+    }
   })
 
-  it('takes the reset and body defaults out of the application stylesheet', () => {
-    const components = parseRules(stylesLayers.blocks.get('components') ?? '')
-    expect(components.has('*, *::before, *::after')).toBe(false)
-    expect(components.has('body')).toBe(false)
-    expect(styles).not.toContain('box-sizing')
+  it('gives every module a component that imports it', () => {
+    const sources = filesUnder(files.src, (name) => /\.tsx$/.test(name)).map((path) => read(path))
+
+    for (const path of modules) {
+      const name = path.slice(path.lastIndexOf('/') + 1)
+      expect(
+        sources.some((source) => source.includes(name)),
+        `${name} is imported by nothing`,
+      ).toBe(true)
+    }
+  })
+
+  it('leaves the old application stylesheet behind, not empty in the tree', () => {
+    // Its rules moved into the page, shell, notice and field primitives.
+    expect(stylesheets.some((path) => path === resolve(files.src, 'styles.css'))).toBe(false)
   })
 })
 
@@ -140,14 +152,14 @@ describe('tabular numerals', () => {
     expect(body.get('font-variant-numeric')).toBe('tabular-nums')
 
     const offenders: string[] = []
-    for (const name of ['base.css', 'styles.css']) {
-      const rules = parseRules(readStyle(name))
-      for (const [selector, declared] of rules) {
-        if (selector === 'body' && name === 'base.css') {
+    for (const path of [...declarations, ...modules]) {
+      for (const [selector, declared] of parseRules(read(path))) {
+        if (selector === 'body' && path.endsWith('base.css')) {
+          // The one place it is set. Anything else would be a second source.
           continue
         }
         if (declared.get('font-variant-numeric') === 'tabular-nums') {
-          offenders.push(`${name}: ${selector}`)
+          offenders.push(`${path}: ${selector}`)
         }
       }
     }
@@ -157,10 +169,10 @@ describe('tabular numerals', () => {
 
   it('does not reset them anywhere', () => {
     const offenders: string[] = []
-    for (const name of ['base.css', 'styles.css']) {
-      for (const [selector, declared] of parseRules(readStyle(name))) {
+    for (const path of [...declarations, ...modules]) {
+      for (const [selector, declared] of parseRules(read(path))) {
         if (declared.get('font-variant-numeric') === 'normal') {
-          offenders.push(`${name}: ${selector}`)
+          offenders.push(`${path}: ${selector}`)
         }
       }
     }

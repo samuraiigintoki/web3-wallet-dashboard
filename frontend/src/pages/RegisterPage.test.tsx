@@ -216,8 +216,10 @@ describe('register page', () => {
     })
     await user.click(screen.getByRole('button', { name: 'Create account' }))
 
-    const button = screen.getByRole('button', { name: 'Creating account' })
+    const button = screen.getByRole('button', { name: 'Create account' })
+    expect(button.getAttribute('aria-busy')).toBe('true')
     expect(button.hasAttribute('disabled')).toBe(true)
+    expect(button.querySelector('[aria-hidden="true"]')).not.toBeNull()
 
     await user.click(button)
     expect(fetchStub.mock).toHaveBeenCalledTimes(1)
