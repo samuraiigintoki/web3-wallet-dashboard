@@ -1,0 +1,50 @@
+/*
+ * A static skeleton.
+ *
+ * The direction asks for a skeleton rather than a spinner while content is
+ * being restored, and a static one: a shape that says how much is coming,
+ * without a shimmer pretending that work is happening. Nothing here animates.
+ *
+ * The bars are decorative. What a screen reader announces is the status line,
+ * which is in the accessibility tree and off the screen.
+ */
+
+/* The rules sit in the components layer, the last of the three tokens.css
+   declares. Unlayered rules outrank every layer. */
+
+@layer components {
+  .skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .bar {
+    display: block;
+    block-size: var(--space-4);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    background: var(--bg-2);
+  }
+
+  .title {
+    inline-size: 45%;
+    block-size: var(--space-6);
+  }
+
+  .short {
+    inline-size: 70%;
+  }
+
+  .srOnly {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+}

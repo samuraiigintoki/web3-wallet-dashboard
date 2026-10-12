@@ -3,6 +3,7 @@ import { Navigate, Outlet, useLocation } from 'react-router'
 import { useAuth } from '../auth/useAuth.ts'
 import { Button } from '../ui/Button.tsx'
 import { Notice } from '../ui/Notice.tsx'
+import { Skeleton } from '../ui/Skeleton.tsx'
 import { Page } from '../ui/Page.tsx'
 
 export function RequireAuth() {
@@ -14,7 +15,7 @@ export function RequireAuth() {
     // here would sign out every reload of an open session.
     return (
       <Page busy>
-        <Notice>Restoring your session.</Notice>
+        <Skeleton status="Restoring your session." />
       </Page>
     )
   }

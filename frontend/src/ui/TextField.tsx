@@ -32,7 +32,9 @@ export function TextField({ label, hint, error, ref, type, ...rest }: Props) {
 
   return (
     <div className={styles.field}>
-      <label htmlFor={id}>{label}</label>
+      <label htmlFor={id} className={styles.label}>
+        {label}
+      </label>
 
       <input
         {...rest}

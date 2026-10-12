@@ -21,8 +21,10 @@ type Props = {
  * the only account of what happened, and this product never does that.
  */
 export function Notice({ urgency = 'status', children, actions }: Props) {
+  const classes = urgency === 'alert' ? `${styles.notice} ${styles.alert}` : styles.notice
+
   return (
-    <div className={styles.notice}>
+    <div className={classes}>
       <p className={styles.message} role={urgency}>
         {children}
       </p>

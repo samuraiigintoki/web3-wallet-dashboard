@@ -3,7 +3,7 @@ import { NavLink, Outlet } from 'react-router'
 
 import { useAuth } from '../auth/useAuth.ts'
 import { Button } from '../ui/Button.tsx'
-import { Shell } from '../ui/Shell.tsx'
+import { Shell, ShellIdentity } from '../ui/Shell.tsx'
 
 export function ShellLayout() {
   const { session, logout } = useAuth()
@@ -40,12 +40,11 @@ export function ShellLayout() {
         </ul>
       }
       identity={
-        <>
-          <span>{email}</span>
+        <ShellIdentity email={email}>
           <Button variant="secondary" pending={signingOut} onClick={handleLogout}>
             Sign out
           </Button>
-        </>
+        </ShellIdentity>
       }
     >
       <Outlet />
