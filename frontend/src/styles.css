@@ -1,21 +1,14 @@
 /*
  * Layout only. No colour, type, motion or token decisions live here: those
- * belong to the design system block, and nothing from the design stack is part
- * of this one. The rules below exist so the placeholder screens are readable
- * and the forms are usable, and they are expected to be replaced wholesale.
+ * belong to the base layer and to tokens.css. The rules below exist so the
+ * placeholder screens are readable and the forms are usable, and they are
+ * expected to be replaced wholesale.
+ *
+ * The B1 rules below are unchanged. They sit in the components layer, which
+ * wins over the base defaults in the order tokens.css already declares.
  */
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  line-height: 1.5;
-}
-
+@layer components {
 #root {
   min-height: 100vh;
   display: flex;
@@ -95,4 +88,5 @@ body {
 .status__actions {
   display: flex;
   gap: 0.75rem;
+}
 }

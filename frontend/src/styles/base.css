@@ -1,0 +1,55 @@
+/*
+ * The base layer: what every screen gets before any component rule.
+ *
+ * Three layers, declared once in tokens.css and used here in the same order.
+ * The statement is not repeated in this file, because a second statement would
+ * reorder the layers for every stylesheet that follows it.
+ *
+ * Nothing here decides a value of its own. Every colour, size, family and
+ * leading comes from tokens.css, and a guard holds that.
+ */
+
+@layer reset {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+  }
+}
+
+@layer base {
+  body {
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    line-height: var(--leading-body);
+    /* Set once, inherited everywhere. A figure is a column of digits and a
+       column that shifts sideways while data arrives is unreadable. */
+    font-variant-numeric: tabular-nums;
+    color: var(--text-1);
+    background-color: var(--bg-0);
+  }
+
+  /* The focus ring has to be visible on every surface it lands on, which is
+     why it is the accent and not a line token. */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  input,
+  select,
+  textarea,
+  button {
+    font: inherit;
+    /* The font shorthand resets the variant properties, so the tabular
+       figures are restored on purpose. */
+    font-variant-numeric: inherit;
+    /* A control is never smaller than 1rem, whatever it sits inside. */
+    font-size: max(1rem, 1em);
+    color: inherit;
+  }
+}
