@@ -74,7 +74,7 @@ The focus ring is `--accent`, 2px solid with a 2px offset, measured 9.0:1 on `--
 | State | Token | OKLCH | Hex | Chip tint | Meaning |
 |---|---|---|---|---|---|
 | indexing, data not yet available | `--state-indexing` | `0.640 0.005 75` | `#8E8C89` | none | submitted to the chain, no indexed row yet |
-| awaiting confirmations | `--state-awaiting` | `0.780 0.150 72` | `#F2A635` | `--accent-soft` `0.280 0.050 72` `#382409` | included in a block, confirmations counting up to the reversible window |
+| awaiting confirmations | `--state-awaiting` | `0.780 0.150 72` | `#F2A635` | `--accent-soft` `0.280 0.050 72` `#382409` | included in a block, owner approvals arriving toward the count the wallet requires; the reversible window is block depth and is counted separately |
 | executed | `--state-executed` | `0.740 0.130 155` | `#5EC386` | `--tint-executed` `0.280 0.050 155` `#12301E` | `ExecuteTransaction` indexed |
 | revoked | `--state-revoked` | `0.660 0.120 20` | `#D17273` | `--tint-revoked` `0.280 0.050 20` `#3E1E1E` | `RevokeConfirmation` indexed |
 | vanished | `--state-vanished` | `0.680 0.020 260` | `#9199A5` | `--tint-vanished` `0.280 0.050 260` `#1A2941` | was visible, no longer in the canonical result |
@@ -140,6 +140,8 @@ Durations, named: `--duration-press: 120ms`, `--duration-feedback: 180ms` for ho
 
 ### The one authored moment: the block-time rail
 
+Reserved, not built. This is the product's one authored moment and it stays reserved until real indexed data exists to draw. B2 renders none of it: a static rail drawing indexed rows is a data view and belongs to Week 8 with real rows. The API exposes no head, checkpoint or lag, so nothing draws a progress meter toward the reversible window and no mock timeline substitutes for the rail. When Week 9's browser-side head exists, the remaining window may show as a count, always described as reversible.
+
 Where: the transaction detail header, with a compact variant in transaction list rows.
 
 What it shows, week by week, using only real data:
@@ -148,6 +150,7 @@ What it shows, week by week, using only real data:
 - Week 8, indexed facts only: on first data, ticks render statically; ticks that arrive later settle in over 240ms, opacity and 4px translate, staggered by 40ms, at most three at a time.
 - Week 9, adds the browser-side read: the remaining reversible window shows as empty slots with a count, and the newest block is marked. Head never comes from the backend.
 - Copy is exact: `indexed`, `seen in block 5,412,300`, `3 of 12 reversible window`, `executed in block 5,412,340`, `indexing` while no row exists. Never `confirmed`, never `final`, never a countdown, never confetti.
+- Owner approvals and block depth are different facts and are worded differently: approvals count owners (`2 of 3 owner approvals`), depth counts blocks (`seen in block 5,412,300`, `3 of 12 reversible window`). A row missing from a paginated response is not proof that it was reorged out; reorg language needs evidence the indexer does not serve yet.
 - Reduced motion: a static rail, numbers update in place.
 
 ### Auth surfaces
