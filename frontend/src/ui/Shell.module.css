@@ -5,10 +5,10 @@
  * section that is open is marked by --line-strong, the token recorded for an
  * active tab, and never by colour alone.
  *
- * The one authored entrance is here: the frame fades and rises a few pixels as
- * the app arrives from an auth screen, 240ms on transform and opacity. It runs
- * once, when the frame mounts, so moving between sections inside it does not
- * animate.
+ * Nothing here animates. A screen arriving is not an event, so there is no
+ * mount or navigation motion and no keyframes in this module at all. The
+ * authored moment stays reserved for the block-time rail, when real indexed
+ * data exists to draw.
  */
 
 /* The rules sit in the components layer, the last of the three tokens.css
@@ -19,19 +19,6 @@
     display: flex;
     flex-direction: column;
     min-block-size: 100vh;
-    animation: enter var(--duration-state) var(--ease-out);
-  }
-
-  @keyframes enter {
-    from {
-      opacity: 0;
-      transform: translateY(4px);
-    }
-
-    to {
-      opacity: 1;
-      transform: none;
-    }
   }
 
   .header {
@@ -91,11 +78,5 @@
   .email {
     color: var(--text-2);
     font-size: var(--type-label);
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .shell {
-      animation: none;
-    }
   }
 }

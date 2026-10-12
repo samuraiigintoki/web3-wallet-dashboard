@@ -137,6 +137,15 @@ describe('what is allowed to move', () => {
     expect(exceptionUsed).toBe(1)
   })
 
+  it('keeps the shell frame free of entrance motion', () => {
+    // A screen arriving is not an event: nothing animates on navigation or on
+    // mount, so the frame declares no animation and no keyframes at all. The
+    // authored moment is reserved for the block-time rail.
+    const shell = stylesheets.find(({ path }) => path.endsWith('Shell.module.css'))
+    expect(shell).toBeDefined()
+    expect(shell?.css ?? '').not.toMatch(/animation:|@keyframes/)
+  })
+
   it('rejects a raw curve or keyword anywhere else', () => {
     const offenders: string[] = []
 
@@ -201,17 +210,6 @@ describe('reduced motion', () => {
       spinner?.css ?? '',
     )?.[1]
     expect(reduced).toBeDefined()
-    expect(reduced).toContain('animation: none')
-  })
-
-  it('stops the shell entrance', () => {
-    const shell = stylesheets.find(({ path }) => path.endsWith('Shell.module.css'))
-    const reduced = /@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n  \}/.exec(
-      shell?.css ?? '',
-    )?.[1]
-
-    expect(reduced).toBeDefined()
-    expect(reduced).toContain('.shell')
     expect(reduced).toContain('animation: none')
   })
 
