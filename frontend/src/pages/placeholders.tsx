@@ -1,3 +1,5 @@
+import { Link } from 'react-router'
+
 import { Page } from '../ui/Page.tsx'
 
 /**
@@ -39,6 +41,9 @@ export function NotFoundPage() {
   return (
     <Page title="Page not found">
       <p>That address does not match a page in this application.</p>
+      <p>
+        <Link to="/">Go to the overview</Link>
+      </p>
     </Page>
   )
 }
