@@ -283,6 +283,13 @@ describe('focus', () => {
   })
 })
 
+describe('scroll destinations', () => {
+  it('scroll-margins every heading', () => {
+    const headings = baseRules.get('h1, h2, h3, h4, h5, h6')
+    expect(headings?.get('scroll-margin-top')).toBe('var(--space-6)')
+  })
+})
+
 describe('the rules, against a fixture that breaks each one', () => {
   const cases = [
     {
