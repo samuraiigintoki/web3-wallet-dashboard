@@ -136,7 +136,7 @@ Three easing tokens, from the vendored motion standards:
 
 `linear` is the one curve outside those three, and it is allowed in exactly one place: a continuously turning working indicator, where constant angular velocity is what makes it read as work rather than as a stutter. An eased rotation accelerates and slows every turn, which looks like the interface is struggling. Nothing else uses `linear`: a transition, a settle or any other animation that moves on screen takes one of the three tokens above.
 
-Durations, named: `--duration-press: 120ms`, `--duration-feedback: 180ms` for hover and feedback, `--duration-state: 240ms`, `--duration-settle: 320ms`, and `--duration-ceiling: 480ms` for overlays and route transitions. Transform and opacity only. Never `transition: all`, never `ease-in` on UI, never `scale(0)`. Anything a user sees a hundred times a day does not animate. Every transition that moves more than a few pixels respects `prefers-reduced-motion`.
+Durations, named: `--duration-press: 120ms`, `--duration-feedback: 180ms` for hover and feedback, `--duration-state: 240ms`, `--duration-settle: 320ms`, and `--duration-ceiling: 480ms` for overlays, used only when an overlay exists. The budgets these sit inside: press 100 to 160ms, state feedback 150 to 250ms, overlays 200 to 500ms. Transform and opacity only, on the easing tokens above. Colour feedback may change immediately, or settle inside the state feedback budget; it never drives layout. Never `transition: all`, never `ease-in` on UI, never `scale(0)`. No motion runs on navigation or on mount: a screen arriving is not an event. Anything a user sees a hundred times a day does not animate. Every transition that moves more than a few pixels respects `prefers-reduced-motion`.
 
 ### The one authored moment: the block-time rail
 
@@ -155,13 +155,13 @@ What it shows, week by week, using only real data:
 
 ### Auth surfaces
 
-`/login` and `/register` carry the same rail as a vertical spine: as the page scrolls, ticks land at real product facts, in the product's own words, ending at the form. It is the product's only scroll-driven sequence, built on IntersectionObserver and CSS, no library. The spine is parked as its own later block: the design system restyles both pages as quiet forms built from the primitives, the form visible without scrolling, with the 240ms auth-to-app transition and no scroll sequence.
+`/login` and `/register` carry the same rail as a vertical spine: as the page scrolls, ticks land at real product facts, in the product's own words, ending at the form. It is the product's only scroll-driven sequence, built on IntersectionObserver and CSS, no library. The spine is parked as its own later block: the design system restyles both pages as quiet forms built from the primitives, task-first and usable without scrolling at 360px, with no scroll sequence and no motion on navigation or mount.
 
 No WebGL, no 3D, no illustration, no mesh background, no scroll cue, no "scroll to explore". The form is visible without scrolling, and the headline is set in the product's own words, not a slogan.
 
 ### Auth to app
 
-One short continuity motion, 240ms, transform and opacity, reduced motion respected. The rail element is continuous across the transition where the layout allows it. It is not a second signature moment.
+No motion. The 240ms continuity transition that was recorded here is removed: the no-motion-on-navigation rule excludes a mount animation, and a screen arriving is not an event. The authored moment stays reserved for the real rail.
 
 ## Do not
 
