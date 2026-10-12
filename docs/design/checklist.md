@@ -98,16 +98,16 @@ build.
 
 | Rule | Verdict | Note |
 |---|---|---|
-| MUST: Honor `prefers-reduced-motion` (provide reduced variant or disable) | Pass | Measured under `reduce`: `document.getAnimations()` is empty on `/login` and the shell, the shell entrance computes to `animation-name: none`, and the button press to `transition: none`. Guard tests pin the rules. |
+| MUST: Honor `prefers-reduced-motion` (provide reduced variant or disable) | Pass | The reduce switches are pinned by guard: the spinner sets `animation: none`, the button press sets `transition: none`, and the shell module now declares no animation and no keyframes at all, so nothing on it needs stopping. The earlier Chromium measurement at the capture commit, `document.getAnimations()` empty on `/login` and the shell under `reduce`, still covers the surviving rules; it was not rerun at this head because the verification environment has no browser, and the change since then only removes the entrance declarations. |
 | SHOULD: Prefer CSS > Web Animations API > JS libraries | Pass | All motion is CSS keyframes and transitions. |
 | MUST: Animate compositor-friendly props (`transform`, `opacity`) only | Pass | Guard: keyframe declarations may set only `transform` and `opacity`. |
 | NEVER: Animate layout props (`top`, `left`, `width`, `height`) | Pass | Same guard. |
 | NEVER: `transition: all`, list properties explicitly | Pass | Guard test. |
-| SHOULD: Animate only to clarify cause/effect or add deliberate delight | Pass | Two motions exist: the working spinner and the single authored 240ms shell entrance the direction records. |
+| SHOULD: Animate only to clarify cause/effect or add deliberate delight | Pass | Two motion kinds exist: the working spinner and the short interactive feedback (press transform, hover colour) inside the direction's budgets. Nothing animates on navigation or on mount; the guard pins that the shell declares no animation, and the authored moment stays reserved for the block-time rail. |
 | SHOULD: Choose easing to match the change (size/distance/trigger) | Pass | Only the direction's easing tokens appear, with the recorded `linear` exception for the turning spinner (guard). |
-| MUST: Animations interruptible and input-driven; autoplay only for muted, non-essential loops | Pass | The only loop is the working spinner, a non-essential busy indicator whose request ends it; the entrance is one 240ms run. No ambient motion autoplays. |
+| MUST: Animations interruptible and input-driven; autoplay only for muted, non-essential loops | Pass | The only loop is the working spinner, a non-essential busy indicator whose request ends it. No ambient motion autoplays, and nothing animates on navigation or on mount (guard). |
 | MUST: Autoplay motion >5s alongside other content has pause, stop, or hide controls | Not applicable | No ambient or decorative loop exists; the spinner is bound to a request and becomes a static mark under reduced motion. |
-| MUST: Correct `transform-origin` (motion starts where it physically should) | Pass | The spinner ring turns about its own centre, where it physically turns; the entrance translates along the block axis only. |
+| MUST: Correct `transform-origin` (motion starts where it physically should) | Pass | The spinner ring turns about its own centre, where it physically turns; the only other transform is the button press translate, along the block axis. |
 | MUST: SVG transforms on `<g>` wrapper with `transform-box: fill-box` | Not applicable | The block ships no SVG; the direction bans glyph icons. |
 
 ## Layout
