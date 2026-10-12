@@ -79,9 +79,10 @@ const pairs: Pair[] = [
     background: surface,
     role: 'Non-text boundary, focus indicator',
   })),
-  // The error hue as the border of an invalid control, on the ground and on
-  // the panel, which is where a field actually sits.
-  ...surfaces.slice(0, 2).map((surface): Pair => ({
+  // The error hue as the border of an invalid control. The control fills
+  // with --bg-2, so that is the surface the border meets first, and the
+  // field block also rests on the ground and the panel.
+  ...surfaces.slice(0, 3).map((surface): Pair => ({
     name: `--state-error border on ${surface}`,
     text: '--state-error',
     background: surface,
@@ -177,7 +178,7 @@ describe('every declared pair clears its role on both measures', () => {
   })
 
   it('covers the error hue where it is used as a boundary', () => {
-    for (const surface of ['--bg-0', '--bg-1']) {
+    for (const surface of ['--bg-0', '--bg-1', '--bg-2']) {
       const pair = pairs.find(
         (one) => one.text === '--state-error' && one.background === surface,
       )
@@ -284,7 +285,7 @@ describe('the printed table', () => {
     })
 
     console.log(`\ncontrast table, ${String(pairs.length)} pairs\n` + rows.join('\n'))
-    expect(pairs).toHaveLength(42)
+    expect(pairs).toHaveLength(43)
     expect(rows).toHaveLength(pairs.length)
   })
 })
