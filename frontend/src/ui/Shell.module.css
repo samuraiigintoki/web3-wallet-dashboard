@@ -63,6 +63,7 @@
 
   .nav a {
     display: inline-block;
+    min-block-size: var(--row-height);
     padding-block: var(--space-2);
     color: var(--text-2);
     text-decoration: none;
