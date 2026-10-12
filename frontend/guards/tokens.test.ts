@@ -21,6 +21,7 @@ import {
   read,
   resolveToken,
 } from './tokens.ts'
+import { PRODUCT_NAME } from '../src/ui/product.ts'
 
 const document = parseDocumentColours(read(files.direction))
 const css = parseCssTokens(read(files.tokens))
@@ -276,5 +277,15 @@ describe('the stylesheet is loaded once, from the entry', () => {
 
   it('keeps index.html free of a stylesheet link', () => {
     expect(read(files.indexHtml)).not.toMatch(/<link[^>]+rel="stylesheet"/)
+  })
+})
+
+describe('the product name and the document title', () => {
+  it('spell the name the same way, non-breaking spaces included', () => {
+    // index.html is what a browser shows before React starts, so the two
+    // strings have to agree character for character.
+    const title = /<title>([^<]*)<\/title>/.exec(read(files.indexHtml))?.[1] ?? ''
+    expect(title.replace(/&nbsp;/g, '\u00a0')).toBe(PRODUCT_NAME)
+    expect(PRODUCT_NAME).toBe('Web3\u00a0Wallet\u00a0Dashboard')
   })
 })
