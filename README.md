@@ -22,7 +22,7 @@ The Go backend features:
 - Versioned SQL migrations (`backend/migrations/`, 0001 through 0008) embedded with `go:embed` and managed via `cmd/migrate`
 - Table-driven unit tests plus PostgreSQL integration tests, including a restartable scan, reorg and rescan flow, gated by a GitHub Actions CI workflow
 
-The React frontend now has its foundation in `frontend/`: authentication routes, a typed API client and a restored session. Its data screens, the browser-wallet write path and production deployment are planned for upcoming blocks.
+The React frontend now has its foundation in `frontend/`: authentication routes, a typed API client, a restored session, and the design system the screens run on. The system is recorded in `docs/design/`: the approved direction, the design tokens, self-hosted Geist fonts with their licence notice, and the interface checklist. Data screens, the browser-wallet write path and production deployment are planned for upcoming blocks.
 
 ## Architecture
 
@@ -223,12 +223,13 @@ These are the same four gates the `frontend` CI job runs after `npm ci`.
 - [Contract Integration Requirements](docs/contract-requirements.md)
 - [Security Assumptions](docs/security-assumptions.md)
 - [Authentication](docs/auth.md)
+- [Design: direction, font notice and interface checklist](docs/design/)
 - [ADR 0001: Wallet Identity Type and MVP Schema Conventions](docs/adr/0001-wallet-id-and-schema-conventions.md)
 - [ADR 0002: Migration Runner and Execution Strategy](docs/adr/0002-migration-runner-and-execution-strategy.md)
 - [ADR 0003: Wallet Ownership Retrofit](docs/adr/0003-wallet-ownership-retrofit.md)
 
 ## Development status
 
-- **Current milestone:** Week 7 in progress (frontend foundation: authentication routes, typed API client, and session handling)
+- **Current milestone:** Week 7 in progress (frontend foundation and design system: authentication routes, typed API client, session handling, design tokens, self-hosted fonts, and the restyled screens)
 - **Last completed milestone:** Week 6 (contract event indexer: persistence, scanner, retry, reorganization recovery, and authenticated event reads)
 - **Status:** In active development

@@ -19,3 +19,8 @@
 - **Containment while it stands:** the token is written and read in exactly one module, never logged, never placed in a URL or an error message, and never sent anywhere but this origin, because the request helper rejects absolute URLs. `index.html` loads no third-party script.
 - **Not yet in place:** there is no Content Security Policy. Adding one belongs with the deployment design, since it depends on how the built frontend is served.
 
+## Third-party assets
+- **No third-party origin:** the built frontend loads nothing from another origin. No CDN font, script or stylesheet is referenced anywhere in `frontend/`; the guard tests reject absolute URLs in the stylesheets and the production build is checked for the measuring library's absence.
+- **Fonts are self-hosted:** the two variable faces, Geist Sans and Geist Mono, are vendored woff2 files in `frontend/src/fonts/`, loaded from this origin. Each file's byte size and SHA-256, its copyright line and the complete SIL OFL 1.1 text are recorded in `docs/design/NOTICE.md`.
+- **Test-only dependencies:** `colorjs.io` exists as a development dependency for the guard tests and is never imported by application code; a guard builds the app and asserts the bundle contains no trace of it.
+
