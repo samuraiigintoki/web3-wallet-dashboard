@@ -16,6 +16,7 @@ import {
   filesUnder,
   parseCssTokens,
   parseDocumentColours,
+  parseLayers,
   parseOklch,
   read,
   resolveToken,
@@ -206,9 +207,33 @@ describe('the scales are usable as tokens', () => {
     }
   })
 
-  it('declares the layer order once', () => {
-    const occurrences = read(files.tokens).match(/@layer\s+reset,\s*base,\s*components;/g) ?? []
-    expect(occurrences).toHaveLength(1)
+  it('declares the layer order once, in tokens.css', () => {
+    // A second statement reorders the layers for every stylesheet after it, so
+    // the whole tree is scanned rather than just this file.
+    const statements: string[] = []
+
+    for (const path of filesUnder(files.src, (name) => name.endsWith('.css'))) {
+      const layers = parseLayers(read(path))
+      if (layers.order !== null) {
+        statements.push(`${path}: ${layers.order}`)
+      }
+    }
+
+    expect(statements).toHaveLength(1)
+    expect(statements[0]).toContain('tokens.css')
+
+    // The full statement, not a substring of it: one name added to the end
+    // still contains the approved three, and would still reorder the cascade.
+    const declared = parseLayers(read(files.tokens)).order?.split(',').map((one) => one.trim())
+    expect(declared).toEqual(['reset', 'base', 'components'])
+
+    // Every layer any stylesheet writes into has to be one of them, or the
+    // rule lands somewhere the order never named.
+    for (const path of filesUnder(files.src, (name) => name.endsWith('.css'))) {
+      for (const name of parseLayers(read(path)).blocks.keys()) {
+        expect(declared, `${path}: ${name}`).toContain(name)
+      }
+    }
   })
 })
 
@@ -225,10 +250,16 @@ describe('the stylesheet is loaded once, from the entry', () => {
 
     // Order matters, and the list is exact rather than a subset: tokens first,
     // because the layer statement has to be evaluated before any stylesheet
-    // that adds to a layer; then the faces; then the application stylesheet.
-    expect(stylesheets).toEqual(['./styles/tokens.css', './styles/fonts.css', './styles.css'])
+    // that adds to a layer; then the faces; then the base layer; then the
+    // application stylesheet.
+    expect(stylesheets).toEqual([
+      './styles/tokens.css',
+      './styles/fonts.css',
+      './styles/base.css',
+      './styles.css',
+    ])
 
-    for (const stylesheet of ['tokens.css', 'fonts.css']) {
+    for (const stylesheet of ['tokens.css', 'fonts.css', 'base.css']) {
       const importers = filesUnder(files.src, (name) => /\.(?:ts|tsx)$/.test(name)).filter((path) =>
         read(path).includes(stylesheet),
       )

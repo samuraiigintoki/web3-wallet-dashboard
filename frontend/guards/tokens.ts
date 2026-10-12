@@ -24,6 +24,8 @@ export function read(path: string): string {
   return readFileSync(path, 'utf8')
 }
 
+export type TokenMap = Map<string, string>
+
 export type DocumentColour = {
   /** The OKLCH triple as written in the document, for example `0.155 0.008 75`. */
   oklch: string
@@ -314,3 +316,151 @@ export function parseNoticeFonts(markdown: string): Map<string, NoticedFont> {
 
   return noticed
 }
+
+export type StylesheetLayers = {
+  /** Layer name to the rules inside it. Statements add no entry. */
+  blocks: Map<string, string>
+  /** Rules written outside any layer, which the cascade treats differently. */
+  unlayered: string[]
+  /** The `@layer a, b, c;` order statement, when the file carries one. */
+  order: string | null
+}
+
+/**
+ * The layer structure of a stylesheet.
+ *
+ * Comments are stripped and braces are counted, so a rule inside a layer is
+ * never mistaken for one outside it. Enough to hold the files in this tree to
+ * their stated structure, and no more.
+ */
+export function parseLayers(source: string): StylesheetLayers {
+  const css = source.replace(/\/\*[\s\S]*?\*\//g, '')
+  const blocks = new Map<string, string>()
+  const unlayered: string[] = []
+  let order: string | null = null
+  let index = 0
+
+  while (index < css.length) {
+    const open = css.indexOf('{', index)
+
+    if (open === -1) {
+      const tail = css.slice(index).trim()
+      if (tail !== '') {
+        unlayered.push(tail)
+      }
+      break
+    }
+
+    const head = css.slice(index, open).trim()
+
+    // Match the closing brace of this block, counting nested braces.
+    let depth = 1
+    let cursor = open + 1
+    while (cursor < css.length && depth > 0) {
+      if (css[cursor] === '{') {
+        depth += 1
+      } else if (css[cursor] === '}') {
+        depth -= 1
+      }
+      cursor += 1
+    }
+
+    const body = css.slice(open + 1, cursor - 1)
+
+    // The order statement ends in a semicolon and stands on its own, so it is
+    // lifted out of the header before the header is read as a selector.
+    const statement = /@layer\s+([\w-]+(?:\s*,\s*[\w-]+)+)\s*;/g
+    const rest = head.replace(statement, (whole: string, names: string) => {
+      order = names.trim().replace(/\s+/g, ' ')
+      return whole.includes('\n') ? '' : ' '
+    })
+
+    // A block header names one layer and nothing else.
+    const block = /^@layer\s+([\w-]+)$/.exec(rest.trim())
+    if (block?.[1] !== undefined) {
+      blocks.set(block[1], (blocks.get(block[1]) ?? '') + body)
+    } else if (rest.trim() !== '') {
+      unlayered.push(rest.trim())
+    }
+
+    index = cursor
+  }
+
+  return { blocks, unlayered, order }
+}
+
+/** The declarations of one block, by property name. Only `color` is `color`. */
+export function parseDeclarations(block: string): Map<string, string> {
+  const declared = new Map<string, string>()
+
+  for (const part of block.split(';')) {
+    const colon = part.indexOf(':')
+    if (colon <= 0) {
+      continue
+    }
+
+    const property = part.slice(0, colon).trim().toLowerCase()
+    const value = part.slice(colon + 1).trim()
+    if (property !== '' && value !== '') {
+      declared.set(property, value)
+    }
+  }
+
+  return declared
+}
+
+/** Every rule in a block, by selector, with its declarations. */
+export function parseRules(css: string): Map<string, Map<string, string>> {
+  const rules = new Map<string, Map<string, string>>()
+
+  for (const match of css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const selector = (match[1] ?? '').trim().replace(/\s+/g, ' ')
+    if (selector !== '') {
+      rules.set(selector, parseDeclarations(match[2] ?? ''))
+    }
+  }
+
+  return rules
+}
+
+const SMALLEST_REM = 1
+
+/**
+ * The smallest a font-size value can resolve to, in rem, or null when nothing
+ * about it can be bounded. `rem` and `px` convert at the 16px baseline, a
+ * token is followed to its value, and `max()` is bounded by its floor.
+ */
+export function minimumRem(value: string, tokens: Map<string, string>): number | null {
+  const text = value.trim()
+
+  const max = /^max\((.+)\)$/.exec(text)
+  if (max?.[1] !== undefined) {
+    const floors = max[1]
+      .split(',')
+      .map((part) => minimumRem(part, tokens))
+      .filter((one): one is number => one !== null)
+
+    return floors.length === 0 ? null : Math.max(...floors)
+  }
+
+  const rem = /^(-?[\d.]+)rem$/.exec(text)
+  if (rem?.[1] !== undefined) {
+    return Number(rem[1])
+  }
+
+  const px = /^(-?[\d.]+)px$/.exec(text)
+  if (px?.[1] !== undefined) {
+    return Number(px[1]) / 16
+  }
+
+  const reference = /^var\((--[a-z0-9-]+)\)$/.exec(text)
+  if (reference?.[1] !== undefined) {
+    const resolved = resolveToken(reference[1], tokens)
+    return resolved === null ? null : minimumRem(resolved, tokens)
+  }
+
+  return null
+}
+
+/** The 16px rem baseline, named once so the guards read the same number. */
+export const MINIMUM_CONTROL_REM = SMALLEST_REM

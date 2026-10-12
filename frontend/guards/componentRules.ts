@@ -1,3 +1,6 @@
+import { minimumRem, MINIMUM_CONTROL_REM, parseDeclarations } from './tokens.ts'
+import type { TokenMap } from './tokens.ts'
+
 /**
  * The rules that apply to component stylesheets.
  *
@@ -19,13 +22,17 @@ const ABOVE_BODY = [
   '--type-headline',
 ]
 
-export function checkComponentCss(source: string, path: string): Finding[] {
+export function checkComponentCss(
+  source: string,
+  path: string,
+  tokens: TokenMap = new Map(),
+): Finding[] {
   const findings: Finding[] = []
   const withoutComments = source.replace(/\/\*[\s\S]*?\*\//g, '')
 
   for (const match of withoutComments.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     const selector = match[1]?.trim() ?? ''
-    const declared = declarationsIn(match[2] ?? '')
+    const declared = parseDeclarations(match[2] ?? '')
     const colour = declared.get('color') ?? ''
     const size = declared.get('font-size') ?? ''
 
@@ -54,6 +61,19 @@ export function checkComponentCss(source: string, path: string): Finding[] {
       })
     }
 
+    // A control is never smaller than 1rem: below that a browser zooms the
+    // page on focus on a phone, and the target is too small to hit.
+    if (CONTROLS.test(selector) && size !== '') {
+      const floor = minimumRem(size, tokens)
+      if (floor !== null && floor < MINIMUM_CONTROL_REM) {
+        findings.push({
+          path,
+          rule: 'control below 1rem',
+          detail: `${selector} sets a control to ${size}`,
+        })
+      }
+    }
+
     // A control boundary is --line-control. --line and --line-strong are
     // structure and fall short of the 3:1 and Lc 30 a boundary needs.
     if (CONTROLS.test(selector)) {
@@ -73,24 +93,4 @@ export function checkComponentCss(source: string, path: string): Finding[] {
   }
 
   return findings
-}
-
-/** The declarations of one rule, by property name. Only `color` is `color`. */
-function declarationsIn(block: string): Map<string, string> {
-  const declared = new Map<string, string>()
-
-  for (const part of block.split(';')) {
-    const colon = part.indexOf(':')
-    if (colon <= 0) {
-      continue
-    }
-
-    const property = part.slice(0, colon).trim().toLowerCase()
-    const value = part.slice(colon + 1).trim()
-    if (property !== '' && value !== '') {
-      declared.set(property, value)
-    }
-  }
-
-  return declared
 }

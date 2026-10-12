@@ -8,7 +8,9 @@
 import { describe, expect, it } from 'vitest'
 
 import { checkComponentCss } from './componentRules.ts'
-import { files, filesUnder, read } from './tokens.ts'
+import { files, filesUnder, parseCssTokens, read } from './tokens.ts'
+
+const tokens = parseCssTokens(read(files.tokens))
 
 const componentCss = filesUnder(files.src, (name) => name.endsWith('.css')).filter(
   (path) => !path.endsWith('tokens.css') && !path.endsWith('styles.css'),
@@ -16,7 +18,7 @@ const componentCss = filesUnder(files.src, (name) => name.endsWith('.css')).filt
 
 describe('the tree', () => {
   it('finds no component stylesheet breaking a rule', () => {
-    const findings = componentCss.flatMap((path) => checkComponentCss(read(path), path))
+    const findings = componentCss.flatMap((path) => checkComponentCss(read(path), path, tokens))
     expect(findings.map((finding) => `${finding.path}: ${finding.rule} (${finding.detail})`)).toEqual([])
   })
 })
@@ -49,7 +51,7 @@ describe('the rules, against a fixture that breaks each one', () => {
 
   for (const one of cases) {
     it(`reports ${one.name}`, () => {
-      const findings = checkComponentCss(one.css, 'fixture.css')
+      const findings = checkComponentCss(one.css, 'fixture.css', tokens)
       expect(findings.map((finding) => finding.rule)).toContain(one.rule)
     })
   }
@@ -72,6 +74,10 @@ describe('the rules, against a fixture that breaks each one', () => {
       css: '.field input { border: 1px solid var(--line-control); }',
     },
     {
+      name: 'a control at the base floor',
+      css: '.field input { font-size: max(1rem, 1em); }',
+    },
+    {
       // A border is not a foreground, so this is not a below-size text rule.
       name: 'a border colour of --text-3 with no foreground set',
       css: '.badge { font-size: var(--type-meta); border-color: var(--text-3); }',
@@ -84,7 +90,7 @@ describe('the rules, against a fixture that breaks each one', () => {
 
   for (const one of permitted) {
     it(`allows ${one.name}`, () => {
-      expect(checkComponentCss(one.css, 'fixture.css')).toEqual([])
+      expect(checkComponentCss(one.css, 'fixture.css', tokens)).toEqual([])
     })
   }
 })
