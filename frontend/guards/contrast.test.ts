@@ -79,6 +79,14 @@ const pairs: Pair[] = [
     background: surface,
     role: 'Non-text boundary, focus indicator',
   })),
+  // The error hue as the border of an invalid control, on the ground and on
+  // the panel, which is where a field actually sits.
+  ...surfaces.slice(0, 2).map((surface): Pair => ({
+    name: `--state-error border on ${surface}`,
+    text: '--state-error',
+    background: surface,
+    role: 'Non-text boundary, focus indicator',
+  })),
   // A state hue against its own tint, where the hue goes on the border.
   ...Object.entries(stateTints).map(([state, tint]): Pair => ({
     name: `${state} on ${tint}`,
@@ -166,6 +174,15 @@ describe('every declared pair clears its role on both measures', () => {
   it('covers the focus ring on all four surfaces', () => {
     const ringed = pairs.filter((pair) => pair.text === '--accent').map((pair) => pair.background)
     expect([...new Set(ringed)].sort()).toEqual([...surfaces])
+  })
+
+  it('covers the error hue where it is used as a boundary', () => {
+    for (const surface of ['--bg-0', '--bg-1']) {
+      const pair = pairs.find(
+        (one) => one.text === '--state-error' && one.background === surface,
+      )
+      expect(pair, surface).toBeDefined()
+    }
   })
 
   it('covers the four surfaces and the five tints', () => {
@@ -267,7 +284,7 @@ describe('the printed table', () => {
     })
 
     console.log(`\ncontrast table, ${String(pairs.length)} pairs\n` + rows.join('\n'))
-    expect(pairs).toHaveLength(40)
+    expect(pairs).toHaveLength(42)
     expect(rows).toHaveLength(pairs.length)
   })
 })
