@@ -7,56 +7,61 @@
  * reduced motion.
  */
 
-.button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  min-block-size: var(--row-height);
-  padding-inline: var(--space-4);
-  font-weight: 600;
-  border: 1px solid transparent;
-  border-radius: var(--radius-control);
-  cursor: pointer;
-  transition: transform var(--duration-press) var(--ease-out);
-}
+/* The rules sit in the components layer, the last of the three tokens.css
+   declares. Unlayered rules outrank every layer. */
 
-.primary {
-  color: var(--accent-ink);
-  background: var(--accent);
-}
+@layer components {
+  .button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    min-block-size: var(--row-height);
+    padding-inline: var(--space-4);
+    font-weight: 600;
+    border: 1px solid transparent;
+    border-radius: var(--radius-control);
+    cursor: pointer;
+    transition: transform var(--duration-press) var(--ease-out);
+  }
 
-.primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-}
+  .primary {
+    color: var(--accent-ink);
+    background: var(--accent);
+  }
 
-.secondary {
-  color: var(--text-1);
-  background: var(--bg-1);
-  border-color: var(--line-control);
-}
+  .primary:hover:not(:disabled) {
+    background: var(--accent-hover);
+  }
 
-.secondary:hover:not(:disabled) {
-  background: var(--bg-3);
-}
+  .secondary {
+    color: var(--text-1);
+    background: var(--bg-1);
+    border-color: var(--line-control);
+  }
 
-.button:active:not(:disabled) {
-  transform: translateY(1px);
-}
+  .secondary:hover:not(:disabled) {
+    background: var(--bg-3);
+  }
 
-/* A control that cannot be used is muted and loses its boundary, rather than
-   keeping a border that reads as an affordance. */
-.button:disabled {
-  color: var(--text-disabled);
-  background: var(--bg-3);
-  border-color: transparent;
-  cursor: default;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .button,
   .button:active:not(:disabled) {
-    transition: none;
-    transform: none;
+    transform: translateY(1px);
+  }
+
+  /* A control that cannot be used is muted and loses its boundary, rather than
+     keeping a border that reads as an affordance. */
+  .button:disabled {
+    color: var(--text-disabled);
+    background: var(--bg-3);
+    border-color: transparent;
+    cursor: default;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .button,
+    .button:active:not(:disabled) {
+      transition: none;
+      transform: none;
+    }
   }
 }

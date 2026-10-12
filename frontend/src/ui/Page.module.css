@@ -3,20 +3,25 @@
  * two auth screens are built on.
  */
 
-.page {
-  flex: 1;
-  inline-size: 100%;
-  max-inline-size: 60rem;
-  margin-inline: auto;
-  padding: var(--gutter-page);
-}
+/* The rules sit in the components layer, the last of the three tokens.css
+   declares. Unlayered rules outrank every layer. */
 
-.narrow {
-  max-inline-size: 24rem;
-}
+@layer components {
+  .page {
+    flex: 1;
+    inline-size: 100%;
+    max-inline-size: 60rem;
+    margin-inline: auto;
+    padding: var(--gutter-page);
+  }
 
-.form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
+  .narrow {
+    max-inline-size: 24rem;
+  }
+
+  .form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
 }

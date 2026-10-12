@@ -3,32 +3,37 @@
  * the section navigation and the identity, above the page itself.
  */
 
-.shell {
-  display: flex;
-  flex-direction: column;
-  min-block-size: 100vh;
-}
+/* The rules sit in the components layer, the last of the three tokens.css
+   declares. Unlayered rules outrank every layer. */
 
-.header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-4) var(--gutter-page);
-  border-block-end: 1px solid var(--line);
-}
+@layer components {
+  .shell {
+    display: flex;
+    flex-direction: column;
+    min-block-size: 100vh;
+  }
 
-.nav ul {
-  display: flex;
-  gap: var(--space-4);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
+  .header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-4) var(--gutter-page);
+    border-block-end: 1px solid var(--line);
+  }
 
-.identity {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  margin-inline-start: auto;
+  .nav ul {
+    display: flex;
+    gap: var(--space-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .identity {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-inline-start: auto;
+  }
 }

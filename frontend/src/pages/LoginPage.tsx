@@ -23,8 +23,11 @@ export function LoginPage() {
   const [passwordError, setPasswordError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
+  // Bumped on every rejected submit, so a second attempt with the same
+  // values takes focus back to the field that has to change.
+  const [attempt, setAttempt] = useState(0)
 
-  const formRef = useInvalidFocus([emailError, passwordError])
+  const formRef = useInvalidFocus(attempt)
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault()
@@ -40,6 +43,7 @@ export function LoginPage() {
     setFormError(null)
 
     if (nextEmailError !== null || nextPasswordError !== null) {
+      setAttempt((count) => count + 1)
       return
     }
 
@@ -57,6 +61,7 @@ export function LoginPage() {
         if (fieldErrors.email !== undefined || fieldErrors.password !== undefined) {
           setEmailError(fieldErrors.email ?? null)
           setPasswordError(fieldErrors.password ?? null)
+          setAttempt((count) => count + 1)
           return
         }
         setFormError(describeApiError(error))

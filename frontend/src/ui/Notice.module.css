@@ -6,18 +6,23 @@
  * plain structure. Tone variants land with the screen restyle.
  */
 
-.notice {
-  padding: var(--space-3);
-  border: 1px solid var(--line);
-}
+/* The rules sit in the components layer, the last of the three tokens.css
+   declares. Unlayered rules outrank every layer. */
 
-.message {
-  margin: 0;
-}
+@layer components {
+  .notice {
+    padding: var(--space-3);
+    border: 1px solid var(--line);
+  }
 
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-  margin-block-start: var(--space-3);
+  .message {
+    margin: 0;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    margin-block-start: var(--space-3);
+  }
 }

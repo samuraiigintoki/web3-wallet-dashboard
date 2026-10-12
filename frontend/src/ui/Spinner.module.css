@@ -6,24 +6,29 @@
  * stays as a static mark.
  */
 
-.spinner {
-  flex: none;
-  inline-size: 1em;
-  block-size: 1em;
-  border: 2px solid currentColor;
-  border-inline-end-color: transparent;
-  border-radius: var(--radius-pill);
-  animation: turn var(--duration-settle) linear infinite;
-}
+/* The rules sit in the components layer, the last of the three tokens.css
+   declares. Unlayered rules outrank every layer. */
 
-@keyframes turn {
-  to {
-    transform: rotate(1turn);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
+@layer components {
   .spinner {
-    animation: none;
+    flex: none;
+    inline-size: 1em;
+    block-size: 1em;
+    border: 2px solid currentColor;
+    border-inline-end-color: transparent;
+    border-radius: var(--radius-pill);
+    animation: turn var(--duration-settle) linear infinite;
+  }
+
+  @keyframes turn {
+    to {
+      transform: rotate(1turn);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spinner {
+      animation: none;
+    }
   }
 }

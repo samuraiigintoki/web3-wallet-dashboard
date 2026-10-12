@@ -283,6 +283,28 @@ describe('focus on a rejected submit', () => {
     expect(screen.getByLabelText('Email').getAttribute('aria-invalid')).toBe('false')
   })
 
+  it('takes focus back on a second identical rejected submit', async () => {
+    // The values did not change, so the messages did not change either. The
+    // attempt is what has to bring focus back: someone who tabs away to look
+    // something up and presses the button again is still owed the field.
+    stubFetch(() => jsonResponse({ data: USER }))
+    const { user } = renderApp({ path: '/login' })
+
+    await user.click(screen.getByRole('button', { name: 'Sign in' }))
+    expect(document.activeElement).toBe(screen.getByLabelText('Email'))
+
+    await user.tab()
+    expect(document.activeElement).toBe(screen.getByLabelText('Password'))
+
+    await user.click(screen.getByRole('button', { name: 'Sign in' }))
+    expect(document.activeElement).toBe(screen.getByLabelText('Email'))
+    // The same two messages, unchanged by the second attempt.
+    expect(screen.getAllByRole('status').map((node) => node.textContent)).toEqual([
+      'Enter your email address.',
+      'Enter your password.',
+    ])
+  })
+
   it('moves focus to the field the server named', async () => {
     stubFetch(() =>
       errorResponse(422, 'VALIDATION_ERROR', { details: { email: 'email is taken' } }),

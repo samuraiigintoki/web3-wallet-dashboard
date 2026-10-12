@@ -6,22 +6,27 @@
  * the field says it is invalid in the accessibility tree as well.
  */
 
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
+/* The rules sit in the components layer, the last of the three tokens.css
+   declares. Unlayered rules outrank every layer. */
 
-.control {
-  inline-size: 100%;
-  padding: var(--space-2) var(--space-3);
-  color: var(--text-1);
-  background: var(--bg-1);
-  border: 1px solid var(--line-control);
-  border-radius: var(--radius-control);
-}
+@layer components {
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
 
-.hint,
-.error {
-  font-size: var(--type-body);
+  .control {
+    inline-size: 100%;
+    padding: var(--space-2) var(--space-3);
+    color: var(--text-1);
+    background: var(--bg-1);
+    border: 1px solid var(--line-control);
+    border-radius: var(--radius-control);
+  }
+
+  .hint,
+  .error {
+    font-size: var(--type-body);
+  }
 }

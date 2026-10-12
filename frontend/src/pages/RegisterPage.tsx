@@ -33,8 +33,11 @@ export function RegisterPage() {
   const [confirmationError, setConfirmationError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
+  // Bumped on every rejected submit, so a second attempt with the same
+  // values takes focus back to the field that has to change.
+  const [attempt, setAttempt] = useState(0)
 
-  const formRef = useInvalidFocus([emailError, passwordError, confirmationError])
+  const formRef = useInvalidFocus(attempt)
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault()
@@ -56,6 +59,7 @@ export function RegisterPage() {
       nextPasswordError !== null ||
       nextConfirmationError !== null
     ) {
+      setAttempt((count) => count + 1)
       return
     }
 
@@ -83,6 +87,7 @@ export function RegisterPage() {
         if (fieldErrors.email !== undefined || fieldErrors.password !== undefined) {
           setEmailError(fieldErrors.email ?? null)
           setPasswordError(fieldErrors.password ?? null)
+          setAttempt((count) => count + 1)
           return
         }
         setFormError(describeApiError(error))
