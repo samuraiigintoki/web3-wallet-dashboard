@@ -134,6 +134,8 @@ Three easing tokens, from the vendored motion standards:
 - `--ease-in-out: cubic-bezier(0.77, 0, 0.175, 1)` for movement already on screen.
 - `--ease-drawer: cubic-bezier(0.32, 0.72, 0, 1)` for drawers and sheets.
 
+`linear` is the one curve outside those three, and it is allowed in exactly one place: a continuously turning working indicator, where constant angular velocity is what makes it read as work rather than as a stutter. An eased rotation accelerates and slows every turn, which looks like the interface is struggling. Nothing else uses `linear`: a transition, a settle or any other animation that moves on screen takes one of the three tokens above.
+
 Durations, named: `--duration-press: 120ms`, `--duration-feedback: 180ms` for hover and feedback, `--duration-state: 240ms`, `--duration-settle: 320ms`, and `--duration-ceiling: 480ms` for overlays and route transitions. Transform and opacity only. Never `transition: all`, never `ease-in` on UI, never `scale(0)`. Anything a user sees a hundred times a day does not animate. Every transition that moves more than a few pixels respects `prefers-reduced-motion`.
 
 ### The one authored moment: the block-time rail
