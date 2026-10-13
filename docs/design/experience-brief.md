@@ -86,7 +86,8 @@ Fallback metrics are measured and shipped, not estimated: each family has a fall
 
 ### Hard rules
 
-- Display faces appear only in the wordmark, page titles, the auth headline and section openers. Never in buttons, labels, table headers, data, form fields or inline UI.
+- The display face appears in two places in this checkpoint: page titles and the auth headline. Never in buttons, labels, table headers, data, form fields or inline UI, and not yet as a section opener, because that is a third and much smaller step than the two that were calibrated. The wordmark is set in the interface face until that step is decided by rendering, and the open items carry it.
+- Fraunces carries proportional digits and has no `tnum` feature, so a figure is never set in the display face. Figures are the interface face with tabular figures, or the mono when the value is raw.
 - Mono only for raw wei, addresses, hashes and block numbers. An amount formatted in ETH is UI sans with tabular figures, as are balances. Mono is not a texture.
 - Inputs are at least 16 px.
 - `font-variant-numeric: tabular-nums` on every figure that can change, verified per family.
@@ -95,7 +96,7 @@ Fallback metrics are measured and shipped, not estimated: each family has a fall
 
 ## 5. Navigation: the rail as spine
 
-Approved, with the labels always discoverable rather than hover-only, and this block's scope narrowed to what exists.
+Approved, with the labels always discoverable rather than hover-only, and this block's scope narrowed to what exists. Landed in the screens checkpoint as one list in two shapes: the destinations, their labels and their routes are declared once and the frame renders them as a rail or as a strip.
 
 Desktop, 768 px and above:
 
@@ -114,7 +115,7 @@ Deferred with reasons:
 - Waiting count at the top of the rail: not Week 7. It requires connected-owner identity and demonstrably complete scoped data, or it shows a false zero. It returns only when both exist; otherwise it is omitted.
 - Command palette: Week 8, limited to existing routes and actions and already loaded entities. It makes no claim of exhaustive global search.
 
-Mobile, below 768 px: the rail collapses to a bottom strip of labelled ticks, thumb reachable, no hamburger drawer. Detail views are full screen with an explicit back. Hit targets 44 px.
+Mobile, below 768 px: the rail collapses to a bottom strip of labelled ticks, thumb reachable, no hamburger drawer. Detail views are full screen with an explicit back. Hit targets 44 px. The strip is fixed over the page, so the frame reserves its height plus the safe-area inset under the content and the root scroller carries the same value as scroll padding: a field or a link reached with the keyboard stops above the strip rather than under it. The same inset is added to the page gutter, for the notch and for a home indicator.
 
 Keyboard: standard tab order; `j` and `k` move within a focused list only, never while typing; Enter opens; Escape closes overlays. Every list action available by keyboard and by touch, never by hover alone.
 
@@ -134,7 +135,7 @@ Phase-labelled, because the API constrains what can be shown when. The API expos
 - Owner and threshold completeness, balances, block timestamps and head-relative depth arrive in Week 9 with the browser-side reads. Anything not yet known is absent or said in words, never estimated.
 - A displayed event block number is an indexed fact about that event. It is not an indexer checkpoint, and nothing draws it as progress.
 - Settings: later, quiet, account and session only.
-- Auth: the first impression, composed in this block. One narrow column on the warm ground, display headline in the product's own words, the form usable without scrolling at 360 px, and the bounded factual sequence in section 13 behind it. The static composition ships first and stands alone if the enhancement fails its budget.
+- Auth: the first impression, composed in this block and landed static. One narrow column on the warm ground: the product's name, a short headline in the product's own words, then the form, usable without scrolling at 360 px. The four facts of section 13 follow the form as a plain list, which is both the static composition and the fallback the bounded sequence is drawn on top of. Nothing precedes the form that has to be read, scrolled past or dismissed.
 
 ## 7. Loading language
 
@@ -218,6 +219,8 @@ Numbers: tabular figures, exact wei values through the API as strings, Intl for 
 
 Amends the direction document's parked-spine wording and the earlier global one-moment wording. The pattern becomes: one authored data rail inside the app, plus one bounded factual explanation on auth.
 
+What is in the tree now is the static composition: the headline and the form, then the four facts as a list. The sequence is the next step and it is drawn on that list, so a browser without scroll timelines, a reader with reduced motion and the capture machine all get the same four facts in the same order.
+
 Conditions, all binding:
 
 - The static auth composition passes review first; the form stays usable without scrolling at 360 px; nothing gates the form.
@@ -295,7 +298,8 @@ Unchanged by this brief, and not to be traded against the new identity bar:
 
 ## 18. Open items
 
-- Whether the auth sequence meets its frame budget at 4x CPU, Slow 4G; if not, the static composition ships.
-- The delayed-load re-measurement on the composed auth screen, in the screens checkpoint.
+- Whether the auth sequence meets its frame budget at 4x CPU, Slow 4G; if not, the static composition ships. The static composition is measured first, so the budget is judged against a floor rather than in the air.
+- The display wordmark: a third and much smaller step of the display face than the two that were measured. Decided by rendering when there is a reason to, not by extending the calibration down into interface type.
+- The delayed-load re-measurement on the composed auth screen is taken in this checkpoint at 360 px and 1440 px, and it claims only what it shows: wrapping and form position, not a cumulative layout shift improvement.
 - Public landing route: cut from the core roadmap. Reconsider after deployment as its own decision, and never by replacing the protected `/`.
 - Compact row rails: detail only through Week 8, revisited when Week 9 head reads and real rows exist.
