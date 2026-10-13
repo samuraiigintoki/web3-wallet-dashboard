@@ -20,7 +20,9 @@ describe('route guard', () => {
       await waitFor(() => {
         expect(currentPath()).toBe('/login')
       })
-      expect(screen.getByRole('heading', { name: 'Sign in' })).toBeDefined()
+      expect(
+        screen.getByRole('heading', { name: 'Sign in to read the record.' }),
+      ).toBeDefined()
     },
   )
 
@@ -184,7 +186,9 @@ describe('guest-only routes', () => {
     renderApp({ path: '/login' })
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Sign in' })).toBeDefined()
+      expect(
+        screen.getByRole('heading', { name: 'Sign in to read the record.' }),
+      ).toBeDefined()
     })
     expect(currentPath()).toBe('/login')
   })

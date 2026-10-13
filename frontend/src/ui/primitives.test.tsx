@@ -178,19 +178,21 @@ describe('layouts and titles', () => {
   it('gives every route a main region and a name in the tab list', async () => {
     stubFetch(() => jsonResponse({ data: USER }))
 
-    const routes: [string, string][] = [
-      ['/login', 'Sign in'],
-      ['/register', 'Create an account'],
+    // The screen names itself twice, on purpose: the document title is the
+    // plain name of the screen, and the heading is the composed headline.
+    const routes: [string, string, string][] = [
+      ['/login', 'Sign in', 'Sign in to read the record.'],
+      ['/register', 'Create an account', 'Create an account to read the record.'],
     ]
 
-    for (const [path, heading] of routes) {
+    for (const [path, title, headline] of routes) {
       const view = renderApp({ path })
       await waitFor(() => {
-        expect(screen.getByRole('heading', { name: heading })).toBeDefined()
+        expect(screen.getByRole('heading', { name: headline })).toBeDefined()
       })
 
       expect(screen.getByRole('main')).toBeDefined()
-      expect(document.title).toBe(`${heading} · ${PRODUCT_NAME}`)
+      expect(document.title).toBe(`${title} · ${PRODUCT_NAME}`)
       view.unmount()
     }
   })
@@ -244,13 +246,14 @@ describe('layouts and titles', () => {
     expect(skip.compareDocumentPosition(main) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
-  it('keeps the main region out of the auth pages, which have no navigation', async () => {
+  it('gives the auth pages a main region and no skip link, because they have no navigation', async () => {
     stubFetch(() => jsonResponse({ data: USER }))
     renderApp({ path: '/login' })
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Sign in' })).toBeDefined()
+      expect(screen.getByRole('heading', { name: 'Sign in to read the record.' })).toBeDefined()
     })
+    expect(screen.getByRole('main')).toBeDefined()
     expect(screen.queryByRole('link', { name: 'Skip to content' })).toBeNull()
   })
 })
