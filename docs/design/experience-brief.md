@@ -82,7 +82,7 @@ What the comparison establishes, and what it does not. The two candidates render
 
 `docs/design/NOTICE.md` records source, version, woff2 filenames, axes, subset, sizes, hashes and the OFL notice per family, and the font guards assert that exact set. Vendored bytes total 179,500, which is 70,112 more than candidate B would have cost; the mentor accepted that identity tradeoff and asked that only the critical faces be preloaded rather than all three. The interface and display faces are preloaded, the mono is not. Other guards are not weakened to accommodate any of it.
 
-Fallback metrics are measured and shipped, not estimated: each family has a fallback face whose size-adjust, ascent-override and descent-override were derived from Chromium measurements of the strings this product sets, with the method and the values recorded in the direction document's type section. The display face is set with its axes pinned and optical sizing off, one shape at every size, which is also what lets the fallback correction hold. The delayed-load behaviour is re-measured on the composed auth screen in the screens checkpoint.
+Fallback metrics are measured and shipped, not estimated: each family has a fallback face whose size-adjust, ascent-override and descent-override were derived from Chromium measurements of the strings this product sets, with the method and the values recorded in the direction document's type section. The display face is set with its axes pinned and optical sizing off, one shape wherever it appears, which is also what lets the fallback correction hold. The delayed-load behaviour is re-measured on the composed auth screen in the screens checkpoint.
 
 ### Hard rules
 
