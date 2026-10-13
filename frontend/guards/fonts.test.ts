@@ -5,6 +5,12 @@
  * and every text scan over src skips them rather than pretending they are
  * source. The hashes are the approved ones, so a font swapped for another
  * build fails here even when it renders.
+ *
+ * Three families, three roles, recorded in docs/design/direction.md: Fraunces
+ * is the display face, Archivo carries the interface, and Martian Mono is for
+ * raw chain values. Each is followed by a fallback face whose metric overrides
+ * are measured values; the guard checks that the overrides are declared on the
+ * fallback and not on the vendored face, which would be meaningless.
  */
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
@@ -18,20 +24,36 @@ const fontDir = resolve(files.src, 'fonts')
 
 const approved = [
   {
-    family: 'Geist Sans',
-    file: 'geist-latin-wght-normal.woff2',
-    bytes: 29_400,
-    sha256: '19f9c92546aa300c312235e3125af1b81394d8db9a4bc4a425cd5b641d2d54e1',
-    token: '--font-sans',
+    family: 'Fraunces',
+    role: 'display',
+    file: 'fraunces-latin-soft-wonk.woff2',
+    bytes: 121_016,
+    sha256: '7e744849028e2219e2aa1bc467dc4032980dc4487c9c3da3010081cd72d3b103',
+    token: '--font-display',
+    fallback: 'Fraunces Fallback',
   },
   {
-    family: 'Geist Mono',
-    file: 'geist-mono-latin-wght-normal.woff2',
-    bytes: 23_128,
-    sha256: '684ad5b531f81d43c1e8c7038262d5db7cdc1f68006e04d6c7769efa8d33c8cc',
+    family: 'Archivo',
+    role: 'interface',
+    file: 'archivo-latin-wght.woff2',
+    bytes: 34_928,
+    sha256: '8f704806dbedeaaeca334b11ec348bc3ac3a439d6431544b3afb54f534ee4967',
+    token: '--font-sans',
+    fallback: 'Archivo Fallback',
+  },
+  {
+    family: 'Martian Mono',
+    role: 'raw values',
+    file: 'martian-mono-latin-wght.woff2',
+    bytes: 23_556,
+    sha256: 'd0be3a78a854bcea53a9dc26b6620ba322eaa515ccbd92bb4b6ec20a3c91b291',
     token: '--font-mono',
+    fallback: 'Martian Mono Fallback',
   },
 ] as const
+
+/** Preloaded in index.html: the two faces the first paint needs. */
+const preloaded = [approved[1], approved[0]]
 
 const fontFiles = filesUnder(fontDir, () => true)
 const digest = (path: string): string =>
@@ -40,7 +62,7 @@ const digest = (path: string): string =>
     .digest('hex')
 
 describe('the vendored files are the approved ones', () => {
-  it('holds the two files and nothing else', () => {
+  it('holds the three files and nothing else', () => {
     expect(fontFiles.map((path) => path.slice(fontDir.length + 1)).sort()).toEqual(
       approved.map((one) => one.file).sort(),
     )
@@ -57,6 +79,12 @@ describe('the vendored files are the approved ones', () => {
     for (const one of approved) {
       expect(digest(resolve(fontDir, one.file)), one.file).toBe(one.sha256)
     }
+  })
+
+  it('carries no candidate B file and no earlier interim file', () => {
+    const names = fontFiles.map((path) => path.slice(fontDir.length + 1).toLowerCase())
+    expect(names.some((name) => name.includes('unbounded'))).toBe(false)
+    expect(names.some((name) => name.includes('geist'))).toBe(false)
   })
 
   it('vendors no other font anywhere in the source tree', () => {
@@ -105,52 +133,84 @@ describe('nothing else ships a font', () => {
 
 describe('the faces are declared as agreed', () => {
   const fontsCss = read(resolve(files.src, 'styles/fonts.css'))
+  const faces = [...fontsCss.matchAll(/@font-face\s*\{([^}]*)\}/g)].map((match) => match[1] ?? '')
 
-  it('declares one face per family, at the full weight range', () => {
-    const faces = [...fontsCss.matchAll(/@font-face\s*\{([^}]*)\}/g)].map((match) => match[1] ?? '')
-    expect(faces).toHaveLength(2)
+  it('declares one vendored face and one fallback face per family', () => {
+    expect(faces).toHaveLength(6)
 
     for (const one of approved) {
       const face = faces.find((block) => block.includes(`font-family: '${one.family}'`))
       expect(face, one.family).toBeDefined()
       expect(face).toContain('font-style: normal')
-      expect(face).toContain('font-weight: 100 900')
       expect(face).toContain('font-display: swap')
       expect(face).toContain(`url('../fonts/${one.file}')`)
       expect(face).toContain("format('woff2-variations')")
+      // A metric override on the vendored face would be meaningless.
+      expect(face).not.toContain('size-adjust')
     }
   })
 
-  it('keeps the family tokens pointing at these names, with their fallbacks', () => {
+  it('gives the display and interface faces a full range and the mono a real one', () => {
+    const range = (family: string): string =>
+      /font-weight:\s*([\d ]+);/.exec(
+        faces.find((block) => block.includes(`font-family: '${family}'`)) ?? '',
+      )?.[1]?.trim() ?? ''
+    expect(range('Fraunces')).toBe('100 900')
+    expect(range('Archivo')).toBe('100 900')
+    expect(range('Martian Mono')).toBe('100 800')
+  })
+
+  it('measures a fallback face per family, with all three overrides', () => {
+    for (const one of approved) {
+      const face = faces.find((block) => block.includes(`font-family: '${one.fallback}'`))
+      expect(face, one.fallback).toBeDefined()
+      expect(face).toMatch(/src:\s*local\(/)
+      expect(face).toMatch(/size-adjust:\s*\d+(?:\.\d+)?%/)
+      expect(face).toMatch(/ascent-override:\s*\d+(?:\.\d+)?%/)
+      expect(face).toMatch(/descent-override:\s*\d+(?:\.\d+)?%/)
+      expect(face).toContain('line-gap-override: 0%')
+    }
+  })
+
+  it('keeps the family tokens pointing at the vendored face, its fallback and locals', () => {
     const tokens = parseCssTokens(read(files.tokens))
-    expect(resolveToken('--font-sans', tokens)).toBe('"Geist Sans", system-ui, sans-serif')
-    expect(resolveToken('--font-mono', tokens)).toBe('"Geist Mono", ui-monospace, monospace')
+    expect(resolveToken('--font-display', tokens)).toBe(
+      '"Fraunces", "Fraunces Fallback", "Times New Roman", Times, serif',
+    )
+    expect(resolveToken('--font-sans', tokens)).toBe(
+      '"Archivo", "Archivo Fallback", Arial, Helvetica, sans-serif',
+    )
+    expect(resolveToken('--font-mono', tokens)).toBe(
+      '"Martian Mono", "Martian Mono Fallback", "Courier New", Courier, monospace',
+    )
   })
 })
 
 describe('the preload', () => {
   const html = read(files.indexHtml)
 
-  it('preloads the sans once, as a font, with crossorigin', () => {
+  it('preloads the interface face and the display face, each once, with crossorigin', () => {
     const preloads = [...html.matchAll(/<link[^>]*rel="preload"[^>]*>/g)].map((match) => match[0])
-    expect(preloads).toHaveLength(1)
+    expect(preloads).toHaveLength(2)
 
-    const preload = preloads[0] ?? ''
-    expect(preload).toContain(`href="/src/fonts/${approved[0].file}"`)
-    expect(preload).toContain('as="font"')
-    expect(preload).toContain('type="font/woff2"')
-    expect(preload).toContain('crossorigin')
+    for (const one of preloaded) {
+      const preload = preloads.find((tag) => tag.includes(one.file))
+      expect(preload, one.file).toBeDefined()
+      expect(preload).toContain('as="font"')
+      expect(preload).toContain('type="font/woff2"')
+      expect(preload).toContain('crossorigin')
+    }
   })
 
   it('does not preload the mono face', () => {
-    expect(html).not.toContain(approved[1].file)
+    expect(html).not.toContain(approved[2].file)
   })
 })
 
 describe('the notice matches the files', () => {
   it('records the same sizes and hashes as the bytes on disk', () => {
     const documented = parseNoticeFonts(read(files.notice))
-    expect(documented.size).toBe(2)
+    expect(documented.size).toBe(3)
 
     for (const one of approved) {
       const entry = documented.get(one.file)
@@ -160,17 +220,24 @@ describe('the notice matches the files', () => {
     }
   })
 
-  it('names the source packages and versions', () => {
+  it('names the source and the version of each family', () => {
     const notice = read(files.notice)
-    expect(notice).toContain('@fontsource-variable/geist')
-    expect(notice).toContain('@fontsource-variable/geist-mono')
-    expect(notice).toContain('5.3.0')
+    expect(notice).toContain('fonts.googleapis.com')
+    for (const version of ['v38', 'v25', 'v6']) {
+      expect(notice).toContain(version)
+    }
   })
 
-  it('carries the copyright line and the complete license', () => {
+  it('carries the copyright lines and the complete license', () => {
     const notice = read(files.notice)
     expect(notice).toContain(
-      'Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font)',
+      'Copyright 2018 The Fraunces Project Authors (https://github.com/undercasetype/Fraunces)',
+    )
+    expect(notice).toContain(
+      'Copyright 2020 The Archivo Project Authors (https://github.com/Omnibus-Type/Archivo)',
+    )
+    expect(notice).toContain(
+      'Copyright 2021 The Martian Mono Project Authors (https://github.com/evilmartians/mono)',
     )
     expect(notice).toContain('SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007')
     expect(notice).toContain('PERMISSION & CONDITIONS')
@@ -179,26 +246,36 @@ describe('the notice matches the files', () => {
 })
 
 describe('the preload and the build agree', () => {
-  it('points the production HTML and CSS at the same hashed file', async () => {
+  it('points the production HTML and CSS at the same hashed files', async () => {
     const { html, css, assets } = await productionBuild()
 
-    const preloaded = /<link[^>]+rel="preload"[^>]+href="([^"]+\.woff2)"[^>]*>/.exec(html)?.[1]
-    expect(preloaded, 'the built HTML has no font preload').toBeDefined()
+    const preloadedUrls = [
+      ...html.matchAll(/<link[^>]+rel="preload"[^>]+href="([^"]+\.woff2)"[^>]*>/g),
+    ].map((match) => match[1] ?? '')
+    expect(preloadedUrls).toHaveLength(2)
 
-    // The stylesheet names the sans in its own url(); both must resolve to the
-    // one emitted asset, not to two copies of the same bytes.
     const loaded = [...css.matchAll(/url\(([^)]+\.woff2)\)/g)].map((match) => match[1] ?? '')
-    expect(loaded).toContain(preloaded)
+    // Every vendored face is emitted and named by the stylesheet.
+    for (const one of approved) {
+      const stem = one.file.split('-')[0] ?? ''
+      expect(
+        loaded.some((url) => url.includes(stem)),
+        one.file,
+      ).toBe(true)
+    }
 
-    const name = (preloaded ?? '').split('/').pop() ?? ''
-    const asset = [...assets].find(([fileName]) => fileName.endsWith(name))?.[1]
-    expect(asset, `${String(preloaded)} was not emitted`).toBeDefined()
-    expect(createHash('sha256').update(asset ?? Buffer.alloc(0)).digest('hex')).toBe(
-      approved[0].sha256,
-    )
+    // Every preload resolves to an emitted asset whose bytes are the approved ones.
+    for (const one of preloaded) {
+      const url = preloadedUrls.find((candidate) => candidate.includes(one.file.replace(/\.woff2$/, '')))
+      expect(url, `no preload for ${one.file}`).toBeDefined()
+      const name = (url ?? '').split('/').pop() ?? ''
+      const asset = [...assets].find(([fileName]) => fileName.endsWith(name))?.[1]
+      expect(asset, `${String(url)} was not emitted`).toBeDefined()
+      expect(createHash('sha256').update(asset ?? Buffer.alloc(0)).digest('hex')).toBe(one.sha256)
+    }
 
     // The mono face is loaded when it is used, and never preloaded.
-    expect(loaded.some((url) => url.includes('geist-mono'))).toBe(true)
-    expect(html).not.toContain('geist-mono')
+    expect(loaded.some((url) => url.includes('martian'))).toBe(true)
+    expect(html).not.toContain('martian')
   }, 120_000)
 })

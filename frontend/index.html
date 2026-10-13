@@ -6,10 +6,21 @@
     <meta name="color-scheme" content="dark" />
     <!-- The one hex value in the tree. A guard proves it equals --bg-0. -->
     <meta name="theme-color" content="#0E0C09" />
-    <!-- The sans face only: it is the one every screen needs before paint. -->
+    <!-- The two faces the first paint needs: the interface face, which every
+         screen sets, and the display face, which the page title uses. Martian
+         Mono is not preloaded: it is loaded when a screen renders a raw value,
+         and preloading a face a screen may never use costs bytes it cannot
+         earn back. -->
     <link
       rel="preload"
-      href="/src/fonts/geist-latin-wght-normal.woff2"
+      href="/src/fonts/archivo-latin-wght.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/src/fonts/fraunces-latin-soft-wonk.woff2"
       as="font"
       type="font/woff2"
       crossorigin

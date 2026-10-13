@@ -168,7 +168,12 @@ describe('the body defaults', () => {
   })
 
   it('resolves those tokens to values the document holds', () => {
-    expect(resolveToken('--font-sans', tokens)).toBe('"Geist Sans", system-ui, sans-serif')
+    expect(resolveToken('--font-display', tokens)).toBe(
+      '"Fraunces", "Fraunces Fallback", "Times New Roman", Times, serif',
+    )
+    expect(resolveToken('--font-sans', tokens)).toBe(
+      '"Archivo", "Archivo Fallback", Arial, Helvetica, sans-serif',
+    )
     expect(resolveToken('--leading-body', tokens)).toBe('1.5')
     expect(resolveToken('--text-1', tokens)).toBe('oklch(0.950 0.003 75)')
     expect(resolveToken('--bg-0', tokens)).toBe('oklch(0.155 0.008 75)')
@@ -363,7 +368,7 @@ describe('the production stylesheet', () => {
     // Nothing escapes. What sits outside the layers is the declarations and
     // the faces, which compete with nothing; a rule outside them would be the
     // highest priority rule on the page.
-    expect(built.unlayered).toEqual([':root', '@font-face', '@font-face'])
+    expect(built.unlayered).toEqual([':root', ...Array(6).fill('@font-face')])
     expect(baseBlock).not.toContain('min-block-size:var(--row-height)')
   }, 120_000)
 

@@ -23,10 +23,20 @@
     max-inline-size: 26rem;
   }
 
-  /* The heading of the screen, and the only one at this step. */
+  /* The heading of the screen, and the only one at this step. It is the one
+     place in the app shell where the display face is set: the direction allows
+     it for page titles, and nowhere below them. */
   .page h1 {
     margin: 0 0 var(--space-4);
     color: var(--text-1);
+    font-family: var(--font-display);
+    /* Fraunces is optically sized, so the same words change width with the
+       size they are set at, which would also make the metric-adjusted fallback
+       correction impossible. The axes are pinned instead: one shape for the
+       display face wherever it is used, and a fallback that measures against
+       it. The values are the ones the approved specimen rendered. */
+    font-optical-sizing: none;
+    font-variation-settings: 'opsz' 144, 'SOFT' 40, 'WONK' 1;
     font-size: var(--type-page);
     font-weight: 600;
     line-height: var(--leading-heading);

@@ -1,32 +1,42 @@
 # Third-party notices
 
-## Geist Sans and Geist Mono
+## Fraunces, Archivo and Martian Mono
 
-Two font files are vendored into `frontend/src/fonts/`. They are the Fontsource
-builds copied byte for byte, latin subset, variable weight axis. Nothing else is
-vendored: no other family is present, no Instrument Sans file, and the project
-declares no font dependency, so the faces load from the repository and from
-nowhere else.
+Three font files are vendored into `frontend/src/fonts/`. They are the Google
+Fonts variable builds, copied byte for byte, latin subset. Nothing else is
+vendored: the project declares no font dependency, and the faces load from the
+repository and from nowhere else.
 
-| Family | File | Source package | Version | Bytes | SHA-256 |
-|---|---|---|---|---|---|
-| Geist Sans | `geist-latin-wght-normal.woff2` | `@fontsource-variable/geist` | 5.3.0 | 29,400 | `19f9c92546aa300c312235e3125af1b81394d8db9a4bc4a425cd5b641d2d54e1` |
-| Geist Mono | `geist-mono-latin-wght-normal.woff2` | `@fontsource-variable/geist-mono` | 5.3.0 | 23,128 | `684ad5b531f81d43c1e8c7038262d5db7cdc1f68006e04d6c7769efa8d33c8cc` |
+| Family | Role | File | Source | Version | Bytes | SHA-256 |
+|---|---|---|---|---|---|---|
+| Fraunces | Display: wordmark, page titles, auth headline | `fraunces-latin-soft-wonk.woff2` | `fonts.googleapis.com` Fraunces | v38 | 121,016 | `7e744849028e2219e2aa1bc467dc4032980dc4487c9c3da3010081cd72d3b103` |
+| Archivo | Interface: everything else | `archivo-latin-wght.woff2` | `fonts.googleapis.com` Archivo | v25 | 34,928 | `8f704806dbedeaaeca334b11ec348bc3ac3a439d6431544b3afb54f534ee4967` |
+| Martian Mono | Raw values: addresses, hashes, block numbers, wei | `martian-mono-latin-wght.woff2` | `fonts.googleapis.com` Martian Mono | v6 | 23,556 | `d0be3a78a854bcea53a9dc26b6620ba322eaa515ccbd92bb4b6ec20a3c91b291` |
 
-A guard test reads both files as binary and checks the sizes and the hashes in
-this table against the bytes on disk, so this document cannot drift from what
-the application actually loads.
+Retrieved 2026-10-13 from the Google Fonts CSS2 API. Axes as served: Fraunces
+carries `opsz` 9 to 144, `wght` 100 to 900, `SOFT` 0 to 100 and `WONK` 0 to 1;
+Archivo carries `wght` 100 to 900; Martian Mono carries `wght` 100 to 800.
+Subset: latin, `unicode-range` as declared in `frontend/src/styles/fonts.css`.
+Total vendored bytes: 179,500.
+
+A guard test reads all three files as binary and checks the sizes and the
+hashes in this table against the bytes on disk, so this document cannot drift
+from what the application actually loads. The copyright of each family stays
+with its authors, below.
 
 ## Copyright
 
-The fonts are copyright of the Geist Project Authors, under the SIL Open Font
-License, Version 1.1:
+Copyright 2018 The Fraunces Project Authors (https://github.com/undercasetype/Fraunces)
 
-Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font)
+Copyright 2020 The Archivo Project Authors (https://github.com/Omnibus-Type/Archivo)
+
+Copyright 2021 The Martian Mono Project Authors (https://github.com/evilmartians/mono)
 
 ## SIL Open Font License, Version 1.1
 
 ```
+SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
+-----------------------------------------------------------
 SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
 -----------------------------------------------------------
 
@@ -39,7 +49,7 @@ with others.
 
 The OFL allows the licensed fonts to be used, studied, modified and
 redistributed freely as long as they are not sold by themselves. The
-fonts, including any derivative works, can be bundled, embedded,
+fonts, including any derivative works, can be bundled, embedded, 
 redistributed and/or sold with any software provided that any reserved
 names are not used by derivative works. The fonts and derivatives,
 however, cannot be released under any other type of license. The
@@ -112,4 +122,3 @@ INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL
 DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
 OTHER DEALINGS IN THE FONT SOFTWARE.
-```

@@ -1,33 +1,97 @@
 /*
- * The two vendored faces, declared once.
+ * The three vendored faces, declared once, plus the fallback faces they swap in.
  *
- * The files in src/fonts are the Fontsource builds, copied unmodified.
- * docs/design/NOTICE.md carries their sizes, their hashes and the license, and
- * a guard test checks all three against the files on disk.
+ * The files in src/fonts are the Google Fonts variable builds, copied
+ * unmodified. docs/design/NOTICE.md carries their sources, versions, axes,
+ * subset, sizes, hashes and licence, and a guard test checks the sizes and the
+ * hashes against the bytes on disk.
  *
- * The family names are the ones the family tokens already name, so a rule that
- * asks for `var(--font-sans)` gets the real face and the system fallback only
- * when the file cannot be loaded.
+ * Roles are recorded in docs/design/direction.md and are not interchangeable:
+ * Fraunces is the display face, Archivo is the interface face, Martian Mono is
+ * for raw chain values only.
+ *
+ * Each family is followed by a fallback face carrying measured metric
+ * overrides, so the fallback occupies the width and the box of the face it is
+ * standing in for. Method, on the shipped stylesheet and the shipped files: the
+ * browser reports the advance width of the strings this product actually sets,
+ * at the size they are set at, once with the vendored face and once with the
+ * local face named in the fallback src list. size-adjust is the median ratio
+ * across those strings, and the ascent and descent overrides restore the
+ * vendored box after that adjustment (line-gap-override 0% keeps the line box
+ * decided by those two values alone).
+ *
+ *   Fraunces     40px and 28px, axes pinned: ratios 0.926 to 0.998, median
+ *                0.955 chosen. Before the axes were pinned the same strings
+ *                ranged 0.980 to 1.182, because Fraunces is optically sized:
+ *                the correction cannot hold while the face changes shape with
+ *                its size, so the display usage pins opsz 144, SOFT 40 and
+ *                WONK 1. Ascent 0.98em, descent 0.26em.
+ *   Archivo      14px and 16px across prose, labels and figures: ratios 0.982
+ *                to 1.050, median 0.994 chosen. Ascent 0.88em, descent 0.21em.
+ *   Martian Mono 12px and 13px: ratios 1.111 and 1.154, 1.120 chosen, which is
+ *                1% off at 12px and 3% off at 13px. Ascent 1.00em, 0.20em.
+ *
+ * A different platform resolves a different local face; each src list names
+ * metric-compatible families so the correction survives the move, and every
+ * number here is re-measurable by the same method on the target machine.
  */
 
 @font-face {
-  font-family: 'Geist Sans';
+  font-family: 'Fraunces';
   font-style: normal;
   font-weight: 100 900;
   font-display: swap;
-  src: url('../fonts/geist-latin-wght-normal.woff2') format('woff2-variations');
+  src: url('../fonts/fraunces-latin-soft-wonk.woff2') format('woff2-variations');
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
     U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
     U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 @font-face {
-  font-family: 'Geist Mono';
+  font-family: 'Fraunces Fallback';
+  src: local('Times New Roman'), local('Liberation Serif'), local('Times');
+  size-adjust: 95.50%;
+  ascent-override: 102.62%;
+  descent-override: 27.23%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: 'Archivo';
   font-style: normal;
   font-weight: 100 900;
   font-display: swap;
-  src: url('../fonts/geist-mono-latin-wght-normal.woff2') format('woff2-variations');
+  src: url('../fonts/archivo-latin-wght.woff2') format('woff2-variations');
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
     U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
     U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Archivo Fallback';
+  src: local('Arial'), local('Helvetica'), local('Liberation Sans');
+  size-adjust: 99.40%;
+  ascent-override: 88.53%;
+  descent-override: 21.13%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: 'Martian Mono';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url('../fonts/martian-mono-latin-wght.woff2') format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Martian Mono Fallback';
+  src: local('Courier New'), local('Liberation Mono'), local('Courier');
+  size-adjust: 112.00%;
+  ascent-override: 89.29%;
+  descent-override: 17.86%;
+  line-gap-override: 0%;
 }

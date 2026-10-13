@@ -58,10 +58,14 @@
   --tint-vanished: oklch(0.280 0.050 260);
   --tint-error: oklch(0.280 0.050 27);
 
-  /* Families. Geist Mono is for raw values: addresses, hashes, block numbers
-     and wei strings. An amount formatted in ETH is sans with tabular figures. */
-  --font-sans: "Geist Sans", system-ui, sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, monospace;
+  /* Families. Fraunces is the display face: the wordmark, page titles and the
+     auth headline only. Archivo carries the interface. Martian Mono is for raw
+     values: addresses, hashes, block numbers and wei strings. An amount
+     formatted in ETH is the interface face with tabular figures. Each stack
+     names its metric-adjusted fallback face first, then the local families. */
+  --font-display: "Fraunces", "Fraunces Fallback", "Times New Roman", Times, serif;
+  --font-sans: "Archivo", "Archivo Fallback", Arial, Helvetica, sans-serif;
+  --font-mono: "Martian Mono", "Martian Mono Fallback", "Courier New", Courier, monospace;
 
   /* Type scale, rem on a 16px baseline */
   --type-meta: 0.75rem; /* 12px */
