@@ -17,7 +17,7 @@ What exists:
 
 - B1 merged as PR #65: Vite, React, strict TypeScript, typed API client, auth, routes, protected shell, tests, CI job.
 - F1 merged as PR #68: password minimum on register.
-- B2 open as issue #66 and draft PR #69 on `feature/design-system`: direction document landed, tokens, self-hosted Geist, base layer, primitives with state coverage, the restyled B1 screens, and the guard suite that measures the document and the stylesheet against each other.
+- B2 open as issue #66 and draft PR #69 on `feature/design-system`: direction document landed, tokens, the decided self-hosted faces, base layer, primitives with state coverage, the restyled B1 screens, and the guard suite that measures the document and the stylesheet against each other.
 
 The identity restart:
 
@@ -46,7 +46,7 @@ Story in one line: every transaction here is a signature waiting to happen, and 
 1. The generated dashboard: KPI cards on top, gradient hero, violet glow on black, glass, identical card grids, a rounded active pill in a sidebar, sparkline decoration.
 2. The wallet-clone look: gradient-heavy wallet sites and neon-on-dark, where colour is atmosphere instead of state.
 3. Template sections: hero with kicker and two buttons, logo strip, feature grid, testimonial cards, pricing table, FAQ accordion. None of these belong to this product.
-4. Inside PR #69: Geist, the shimmer-slab skeleton, the top bar with placeholder sections, empty states that are a single sentence.
+4. Inside PR #69: the earlier interim face, the shimmer-slab skeleton, the top bar with placeholder sections, empty states that are a single sentence.
 
 Every refusal is answered concretely in sections 4 to 12.
 
@@ -70,18 +70,19 @@ Type is the identity. This section is the most specified one, and it is not yet 
 - Everything committed must be OFL or equivalent permissive, subset and redistributed with its licence file, the same pattern the vendored design references already use.
 - The identity therefore comes from open fonts chosen in the brands' lanes, not from their files.
 
-### The two candidates, both OFL, winner by rendering
+### Decided 2026-10-13: Fraunces, Archivo and Martian Mono
 
-- A, the record. Fraunces for display, with its optical size and wonk axes used on the auth headline only. Archivo for UI, variable. Martian Mono for data.
-- B, on-chain. Unbounded for the wordmark and the auth headline only. Archivo for UI. Martian Mono for data.
+Candidate A won: Fraunces for display, Archivo for the interface, Martian Mono for raw values. Candidate B, Unbounded, was the losing display face and leaves no file, token or rule in the tree.
 
-Fraunces is the mentor's concept preference, not the winner. The decision is made by rendering the same auth screen in both at 360 px and 1440 px, including hints, errors and focus, and judging headline fit, UI legibility at 13 to 16 px, mono readability on hashes and block numbers, tabular figure alignment, and layout shift while fonts load. The winning display face plus Archivo and Martian Mono is kept; the losing display face leaves no file, token or rule behind.
+Why A, in the mentor's words: Fraunces gives the warm ground a printed-record character that fits the register concept, Unbounded's broad shapes pull the screen toward a brand statement, Archivo keeps the controls quiet, and Martian Mono separates raw chain values from interface text.
 
-### Vendoring, before any of it lands
+What the comparison establishes, and what it does not. The two candidates rendered different headline copy, so the line counts in the mobile captures, six lines in A against five in B, are not a wrapping comparison, and an earlier draft of this brief reported them the other way round. The record reads as an identity decision taken from the rendered screen, not as proof that A wins an equal-copy fit test. The loading measurements belong to the same evidence set and do not isolate the display face either.
 
-Record for the kept fonts: source and version, woff2 filenames, axes and subset, file sizes, hashes, and the OFL notice per family, in `docs/design/NOTICE.md` beside the files. The font guards are retargeted to assert that exact set. Other guards are not weakened to accommodate it.
+### Vendoring, landed
 
-Fallback rule: if both candidates render badly, the display slot takes Instrument Serif and the pairing is re-recorded. That is a contingency, not a third candidate.
+`docs/design/NOTICE.md` records source, version, woff2 filenames, axes, subset, sizes, hashes and the OFL notice per family, and the font guards assert that exact set. Vendored bytes total 179,500, which is 70,112 more than candidate B would have cost; the mentor accepted that identity tradeoff and asked that only the critical faces be preloaded rather than all three. The interface and display faces are preloaded, the mono is not. Other guards are not weakened to accommodate any of it.
+
+Fallback metrics are measured and shipped, not estimated: each family has a fallback face whose size-adjust, ascent-override and descent-override were derived from Chromium measurements of the strings this product sets, with the method and the values recorded in the direction document's type section. The display face is set with its axes pinned and optical sizing off, one shape at every size, which is also what lets the fallback correction hold. The delayed-load behaviour is re-measured on the composed auth screen in the screens checkpoint.
 
 ### Hard rules
 
@@ -199,7 +200,7 @@ Numbers: tabular figures, exact wei values through the API as strings, Intl for 
 
 | Ordinary | What we ship instead | Why |
 |---|---|---|
-| Geist, Inter, system UI | The type lane in section 4, winner pending rendering | The default face is the strongest tell of a generated site |
+| Inter, system UI, the template default | Fraunces for display, Archivo for the interface, Martian Mono for raw values | The default face is the strongest tell of a generated site |
 | Hero with kicker and two buttons | The register states its job in one display line | This is a tool, not a landing page |
 | KPI card row | Attention view only where the underlying set is complete, words until then | Cards hide priority, and a number without complete data is a lie |
 | Shimmer skeletons and spinners | Anatomy skeletons, status lines, scoped stale data | Loading should describe shape and state, not decorate time |
@@ -239,7 +240,7 @@ The authenticated app keeps zero scroll theatre: no scroll reveals, no route ent
 
 Stays: the typed client, auth, session, routes, tests, CI job, the token pipeline, the guard suite with values retargeted, the primitive APIs and state coverage, validation, focus management, base styles, anatomy loading, the contrast gate and the acceptance requirements in section 17.
 
-Replaced: the Geist files and their plumbing, the loading language where it decorates rather than describes, the shell and navigation, the placeholder anatomy, the auth composition, the type tokens.
+Replaced: the loading language where it decorates rather than describes, the shell and navigation, the placeholder anatomy, the auth composition, and the type tokens, which now carry the decided faces in place of the earlier interim set.
 
 Added in the screens checkpoint: the labelled rail spine with this block's three destinations, the composed auth page with its bounded sequence, honest placeholders, restoring, unavailable and not-found.
 
@@ -294,7 +295,7 @@ Unchanged by this brief, and not to be traded against the new identity bar:
 
 ## 18. Open items
 
-- Type winner: A or B, by rendering the auth screen in both.
 - Whether the auth sequence meets its frame budget at 4x CPU, Slow 4G; if not, the static composition ships.
+- The delayed-load re-measurement on the composed auth screen, in the screens checkpoint.
 - Public landing route: cut from the core roadmap. Reconsider after deployment as its own decision, and never by replacing the protected `/`.
 - Compact row rails: detail only through Week 8, revisited when Week 9 head reads and real rows exist.

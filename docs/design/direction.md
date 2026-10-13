@@ -98,17 +98,38 @@ Violet or indigo on near-black, any neon glow, halo shadows, gradient text, glas
 
 ## Type
 
-One family plus one mono, both OFL, self-hosted, subset.
+Three OFL faces, self-hosted, subset: a display face, an interface face and a mono for raw values.
 
-Amended 2026-10-13. The mentor ruling supersedes the decision recorded below and moves the type layer to a lane of editorial display, grotesque UI and mono data, with the winner chosen by rendering. Two OFL candidates: Fraunces with Archivo and Martian Mono, or Unbounded with Archivo and Martian Mono. The same auth screen is rendered in both at 360px and 1440px including hints, errors and focus, and the winner is judged on headline fit, UI legibility at 13 to 16px, mono readability on hashes and wei, tabular figure alignment, and layout shift while the fonts load. Until the winner lands the Geist faces below are the implemented interim and every rule in this section still applies to them. When the winner lands, the display and UI family tokens, the vendored files, the notice, and the font guards change together, and the losing display face leaves no file, token or rule behind. Before vendoring, the record carries source and version, woff2 filenames, axes and subset, sizes and hashes, and the OFL notice per family. The lane, the licensing reasoning and the judging criteria are in `docs/design/experience-brief.md` section 4.
+Decided 2026-10-13: Fraunces for display, Archivo for the interface, Martian Mono for raw chain values. The mentor selected candidate A from four rendered captures at 360px and 1440px, on the register concept: Fraunces gives the warm ground a printed-record character, Archivo keeps the controls quiet, and Martian Mono separates raw chain values from interface text.
 
-- `Geist Sans` for everything, weights 400, 500, 600, interim pending the amendment above. The `Instrument Sans` swap was rendered side by side with it and declined, on the pairing recorded below.
-- `Geist Mono` for addresses, transaction hashes, block numbers and raw wei strings. Nowhere else. Mono is not a costume for technical. An amount formatted in ETH is sans with tabular figures, as are balances: mono is for the raw values, not for every number on the screen.
+What the comparison does and does not prove, recorded plainly: the two candidates rendered different headline copy, so the line counts in the captures, six lines in A and five in B, are not a wrapping comparison. The selection is an identity decision from the rendered screen, not proof that A wins an equal-copy fit test. The loading measurements belong to the same evidence and do not isolate the display face either.
+
+Roles, and they are not interchangeable:
+
+- `Fraunces` display only: the wordmark, page titles, the auth headline and section openers. Never in buttons, labels, table headers, data, form fields or inline interface. One shape everywhere it appears: `font-optical-sizing: none` with `font-variation-settings: 'opsz' 144, 'SOFT' 40, 'WONK' 1`, the values the approved specimen rendered. Pinning the axes also keeps the metric-adjusted fallback honest, because a face that changes width with the size it is set at cannot be corrected at fallback time.
+- `Archivo` for the interface, weights 400, 500 and 600.
+- `Martian Mono` for addresses, transaction hashes, block numbers and raw wei strings, and for nothing else. Mono is not a costume for technical. An amount formatted in ETH is the interface face with tabular figures, as are balances: mono is for the raw values, not for every number on the screen.
 - Fixed rem scale, ratio about 1.2: 12 meta, 13 labels, 14 body, 16 lead, 19 section, 23 panel title, 28 page title. Auth headline may reach 40, app surfaces do not.
-- Tabular numerals on every figure, always. No fluid clamp sizing in the app.
+- Tabular numerals on every figure, always. No fluid clamp sizing in the app. Inputs stay at 16px or above.
 - Line height 1.5 body, 1.25 headings. Body measure 65 to 75ch in prose, tables may run denser.
 
-Family tokens: `--font-sans: "Geist Sans", system-ui, sans-serif` and `--font-mono: "Geist Mono", ui-monospace, monospace`.
+Family tokens, with each family's metric-adjusted fallback named before the local families:
+
+`--font-display: "Fraunces", "Fraunces Fallback", "Times New Roman", Times, serif`
+`--font-sans: "Archivo", "Archivo Fallback", Arial, Helvetica, sans-serif`
+`--font-mono: "Martian Mono", "Martian Mono Fallback", "Courier New", Courier, monospace`
+
+Fallback metrics, measured rather than estimated, on the shipped stylesheet and the shipped font files. The browser reports the advance width of the strings this product sets, at the size it sets them, once with the vendored face and once with the local face named in that face's chain; `size-adjust` is the width ratio in the middle of that set and the ascent and descent overrides restore the vendored box after it. The first pass measured every family at 100px and produced values that do not survive their own use: Fraunces is optically sized, so at the sizes the app sets it, the same strings ranged 98.0% to 118.2% against Times New Roman metrics, and one size-adjust cannot correct a face whose shape depends on its size. The display axes are therefore pinned, and the values below are re-derived at 40px and 28px, the two steps the face is used at: 92.6% to 99.8%, median 95.50% shipped. Archivo is measured at 14px and 16px across prose, labels and figures: 98.2% to 105.0%, median 99.40% shipped. Martian Mono is measured at 12px and 13px: 111.1% and 115.4%, 112.00% shipped, which is 1% off at 12px and 3% off at 13px and is the largest residual in the set, on raw values whose width the layout does not depend on. Shipped: Fraunces 95.50% / 102.62% / 27.23%, Archivo 99.40% / 88.53% / 21.13%, Martian Mono 112.00% / 89.29% / 17.86%, `line-gap-override: 0%` throughout, so the fallback line box is decided by those two values. Liberation Serif, Liberation Sans and Liberation Mono are what the three local names resolve to in the measuring environment; each chain names metric-compatible families so the correction survives a platform that resolves different local files, and every number is re-measurable by the same method on the target machine.
+
+Verification after the swap, on the shipped stylesheet, 360px measure box: the headline at 40px holds three lines and the page title at 28px holds one, and the body and mono samples hold their line counts too. Widths land within 5.4% at the worst and 0% at the best. On the built `/login` with the font responses delayed 1500 ms, cumulative layout shift is 0.000012 against 0 with the overrides removed, with the heading box at 368 by 35 and the form top at 75 in both. Heading boxes are pinned by line height, so a swap moves them only through a width-driven rewrap, which is what the line counts above cover.
+
+Preload policy: the two faces the first paint needs are preloaded, the interface face and the display face. Martian Mono is not preloaded, because a screen may never render a raw value; it loads when one does. Vendored bytes total 179,500, which is 70,112 more than candidate B would have cost; the identity tradeoff is accepted and recorded here.
+
+Before vendoring, the record carries source, version, axes, subset, sizes and hashes, and the OFL notice per family: `docs/design/NOTICE.md`. The lane, the licensing reasoning and the judging criteria are in `docs/design/experience-brief.md` section 4. The earlier Geist record remains below as history only: no Geist file, token or rule is in the tree.
+
+## Type history (superseded)
+
+One family plus one mono was the first record. `Geist Sans` for everything with `Geist Mono` for raw values, weights 400, 500 and 600; the `Instrument Sans` swap was rendered beside it and declined on pairing. Its family tokens named Geist Sans and Geist Mono, each with a system fallback. None of it is in the tree.
 
 | Step token | Size | Use | Line height |
 |---|---|---|---|
@@ -192,7 +213,7 @@ Each question below is settled by the criterion recorded with it. The losing opt
    Amber is chosen on the criterion that the accent must stay distinct from every state hue, and it meets that criterion as approved with no lift. It doubles as the awaiting hue, so it has to sit apart from the states it is drawn beside: 83 degrees of hue from executed, against 33 for chartreuse, whose nearest state is executed at 0.111. It is also the approved brand colour, and a colour that has to be lifted to clear a bar is no longer the approved one. Lifting chartreuse does restore the distance, to 0.158 from executed at `0.845 0.204 122` `#B7DF07`, the most chroma that lightness holds in sRGB, but only by leaving the approved lightness.
 
    A label on the accent fill is the supporting role: Lc 60 at 14px and above at weight 600. `--accent-ink` measures Lc 63.0 at rest and Lc 71.7 on the hover, so the role is met with 3.0 to spare, and the gate declares that pair under the supporting role. It is not the reading role: the most a label can reach on this fill is Lc 64.2 with black ink, so text needing Lc 75 is never placed on the accent. If that changes, lifting the accent to `0.845 0.126 72` `#FFBE6A` measures Lc 75.7 for a black label, at the price of a paler amber, and is recorded here as the remedy rather than taken.
-2. Font: Geist Sans, decided by rendering the same screen in both. Amended 2026-10-13: reopened by the mentor ruling and superseded by the type lane in the section above. The winner is chosen by rendering the auth screen in Fraunces or Unbounded, each with Archivo and Martian Mono, at 360px and 1440px. The comparison recorded below stays as the history of the earlier round and its criterion.
+2. Font: Fraunces with Archivo and Martian Mono, selected by the mentor from four rendered captures at 360px and 1440px. Unbounded was the losing display face and leaves no file, token or rule. The caveat is recorded with the section above: the candidates carried different headline copy, so this is an identity decision, not a wrapping comparison. The earlier Geist round is retained below as history.
 
    Both faces are legible at 14px and 16px on the ground and both carry working tabular figures: with `font-variant-numeric: tabular-nums` a digit measures 8px at 14px in each, and a string of zeros and a string of ones measure the same, so a column of figures holds its alignment.
 
