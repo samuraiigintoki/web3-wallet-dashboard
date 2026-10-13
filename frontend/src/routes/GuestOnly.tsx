@@ -1,6 +1,7 @@
 import { Navigate, Outlet, useLocation } from 'react-router'
 
 import { useAuth } from '../auth/useAuth.ts'
+import { RestoringScreen } from '../pages/RestoringScreen.tsx'
 import { readLocationState } from './locationState.ts'
 
 /**
@@ -16,11 +17,9 @@ export function GuestOnly() {
   const location = useLocation()
 
   if (session.status === 'restoring') {
-    return (
-      <main className="page" aria-busy="true">
-        <p role="status">Restoring your session.</p>
-      </main>
-    )
+    // The same screen the protected routes show, because it is the same
+    // question. The auth pages have no navigation to wait on.
+    return <RestoringScreen />
   }
 
   if (session.status === 'authenticated') {
