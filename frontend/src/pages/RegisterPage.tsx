@@ -12,9 +12,11 @@ import {
   validateNewPassword,
   validatePasswordConfirmation,
 } from '../forms/validation.ts'
+import styles from '../ui/AuthComposition.module.css'
+import { AuthComposition } from '../ui/AuthComposition.tsx'
 import { Button } from '../ui/Button.tsx'
 import { Notice } from '../ui/Notice.tsx'
-import { Page, PageForm } from '../ui/Page.tsx'
+import { PageForm } from '../ui/Page.tsx'
 import { TextField } from '../ui/TextField.tsx'
 
 const PASSWORD_HINT = `At least ${String(MIN_PASSWORD_RUNES)} characters and up to ${String(
@@ -100,7 +102,7 @@ export function RegisterPage() {
   }
 
   return (
-    <Page title="Create an account" narrow>
+    <AuthComposition title="Create an account" headline="Create an account to read the record.">
       <PageForm ref={formRef} onSubmit={handleSubmit}>
         <TextField
           label="Email"
@@ -146,9 +148,9 @@ export function RegisterPage() {
         </Button>
       </PageForm>
 
-      <p>
+      <p className={styles.footnote}>
         Already have an account? <Link to="/login">Sign in</Link>.
       </p>
-    </Page>
+    </AuthComposition>
   )
 }

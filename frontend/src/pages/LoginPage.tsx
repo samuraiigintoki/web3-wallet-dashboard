@@ -7,9 +7,11 @@ import { fieldErrorsFrom } from '../forms/serverErrors.ts'
 import { useInvalidFocus } from '../forms/useInvalidFocus.ts'
 import { validateEmail, validatePassword } from '../forms/validation.ts'
 import { readLocationState } from '../routes/locationState.ts'
+import styles from '../ui/AuthComposition.module.css'
+import { AuthComposition } from '../ui/AuthComposition.tsx'
 import { Button } from '../ui/Button.tsx'
 import { Notice } from '../ui/Notice.tsx'
-import { Page, PageForm } from '../ui/Page.tsx'
+import { PageForm } from '../ui/Page.tsx'
 import { TextField } from '../ui/TextField.tsx'
 
 export function LoginPage() {
@@ -74,7 +76,7 @@ export function LoginPage() {
   }
 
   return (
-    <Page title="Sign in" narrow>
+    <AuthComposition title="Sign in" headline="Sign in to read the record.">
       {incoming.notice !== undefined && <Notice>{incoming.notice}</Notice>}
 
       {logoutProblem !== null && (
@@ -116,9 +118,9 @@ export function LoginPage() {
         </Button>
       </PageForm>
 
-      <p>
+      <p className={styles.footnote}>
         No account yet? <Link to="/register">Create one</Link>.
       </p>
-    </Page>
+    </AuthComposition>
   )
 }

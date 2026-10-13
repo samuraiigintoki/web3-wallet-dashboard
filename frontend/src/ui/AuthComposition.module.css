@@ -1,0 +1,132 @@
+/*
+ * The auth surface: one column, the form first, the facts after it.
+ *
+ * The headline is the second of the two places the display face is set, and it
+ * carries the axis pin with the family exactly as the page heading does. It is
+ * the largest type in the application and the only step above the page title.
+ *
+ * The facts are a plain list with a tick each, at the body step, in --text-2,
+ * which clears the reading bar on the ground. Nothing here is hidden, faded or
+ * gated: with no enhancement applied this is the whole composition.
+ *
+ * Nothing animates in this module. The authored moment, when it lands, is the
+ * bounded sequence and it is a separate rule set with a static fallback.
+ */
+
+/* The rules sit in the components layer, the last of the three tokens.css
+   declares. Unlayered rules outrank every layer. */
+
+@layer components {
+  .auth {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-7);
+    inline-size: 100%;
+    padding: var(--space-6) var(--gutter-page) var(--space-8);
+    padding-inline-start: calc(var(--gutter-page) + env(safe-area-inset-left));
+    padding-inline-end: calc(var(--gutter-page) + env(safe-area-inset-right));
+  }
+
+  .column {
+    inline-size: 100%;
+    max-inline-size: 26rem;
+  }
+
+  /* The name of the product, not a heading: the headline below it is the one
+     heading on this screen. */
+  .brand {
+    display: block;
+    margin-block-end: var(--space-4);
+    color: var(--text-2);
+    font-size: var(--type-label);
+  }
+
+  .headline {
+    /* Fraunces is optically sized, so the same words change width with the
+       size they are set at, which would also make the metric-adjusted fallback
+       correction impossible. The axes are pinned instead: one shape for the
+       display face wherever it is used, and a fallback that measures against
+       it. The values are the ones the approved specimen rendered. */
+    font-family: var(--font-display);
+    font-optical-sizing: none;
+    font-variation-settings: 'opsz' 144, 'SOFT' 40, 'WONK' 1;
+    margin: 0 0 var(--space-5);
+    color: var(--text-1);
+    font-size: var(--type-headline);
+    font-weight: 600;
+    line-height: var(--leading-heading);
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+
+  /* The line under the form, and its link. The link is read at the reading
+     bar, so it cannot be the accent: it is --text-1 with the underline in
+     --line-strong, and the accent is left for the mark. The inline padding
+     grows the target to the row height without moving the words, which is the
+     same treatment the page prose link gets. */
+  .footnote {
+    margin: var(--space-5) 0 0;
+    color: var(--text-2);
+    font-size: var(--type-body);
+    line-height: var(--leading-body);
+  }
+
+  .footnote a {
+    color: var(--text-1);
+    text-decoration: underline;
+    text-decoration-color: var(--line-strong);
+    text-underline-offset: 0.2em;
+    padding: var(--space-4) var(--space-1);
+    margin: calc(var(--space-4) * -1) calc(var(--space-1) * -1);
+  }
+
+  .footnote a:hover {
+    text-decoration-color: var(--accent);
+  }
+
+  .facts {
+    inline-size: 100%;
+    max-inline-size: 26rem;
+  }
+
+  /* The interface face, at the section step. The display face is not extended
+     down to a heading this size: its two steps are the page title and this
+     screen's headline, and a third use is a rendering decision, not a
+     fallback. */
+  .factsHeading {
+    margin: 0 0 var(--space-4);
+    color: var(--text-1);
+    font-size: var(--type-section);
+    font-weight: 600;
+    line-height: var(--leading-heading);
+  }
+
+  .factList {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .fact {
+    display: flex;
+    gap: var(--space-3);
+    color: var(--text-2);
+    font-size: var(--type-body);
+    line-height: var(--leading-body);
+  }
+
+  /* The same tick the rail uses, so a fact reads as a mark rather than a
+     bullet from another system. */
+  .fact::before {
+    content: '';
+    flex: none;
+    inline-size: 2px;
+    block-size: 1rem;
+    margin-block-start: 0.3em;
+    background: var(--line-strong);
+  }
+}
