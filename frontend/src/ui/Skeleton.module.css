@@ -36,6 +36,16 @@
     inline-size: 70%;
   }
 
+  /* The status line, visible. It reads as a statement of what is happening,
+     not as a warning: same ink and same step as body copy, no accent, no
+     icon, and no retry, because a slow answer is not a failure. */
+  .status {
+    margin: 0 0 var(--space-4);
+    color: var(--text-2);
+    font-size: var(--type-body);
+    line-height: var(--leading-body);
+  }
+
   .srOnly {
     position: absolute;
     inline-size: 1px;
