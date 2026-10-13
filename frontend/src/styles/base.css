@@ -56,7 +56,9 @@
      phone viewport. Scrolling anything into view stops above it, so a field
      reached with the keyboard is never under a control the thumb owns. */
   html {
-    scroll-padding-block-end: calc(var(--row-height) + var(--space-5) + env(safe-area-inset-bottom));
+    scroll-padding-block-end: calc(
+      var(--row-height) + var(--space-2) * 2 + var(--space-4) + env(safe-area-inset-bottom)
+    );
   }
 
   input,
