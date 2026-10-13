@@ -21,7 +21,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { AUTH_FACTS } from '../src/ui/authFacts.ts'
-import { files, filesUnder, read } from './tokens.ts'
+import { files, filesUnder, minimumRem, parseCssTokens, read, resolveToken } from './tokens.ts'
 
 type Block = { path: string; selector: string; body: string }
 
@@ -227,13 +227,12 @@ describe('the frame', () => {
 
   it('keeps the frame and the root scroller clear of the strip', () => {
     const shellBlock = findBlock('ui/Shell.module.css', '.shell')
-    expect(shellBlock.body).toContain(
-      'padding-block-end: calc(var(--row-height) + var(--space-5) + env(safe-area-inset-bottom))',
-    )
+    expect(shellBlock.body).toContain('padding-block-end: calc(')
+    expect(shellBlock.body).toContain('env(safe-area-inset-bottom)')
 
     const base = read(resolve(files.src, 'styles/base.css'))
     const html = findBlock('styles/base.css', 'html')
-    expect(html.body).toContain('scroll-padding-block-end: calc(var(--row-height)')
+    expect(html.body).toContain('scroll-padding-block-end: calc(')
     expect(html.body).toContain('env(safe-area-inset-bottom)')
     expect(base).toContain('a control the thumb owns')
   })
@@ -241,6 +240,68 @@ describe('the frame', () => {
   it('gives every destination the row height, in both shapes', () => {
     const link = findBlock('ui/Shell.module.css', '.link')
     expect(link.body).toContain('min-block-size: var(--row-height)')
+  })
+
+  it('keeps the whole focus ring inside the viewport at every edge', () => {
+    // The ring is drawn outside the element: 2px outline plus 2px offset. A
+    // link flush with an edge has part of it off screen, which is what the
+    // padding on each list is for.
+    const ring = 4
+    const strip = findBlock('ui/Shell.module.css', '.list')
+    expect(strip.body).toContain('padding-block: var(--space-2)')
+    expect(strip.body).toMatch(/padding-inline:\s*max\(env\(safe-area-inset-left\),\s*var\(--space-3\)\)/)
+
+    const css = raw('ui/Shell.module.css')
+    const wide = css.slice(css.indexOf('@media (min-width: 48rem)'))
+    const railList = /\.list\s*\{([^}]*)\}/.exec(wide)?.[1] ?? ''
+    expect(railList).toContain('padding-inline: var(--gutter-page)')
+    expect(railList).toContain('padding-block: 0')
+    // The rail's own block padding covers the first and last destination.
+    const railNav = /\.nav\s*\{([^}]*)\}/.exec(wide)?.[1] ?? ''
+    expect(railNav).toContain('padding-block: var(--space-3)')
+
+    const tokens = parseCssTokens(read(files.tokens))
+    const px = (name: string): number => {
+      const value = resolveToken(name, tokens)
+      const rem = value === null ? null : minimumRem(value, tokens)
+      if (rem === null) {
+        throw new Error(`${name} does not resolve to a length`)
+      }
+      return rem * 16
+    }
+
+    for (const [name, value] of [
+      ['--space-2', px('--space-2')],
+      ['--space-3', px('--space-3')],
+      ['--gutter-page', px('--gutter-page')],
+    ] as const) {
+      expect(value, name).toBeGreaterThanOrEqual(ring)
+    }
+  })
+
+  it("reserves more than the strip's height, so no control is covered", () => {
+    const tokens = parseCssTokens(read(files.tokens))
+    const px = (name: string): number => {
+      const value = resolveToken(name, tokens)
+      const rem = value === null ? null : minimumRem(value, tokens)
+      if (rem === null) {
+        throw new Error(`${name} does not resolve to a length`)
+      }
+      return rem * 16
+    }
+
+    const stripHeight = px('--row-height') + 2 * px('--space-2')
+    const reserve = px('--row-height') + 2 * px('--space-2') + px('--space-4')
+
+    expect(reserve).toBeGreaterThan(stripHeight)
+
+    // The frame and the root scroller state the same reserve.
+    expect(findBlock('ui/Shell.module.css', '.shell').body).toContain(
+      'var(--row-height) + var(--space-2) * 2 + var(--space-4) + env(safe-area-inset-bottom)',
+    )
+    expect(findBlock('styles/base.css', 'html').body).toContain(
+      'var(--row-height) + var(--space-2) * 2 + var(--space-4) + env(safe-area-inset-bottom)',
+    )
   })
 
   it('marks the open destination by shape as well as by ink', () => {
@@ -317,11 +378,33 @@ describe('the states', () => {
     expect(read(resolve(files.src, 'routes/GuestOnly.tsx'))).not.toContain('aria-busy="true"')
   })
 
-  it('keeps both ways forward on the unavailable screen', () => {
+  it('shows the restoring status in words once the wait runs long', () => {
+    const restoring = read(resolve(files.src, 'pages/RestoringScreen.tsx'))
+    expect(restoring).toContain('statusVisible={showStatus}')
+    expect(restoring).toMatch(/setTimeout\(/)
+    expect(restoring).toContain('clearTimeout(timer)')
+
+    const skeleton = read(resolve(files.src, 'ui/Skeleton.tsx'))
+    expect(skeleton).toContain('statusVisible ? styles.status : styles.srOnly')
+
+    // One live region, and the visible line is the same sentence rather than a
+    // second one.
+    const skeletonCss = raw('ui/Skeleton.module.css')
+    expect(skeletonCss).toContain('.status {')
+    expect(skeletonCss).toContain('.srOnly {')
+  })
+
+  it('keeps both ways forward on the unavailable screen, and says what each does', () => {
     const unavailable = read(resolve(files.src, 'routes/RequireAuth.tsx'))
     expect(unavailable).toContain('onClick={retryRestore}')
     expect(unavailable).toContain('onClick={signOutLocally}')
-    expect(unavailable).toContain('not been signed out')
+    // The failed check, the retained token and the unknown answer, with no
+    // claim the copy cannot support.
+    expect(unavailable).toContain('could not reach the API to check your session')
+    expect(unavailable).toContain('still stored on this device')
+    expect(unavailable).toMatch(/still accepts that token is unknown/)
+    expect(unavailable).not.toContain('nothing has been lost')
+    expect(unavailable).not.toMatch(/changes nothing/)
   })
 
   it('keeps the not-found recovery link to the overview', () => {
