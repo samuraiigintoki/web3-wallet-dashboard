@@ -115,7 +115,7 @@ Deferred with reasons:
 - Waiting count at the top of the rail: not Week 7. It requires connected-owner identity and demonstrably complete scoped data, or it shows a false zero. It returns only when both exist; otherwise it is omitted.
 - Command palette: Week 8, limited to existing routes and actions and already loaded entities. It makes no claim of exhaustive global search.
 
-Mobile, below 768 px: the rail collapses to a bottom strip of labelled ticks, thumb reachable, no hamburger drawer. Detail views are full screen with an explicit back. Hit targets 44 px. The strip is fixed over the page, so the frame reserves its height plus the safe-area inset under the content and the root scroller carries the same value as scroll padding: a field or a link reached with the keyboard stops above the strip rather than under it. The same inset is added to the page gutter, for the notch and for a home indicator.
+Mobile, below 768 px: the rail collapses to a bottom strip of labelled ticks, thumb reachable, no hamburger drawer. Detail views are full screen with an explicit back. Hit targets 44 px. The strip is fixed over the page, so the frame reserves its height plus the safe-area inset under the content and the root scroller carries the same value as scroll padding: a field or a link reached with the keyboard stops above the strip rather than under it. The same inset is added to the page gutter, for the notch and for a home indicator. Both destination lists are also padded inside their edges, because the focus ring is drawn outside the element it belongs to and a destination flush with a viewport edge would lose part of its ring: 12px at the bottom strip, the page gutter in the rail. Amended 2026-10-14 after the review found the edge destinations reaching the viewport edges.
 
 Keyboard: standard tab order; `j` and `k` move within a focused list only, never while typing; Enter opens; Escape closes overlays. Every list action available by keyboard and by touch, never by hover alone.
 
@@ -141,7 +141,7 @@ Phase-labelled, because the API constrains what can be shown when. The API expos
 
 - Under 150 ms: nothing is shown. Content paints.
 - 150 ms to 2 s: a skeleton in the exact anatomy of the content. Same rows, columns and hairlines, static fill, no shimmer, no rounded slabs. Anatomy loading is already what the primitives do and it stays.
-- Beyond 2 s: a status line that says what is happening in words, plus a retry after an actual failure. Two seconds means slow feedback; it is not treated as an error.
+- Beyond 2 s: a status line that says what is happening in words, plus a retry after an actual failure. Two seconds means slow feedback; it is not treated as an error. Landed in the screens checkpoint for the session check: the restoring screen shows its anatomy at once and the status line becomes visible after two seconds, in the same live region and the same words, with no accent, no warning treatment and no retry, because nothing has failed.
 - No spinner in content areas. A spinner appears inside a submit button only, which keeps its label.
 - Stale data is retained only for the same user, the same entity and the same query scope. Moving to a different contract, account or query shows anatomy loading rather than the previous entity's data under a new heading. Cross-tab identity changes invalidate caches rather than serving the wrong scope.
 - Navigation between already-fetched views swaps in place. Nothing animates on navigation or mount.
@@ -180,10 +180,13 @@ Governed by the direction document's values. This section sets behaviour.
 | Record detail, Week 8 | anatomy sheet | not reachable without an id; unknown id gets recovery | status line with retry | indexed through the last event served, stated as such |
 | Settings | later block | not applicable | inline error | not applicable |
 | Auth | none, the form is the first paint | not applicable | inline field errors, focus to the first | a short line when the API is unreachable, with retry |
+| Session check, Week 7 | the restoring screen: anatomy at once, and the status in words past two seconds | not applicable | the unavailable screen names the failed check, the retained local token and the unknown answer, with Retry and Sign out | not applicable |
 
 ## 11. Copy and voice
 
 Rules: plain words, controls name the action, errors name the problem and the recovery, no em or en dashes, no emoji, no exclamation marks, no ALL CAPS, no kickers, no section numerals.
+
+One rule about claims, added 2026-10-14 after the review. A screen may state only what it knows. When the session check cannot reach the API, the copy says the check failed, that the token from the last sign in is still stored on this device, and that whether the server still accepts it is unknown. It does not say the session is safe or that nothing was lost, because the retained credential does not prove the server session is still valid: Retry can answer 401, which clears the credential and returns the visitor to sign in. Retry is described as rechecking, Sign out as clearing this device's session.
 
 Vocabulary: waiting on you, waiting on others, indexed, seen in block N, reversible window, executed in block N, not indexed yet, partial history. Never confirmed, never final, never success. Owner approvals and block depth are different facts and are worded differently: approvals count owners, depth counts blocks.
 
@@ -224,6 +227,7 @@ What is in the tree now is the static composition: the headline and the form, th
 Conditions, all binding:
 
 - The static auth composition passes review first; the form stays usable without scrolling at 360 px; nothing gates the form.
+- Amended 2026-10-14, binding on the sequence: a viewport with no scroll range still shows every fact completely. The sequence must not leave a fact reachable only by scrolling, and it must not turn a fact into something a reader has to scrub past to see. If the composition fits the viewport already, the sequence either does nothing there or shows the facts whole.
 - At most four short facts, and all of them inside at most two added viewports of total height. Not one viewport per fact.
 - Transform and opacity only. No animated masks, no `clip-path`, no scroll hijacking, no parallax, no word animation, no loops.
 - Mechanics: native CSS scroll timelines as progressive enhancement. IntersectionObserver is not a continuous scroll-progress clock and is not used as one. Browsers without scroll timelines and users with reduced motion get the complete static content, which is the same facts rendered as a list.
