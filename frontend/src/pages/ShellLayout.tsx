@@ -1,9 +1,21 @@
 import { useState } from 'react'
-import { NavLink, Outlet } from 'react-router'
+import { Outlet } from 'react-router'
 
 import { useAuth } from '../auth/useAuth.ts'
 import { Button } from '../ui/Button.tsx'
 import { Shell, ShellIdentity } from '../ui/Shell.tsx'
+
+/**
+ * The sections this block ships. Every one of them is a route that exists, so
+ * the frame never offers a destination that leads nowhere. Transactions
+ * arrives with the indexed register in Week 8, Settings when there is
+ * something to configure.
+ */
+const DESTINATIONS = [
+  { to: '/', label: 'Overview', end: true },
+  { to: '/contracts', label: 'Contracts' },
+  { to: '/wallets', label: 'Wallets' },
+] as const
 
 export function ShellLayout() {
   const { session, logout } = useAuth()
@@ -24,21 +36,7 @@ export function ShellLayout() {
 
   return (
     <Shell
-      nav={
-        <ul>
-          <li>
-            <NavLink to="/" end>
-              Overview
-            </NavLink>
-          </li>
-          <li>
-            <NavLink to="/wallets">Wallets</NavLink>
-          </li>
-          <li>
-            <NavLink to="/contracts">Contracts</NavLink>
-          </li>
-        </ul>
-      }
+      destinations={DESTINATIONS}
       identity={
         <ShellIdentity email={email}>
           <Button variant="secondary" pending={signingOut} onClick={handleLogout}>

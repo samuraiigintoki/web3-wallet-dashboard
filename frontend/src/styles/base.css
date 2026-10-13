@@ -52,6 +52,13 @@
     scroll-margin-top: var(--space-6);
   }
 
+  /* The signed in frame fixes a strip of destinations to the bottom of a
+     phone viewport. Scrolling anything into view stops above it, so a field
+     reached with the keyboard is never under a control the thumb owns. */
+  html {
+    scroll-padding-block-end: calc(var(--row-height) + var(--space-5) + env(safe-area-inset-bottom));
+  }
+
   input,
   select,
   textarea,
