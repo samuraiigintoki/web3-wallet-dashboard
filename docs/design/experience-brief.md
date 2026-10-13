@@ -1,0 +1,300 @@
+# Frontend experience brief
+
+Corrected 2026-10-13 against the mentor review of 2026-10-13. Governs navigation, anatomy, loading, interaction, auth composition and phase placement for Weeks 7 to 12.
+
+## 0. Document roles
+
+Two documents, two jobs, cross-linked. An overlapping decision is amended in both before implementation.
+
+- `docs/design/direction.md` governs numeric tokens: colours, the contrast gate, type size steps, spacing, radius, the time-based motion values. Nothing in this brief restates a value from it.
+- `docs/design/experience-brief.md` (this document) governs experience decisions: navigation, page anatomy, loading behaviour, interaction model, auth composition and phase placement.
+- Where the two touch, the direction wins on the value and this document wins on the behaviour. The auth sequence is the current example: the direction's parked-spine wording is amended by section 13 here, and the direction's type section is superseded by section 4 here.
+- Issue #66 carries the block's acceptance criteria and is amended with the same scope cuts.
+
+## 1. State and the restart
+
+What exists:
+
+- B1 merged as PR #65: Vite, React, strict TypeScript, typed API client, auth, routes, protected shell, tests, CI job.
+- F1 merged as PR #68: password minimum on register.
+- B2 open as issue #66 and draft PR #69 on `feature/design-system`: direction document landed, tokens, self-hosted Geist, base layer, primitives with state coverage, the restyled B1 screens, and the guard suite that measures the document and the stylesheet against each other.
+
+The identity restart:
+
+Kept: the API client, auth and session handling, routes, validation, focus management, primitive APIs and state coverage, the token pipeline, the guard suite, tests and CI, the skip link, per-route titles.
+
+Replaced: the typeface, the loading language, the app chrome and navigation, the placeholder page anatomy, the auth composition.
+
+Why: without a fixed identity the frontend converges on the same dark dashboard every generated project ships. The identity is fixed here in writing, once, and screens are built against it. This is a planning restart, not a demolition: nothing restarts on the branch, and both B2 checkpoints build on the reviewed work already there.
+
+## 2. The concept
+
+The register. A multisig is an ordered record of intents, each waiting on signatures, each ending in a block. The interface is a live register, not a dashboard.
+
+Three motifs, all functional:
+
+- The rail: sequence and state. A transaction's life drawn as a line with ticks at the block numbers it touched.
+- The row: the record entry. Dense, hairline separated, tabular figures, a state glyph.
+- The stamp: execution, and only because a real `ExecuteTransaction` event was indexed.
+
+Feel: a ledger under a lamp. Warm dark ground, amber reserved for waiting, hairline structure, quiet chrome, exactly one authored moment in the app.
+
+Story in one line: every transaction here is a signature waiting to happen, and you can see all of them.
+
+## 3. What we refuse
+
+1. The generated dashboard: KPI cards on top, gradient hero, violet glow on black, glass, identical card grids, a rounded active pill in a sidebar, sparkline decoration.
+2. The wallet-clone look: gradient-heavy wallet sites and neon-on-dark, where colour is atmosphere instead of state.
+3. Template sections: hero with kicker and two buttons, logo strip, feature grid, testimonial cards, pricing table, FAQ accordion. None of these belong to this product.
+4. Inside PR #69: Geist, the shimmer-slab skeleton, the top bar with placeholder sections, empty states that are a single sentence.
+
+Every refusal is answered concretely in sections 4 to 12.
+
+## 4. Type system
+
+Type is the identity. This section is the most specified one, and it is not yet decided: the lane is approved, the winner is chosen by rendering.
+
+### Lanes from the brands
+
+| Brand | Face | Status |
+|---|---|---|
+| MetaMask | Euclid Circular B, Swiss Typefaces | Retail. Geometric circular grotesque, warm terminals, tall x-height |
+| Uniswap, Unichain | Basel Grotesk, Optimo | Retail. Modernist grotesque with a matching mono in the same programme |
+| Polkadot | Unbounded | Open, SIL OFL. Wide geometric display face, an on-chain brand font by construction |
+| Most wallet apps | Inter or system UI | The default we are leaving |
+
+### Licensing, which constrains more than taste does
+
+- Euclid Circular B and Basel Grotesk are per-project retail licences. Their files cannot be committed to a public repository, and this one is public.
+- Fontshare and ITF families such as Satoshi and General Sans are free to use commercially but their licence restricts redistributing the font files, so self-hosting in a public repo is out.
+- Everything committed must be OFL or equivalent permissive, subset and redistributed with its licence file, the same pattern the vendored design references already use.
+- The identity therefore comes from open fonts chosen in the brands' lanes, not from their files.
+
+### The two candidates, both OFL, winner by rendering
+
+- A, the record. Fraunces for display, with its optical size and wonk axes used on the auth headline only. Archivo for UI, variable. Martian Mono for data.
+- B, on-chain. Unbounded for the wordmark and the auth headline only. Archivo for UI. Martian Mono for data.
+
+Fraunces is the mentor's concept preference, not the winner. The decision is made by rendering the same auth screen in both at 360 px and 1440 px, including hints, errors and focus, and judging headline fit, UI legibility at 13 to 16 px, mono readability on hashes and block numbers, tabular figure alignment, and layout shift while fonts load. The winning display face plus Archivo and Martian Mono is kept; the losing display face leaves no file, token or rule behind.
+
+### Vendoring, before any of it lands
+
+Record for the kept fonts: source and version, woff2 filenames, axes and subset, file sizes, hashes, and the OFL notice per family, in `docs/design/NOTICE.md` beside the files. The font guards are retargeted to assert that exact set. Other guards are not weakened to accommodate it.
+
+Fallback rule: if both candidates render badly, the display slot takes Instrument Serif and the pairing is re-recorded. That is a contingency, not a third candidate.
+
+### Hard rules
+
+- Display faces appear only in the wordmark, page titles, the auth headline and section openers. Never in buttons, labels, table headers, data, form fields or inline UI.
+- Mono only for raw wei, addresses, hashes and block numbers. An amount formatted in ETH is UI sans with tabular figures, as are balances. Mono is not a texture.
+- Inputs are at least 16 px.
+- `font-variant-numeric: tabular-nums` on every figure that can change, verified per family.
+- Self-hosted woff2, Latin subset, no CDN, `font-display: swap`. Fallback metrics are measured and set, and the result is described as measured rather than as a guarantee of zero shift.
+- Fixed rem scale from the direction document. It does not change.
+
+## 5. Navigation: the rail as spine
+
+Approved, with the labels always discoverable rather than hover-only, and this block's scope narrowed to what exists.
+
+Desktop, 768 px and above:
+
+- A narrow rail on the left, widened as needed so labels are readable without hover, never relying on a tooltip. Each destination is a tick with its visible label. The active one is marked by shape, and its label is visibly stronger, not hidden behind a pill.
+- No top bar, no breadcrumbs. Page titles carry context. Detail pages have one back affordance.
+- The rail is the same element on every screen and does not animate between routes.
+
+Destinations by week, so no dead links are ever shipped:
+
+- Week 7: Overview, Contracts, Wallets. These routes exist in the shell and their placeholder screens are honest.
+- Transactions arrives in Week 8 with the indexed register.
+- Settings arrives when there is something to configure, which is not this block.
+
+Deferred with reasons:
+
+- Waiting count at the top of the rail: not Week 7. It requires connected-owner identity and demonstrably complete scoped data, or it shows a false zero. It returns only when both exist; otherwise it is omitted.
+- Command palette: Week 8, limited to existing routes and actions and already loaded entities. It makes no claim of exhaustive global search.
+
+Mobile, below 768 px: the rail collapses to a bottom strip of labelled ticks, thumb reachable, no hamburger drawer. Detail views are full screen with an explicit back. Hit targets 44 px.
+
+Keyboard: standard tab order; `j` and `k` move within a focused list only, never while typing; Enter opens; Escape closes overlays. Every list action available by keyboard and by touch, never by hover alone.
+
+URL is state: supported pagination, filters and tabs live in query parameters so back and forward work.
+
+Auth pages carry no app chrome.
+
+## 6. Page anatomy
+
+Phase-labelled, because the API constrains what can be shown when. The API exposes contract-scoped canonical events; it has no global transaction queue and no search service.
+
+- Overview, Week 7 shape: an honest placeholder and nothing else. It states what the register will hold and where new work will come from. No hero, no fabricated queue, no KPI row. Week 8 gives it contract-scoped reality.
+- Overview, Week 9 shape: an attention view built only where the underlying set is complete, meaning owner identity and full scoped data are known. Until then it is words, not numbers.
+- Contracts, Week 8: the register of deployments. Address, chain, start block, and the honest indexing availability state.
+- Wallets, Week 8: dense rows, balances with tabular figures, never cards.
+- Transaction detail, Week 8: the record sheet for one contract-scoped transaction. The rail on the left, drawn from indexed events for that contract. Beside it the facts the API serves, each labelled with its source. `multisigTxIndex` is called the transaction index, never a nonce, and its uint256 precision is preserved as a string end to end.
+- Owner and threshold completeness, balances, block timestamps and head-relative depth arrive in Week 9 with the browser-side reads. Anything not yet known is absent or said in words, never estimated.
+- A displayed event block number is an indexed fact about that event. It is not an indexer checkpoint, and nothing draws it as progress.
+- Settings: later, quiet, account and session only.
+- Auth: the first impression, composed in this block. One narrow column on the warm ground, display headline in the product's own words, the form usable without scrolling at 360 px, and the bounded factual sequence in section 13 behind it. The static composition ships first and stands alone if the enhancement fails its budget.
+
+## 7. Loading language
+
+- Under 150 ms: nothing is shown. Content paints.
+- 150 ms to 2 s: a skeleton in the exact anatomy of the content. Same rows, columns and hairlines, static fill, no shimmer, no rounded slabs. Anatomy loading is already what the primitives do and it stays.
+- Beyond 2 s: a status line that says what is happening in words, plus a retry after an actual failure. Two seconds means slow feedback; it is not treated as an error.
+- No spinner in content areas. A spinner appears inside a submit button only, which keeps its label.
+- Stale data is retained only for the same user, the same entity and the same query scope. Moving to a different contract, account or query shows anatomy loading rather than the previous entity's data under a new heading. Cross-tab identity changes invalidate caches rather than serving the wrong scope.
+- Navigation between already-fetched views swaps in place. Nothing animates on navigation or mount.
+- Indexing availability is a first-class state and is worded from the API's three values. An empty event page means the page is empty; it is not presented as proof that indexing is lagging. A row missing from a paginated response is not presented as proof of a canonical removal.
+
+## 8. Interaction model
+
+- Cursor semantics, not cursor art: default, pointer on controls, text selection preserved on every address and hash, copy affordance on hover and focus. No custom cursors.
+- Copy feedback is in place: the row shows copied for about 1.2 s. No toast.
+- Press: 120 ms depress at 0.98 scale on the recorded easing, row highlight on press, links underline on hover. Row actions are reachable by keyboard and touch, not by hover alone.
+- Focus: a visible focus ring on `focus-visible`, trapped in dialogs and returned on close, and the rail is fully keyboard navigable.
+- Destructive actions confirm inline, not in a modal.
+- Empty states teach: what will appear and the action that creates it, in one or two sentences, no illustration.
+- Long values never break layout: middle-ellipsis with the full value on hover and focus. The break-ui conditions, meaning long names, a single item, zero items, huge counts and non-Latin text, are review inputs for data views in Week 8.
+- Icons: no new icon set in this block. Active shape plus words carry the rail. A functional SVG or library adoption later needs its own scope and licence approval.
+
+## 9. Motion
+
+Governed by the direction document's values. This section sets behaviour.
+
+- Budgets: press 100 to 160 ms, interaction feedback 150 to 250 ms, state change 200 to 300 ms, overlays 200 to 500 ms only when an overlay exists. Transform and opacity only. Colour changes immediately on state.
+- The pattern: one authored data rail inside the app, plus one bounded factual explanation on auth, which is the explicit exception recorded in section 13. Nothing else.
+- Micro-feedback allowed: press states, row hover wash, copy confirmation, the submit button keeping its label while showing a spinner, field error reveal, value changes crossing in place.
+- Banned: page-load choreography, route entrances, scroll reveals inside the authenticated app, animated masks and `clip-path`, scroll hijacking, parallax, word animation, ambient loops, animated numerals on mount, and any new raw timing that is not one of the recorded tokens.
+- Reduced motion neutralizes every moving transition. The auth sequence renders complete and static, the rail renders static, and state stays legible in words rather than only in colour.
+
+## 10. States matrix
+
+| Surface | Loading | Empty | Failure | Availability |
+|---|---|---|---|---|
+| Overview, Week 7 | not applicable, static placeholder | states what the register will hold | not applicable | not applicable |
+| Overview, Week 8+ | anatomy rows | names what will appear and how work arrives | status line with retry | partial data is labelled partial, never classified as waiting |
+| Contracts | anatomy rows | how a deployment gets tracked | status line with retry | indexing, or the worded neutral treatment for disabled and unsupported |
+| Wallets | anatomy rows | how a wallet gets added | status line with retry | not applicable |
+| Register, Week 8 | anatomy rows | the contract has no indexed events yet, said plainly | status line with retry | an empty page is an empty page, not evidence of lag |
+| Record detail, Week 8 | anatomy sheet | not reachable without an id; unknown id gets recovery | status line with retry | indexed through the last event served, stated as such |
+| Settings | later block | not applicable | inline error | not applicable |
+| Auth | none, the form is the first paint | not applicable | inline field errors, focus to the first | a short line when the API is unreachable, with retry |
+
+## 11. Copy and voice
+
+Rules: plain words, controls name the action, errors name the problem and the recovery, no em or en dashes, no emoji, no exclamation marks, no ALL CAPS, no kickers, no section numerals.
+
+Vocabulary: waiting on you, waiting on others, indexed, seen in block N, reversible window, executed in block N, not indexed yet, partial history. Never confirmed, never final, never success. Owner approvals and block depth are different facts and are worded differently: approvals count owners, depth counts blocks.
+
+Facts that must stay exact, because an earlier draft of this brief got them wrong:
+
+- Fifteen seconds is the scanner's polling cadence, not a block-to-index delivery guarantee. The indexer deliberately stays behind a safety head and can lag the chain.
+- Twelve blocks is a reversible heuristic, not a maximum reorg window.
+- Execution requires the configured approval threshold, not every owner.
+- `pending` describes indexing availability, not scanner progress.
+- Partial history is labelled partial. A missing row in a paginated response proves nothing about the canonical chain.
+
+Numbers: tabular figures, exact wei values through the API as strings, Intl for dates and numbers, relative times updated on a slow tick with no animation.
+
+## 12. Anti-ordinary contract
+
+| Ordinary | What we ship instead | Why |
+|---|---|---|
+| Geist, Inter, system UI | The type lane in section 4, winner pending rendering | The default face is the strongest tell of a generated site |
+| Hero with kicker and two buttons | The register states its job in one display line | This is a tool, not a landing page |
+| KPI card row | Attention view only where the underlying set is complete, words until then | Cards hide priority, and a number without complete data is a lie |
+| Shimmer skeletons and spinners | Anatomy skeletons, status lines, scoped stale data | Loading should describe shape and state, not decorate time |
+| Top bar with pills and breadcrumbs | Labelled rail spine, URL as state, palette in Week 8 | Navigation should carry meaning, not chrome |
+| Custom cursor or cursor trails | Cursor semantics and in-place copy feedback | Reinventing a standard affordance is a template flourish |
+| Card grids everywhere | Hairline rows and record sheets | Density is the point in a multisig tool |
+| Illustration empty states | Teaching text with a next action | An empty state is an onboarding step |
+| Violet glow on black, mesh gradients | Warm near-black ground, amber reserved for waiting | Colour carries state, not atmosphere |
+| Animation on every section | One data rail plus one bounded auth explanation | Motion without a job is debt |
+| Emoji and mixed icon sets | Words and active shape in this block, one set later under its own approval | Consistency reads as craft |
+| Zebra tables with pill badges | Hairlines and the state glyph | The row is a record, not a widget |
+| Centered card on a gradient login | Composed register page, form first | The first impression is type and composition |
+
+## 13. The auth sequence, bounded
+
+Amends the direction document's parked-spine wording and the earlier global one-moment wording. The pattern becomes: one authored data rail inside the app, plus one bounded factual explanation on auth.
+
+Conditions, all binding:
+
+- The static auth composition passes review first; the form stays usable without scrolling at 360 px; nothing gates the form.
+- At most four short facts, and all of them inside at most two added viewports of total height. Not one viewport per fact.
+- Transform and opacity only. No animated masks, no `clip-path`, no scroll hijacking, no parallax, no word animation, no loops.
+- Mechanics: native CSS scroll timelines as progressive enhancement. IntersectionObserver is not a continuous scroll-progress clock and is not used as one. Browsers without scroll timelines and users with reduced motion get the complete static content, which is the same facts rendered as a list.
+- The scroll-timeline mechanics are documented narrowly in the guards without changing the approved time-based token ladder. Press stays 120 ms. Error and value feedback use the recorded feedback tokens or change immediately. No fresh raw timings, no unrecorded stagger.
+- The four facts, exact and verified:
+
+  1. Keys stay in your wallet. The server never signs.
+  2. Indexing polls every 15 seconds and stays behind its safety head, so indexed history can lag the chain.
+  3. Twelve blocks is a reversibility heuristic, not finality.
+  4. Execution needs the configured approval threshold, not every owner.
+
+- Evidence: a production frame trace with the device and browser named and the 4x CPU, Slow 4G preset. The 60 fps bar is judged against that setup, not as a universal claim. If the effect cannot meet it, the static composition ships. A motion library is not the fallback.
+
+The authenticated app keeps zero scroll theatre: no scroll reveals, no route entrances, no ambient motion.
+
+## 14. What changes in PR #69, what stays
+
+Stays: the typed client, auth, session, routes, tests, CI job, the token pipeline, the guard suite with values retargeted, the primitive APIs and state coverage, validation, focus management, base styles, anatomy loading, the contrast gate and the acceptance requirements in section 17.
+
+Replaced: the Geist files and their plumbing, the loading language where it decorates rather than describes, the shell and navigation, the placeholder anatomy, the auth composition, the type tokens.
+
+Added in the screens checkpoint: the labelled rail spine with this block's three destinations, the composed auth page with its bounded sequence, honest placeholders, restoring, unavailable and not-found.
+
+Deleted: anything whose only purpose was to look like a standard dashboard.
+
+## 15. Block plan
+
+Two checkpoints per block. Each future block gets its own seven-section issue and one active branch when it starts; this plan does not authorize implementing them inside PR #69.
+
+| Block | Checkpoint 1 | Checkpoint 2 |
+|---|---|---|
+| Week 7, B2 | Corrected planning docs; rendered type decision; selected fonts and notices; retargeted type and font guards; existing primitives and anatomy loading | Labelled navigation spine; composed auth with the bounded enhancement; honest overview placeholder; restoring, unavailable, not-found. No data views |
+| Week 8, indexed register | Consumed API types and calls; TanStack Query; user and entity scoped caches; cross-tab identity safety; URL state for supported pagination, filters and tabs | Wallet and contract records and CRUD; contract-scoped indexed register and record detail; the event rail drawn from real rows; the states matrix; a limited command palette; a break-ui pass |
+| Week 9, wallet and chain | Connection, account and chain detection, Sepolia checks; owner, threshold, balance, timestamp and head reads | User-approved approval, revoke and execute controls; chain facts and indexed facts labelled by source; reversible depth; owner-specific attention only where the underlying set is complete |
+| Week 10, full flow | Receipt, refresh, cancellation, failure and duplicate-handling seams | Browser action through event, indexer, database, API and interface; indexing delay, reorg and reinclusion, identity-change evidence |
+| Week 11, quality | Regression, end-to-end and security coverage; the recorded OpenAPI CI-gate decision | Craft, contrast, keyboard, reduced motion, break-ui, font and bundle review at the throttled profile. No new visual CI gate |
+| Week 12, deployment | Same-origin HTTPS, configuration, operational checks, CSP design | Notices, README, architecture and security docs, threat model, limitations, screenshots, an honest demo |
+
+## 16. Resource map
+
+Each layer names its source. The map permits reference and redrawing; it is not blanket permission to copy or install anything.
+
+| Layer | Source | Taken | Shipped |
+|---|---|---|---|
+| Concept and information model | Safe-wallet queue and owner model; MetaMask Portfolio onboarding | structure and vocabulary | our screens |
+| Design governance | Impeccable: craft floor, operate and persuade modes, the 60-rule dataset | rules and review passes | vendored private, applied per screen |
+| Motion values | emilkowalski/skills: animate, vocabulary, find opportunities, review, improve, performance cheatsheet | easings, duration bands, technique names, the review table | the direction's three easing tokens and their uses |
+| Interaction and forms | emil design engineering, Vercel checklist | press physics, focus, keyboard, form rules | our primitives |
+| Component structures and scroll technique | animata (MIT), React Bits and Skiper free pieces as reference | structures, parameters, scroll-linked technique | redrawn in our tokens. A copied file, never a redrawn one, is from animata with its notice |
+| Type | Euclid Circular B, Basel Grotesk, Unbounded read as lanes | the lane, never the file | the winning OFL pairing plus Archivo and Martian Mono |
+| Colour | our approved ground and accent, Impeccable colourize for ramp sanity | the recorded values | the token set already in review |
+| Data narrative | L2Beat, Tenderly, Dune, Linear, Raycast | information architecture and tone | our layouts |
+| Loading and states | Impeccable operate rules, the craft floor | skeleton over spinner, teaching empty states | our loading primitives |
+| Evidence | chrome-devtools-mcp, established viewports | traces and screenshots | captured on Mayur's machine |
+
+Non-uses, closed: no shadcn or shadcn MCP, no ThreeUI or Animaster effects, no uizze packs, no React Bits dependency, no Fontshare files in the repository, no motion library unless a demonstrated limitation and an approved dependency record state its purpose, version, licence and free-tier status.
+
+## 17. Acceptance requirements carried from B2
+
+Unchanged by this brief, and not to be traded against the new identity bar:
+
+- Contrast gate: the stricter of APCA and WCAG decides, with reading Lc 75 and 4.5:1, supporting Lc 60 and 4.5:1, headings Lc 45 and 3:1, boundaries and focus Lc 30 and 3:1, and disabled text carrying no information. Retarget used pairs and size or weight roles, never the thresholds.
+- Hit targets 44x44 px mobile and 24x24 px desktop.
+- `touch-action: manipulation` while preserving pan and pinch zoom.
+- Not-found recovery to `/`, which is and remains the protected shell.
+- Heading `scroll-margin-top`, non-breaking brand spaces.
+- React render tracking and a CPU and network throttled production profile.
+- Preserved exact password handling and the reviewed two-line sign out at 360 px.
+- Fresh captures for affected screens from Mayur's machine at the established viewports, with the rendered source SHA and data provenance. The stale screenshot pointer is fixed or removed.
+- Detailed evidence in the chat reply; the PR stays product-focused.
+- No public-chain transactions to manufacture activity.
+
+## 18. Open items
+
+- Type winner: A or B, by rendering the auth screen in both.
+- Whether the auth sequence meets its frame budget at 4x CPU, Slow 4G; if not, the static composition ships.
+- Public landing route: cut from the core roadmap. Reconsider after deployment as its own decision, and never by replacing the protected `/`.
+- Compact row rails: detail only through Week 8, revisited when Week 9 head reads and real rows exist.

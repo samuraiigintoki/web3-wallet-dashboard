@@ -2,6 +2,8 @@
 
 Approved 2026-10-06. Lands at `docs/design/direction.md` in the product repository when the design system block opens, and that landing is what lifts the frontend freeze. The design system block is scoped from this document. It does not change Week 7 B1.
 
+Two documents carry the design record and they do not overlap. This one governs numeric tokens: colours, the contrast gate, type size steps, spacing, radius and the time-based motion values. `docs/design/experience-brief.md` governs the experience decisions: navigation, page anatomy, loading behaviour, interaction, auth composition and phase placement. Where the two touch, this document wins on the value and the brief wins on the behaviour, and an overlapping decision is amended in both before it is implemented.
+
 ## The concept
 
 The rail is the identity element. A measured line with ticks, on both surfaces and nothing decorative on top of it:
@@ -98,7 +100,9 @@ Violet or indigo on near-black, any neon glow, halo shadows, gradient text, glas
 
 One family plus one mono, both OFL, self-hosted, subset.
 
-- `Geist Sans` for everything, weights 400, 500, 600. The `Instrument Sans` swap was rendered side by side with it and declined, on the pairing recorded below.
+Amended 2026-10-13. The mentor ruling supersedes the decision recorded below and moves the type layer to a lane of editorial display, grotesque UI and mono data, with the winner chosen by rendering. Two OFL candidates: Fraunces with Archivo and Martian Mono, or Unbounded with Archivo and Martian Mono. The same auth screen is rendered in both at 360px and 1440px including hints, errors and focus, and the winner is judged on headline fit, UI legibility at 13 to 16px, mono readability on hashes and wei, tabular figure alignment, and layout shift while the fonts load. Until the winner lands the Geist faces below are the implemented interim and every rule in this section still applies to them. When the winner lands, the display and UI family tokens, the vendored files, the notice, and the font guards change together, and the losing display face leaves no file, token or rule behind. Before vendoring, the record carries source and version, woff2 filenames, axes and subset, sizes and hashes, and the OFL notice per family. The lane, the licensing reasoning and the judging criteria are in `docs/design/experience-brief.md` section 4.
+
+- `Geist Sans` for everything, weights 400, 500, 600, interim pending the amendment above. The `Instrument Sans` swap was rendered side by side with it and declined, on the pairing recorded below.
 - `Geist Mono` for addresses, transaction hashes, block numbers and raw wei strings. Nowhere else. Mono is not a costume for technical. An amount formatted in ETH is sans with tabular figures, as are balances: mono is for the raw values, not for every number on the screen.
 - Fixed rem scale, ratio about 1.2: 12 meta, 13 labels, 14 body, 16 lead, 19 section, 23 panel title, 28 page title. Auth headline may reach 40, app surfaces do not.
 - Tabular numerals on every figure, always. No fluid clamp sizing in the app.
@@ -140,6 +144,8 @@ Durations, named: `--duration-press: 120ms`, `--duration-feedback: 180ms` for ho
 
 ### The one authored moment: the block-time rail
 
+The pattern, amended 2026-10-13: one authored data rail inside the app, plus one bounded factual explanation on auth (`docs/design/experience-brief.md` section 13). Nothing else is a moment.
+
 Reserved, not built. This is the product's one authored moment and it stays reserved until real indexed data exists to draw. B2 renders none of it: a static rail drawing indexed rows is a data view and belongs to Week 8 with real rows. The API exposes no head, checkpoint or lag, so nothing draws a progress meter toward the reversible window and no mock timeline substitutes for the rail. When Week 9's browser-side head exists, the remaining window may show as a count, always described as reversible.
 
 Where: the transaction detail header, with a compact variant in transaction list rows.
@@ -155,7 +161,7 @@ What it shows, week by week, using only real data:
 
 ### Auth surfaces
 
-`/login` and `/register` carry the same rail as a vertical spine: as the page scrolls, ticks land at real product facts, in the product's own words, ending at the form. It is the product's only scroll-driven sequence, built on IntersectionObserver and CSS, no library. The spine is parked as its own later block: the design system restyles both pages as quiet forms built from the primitives, task-first and usable without scrolling at 360px, with no scroll sequence and no motion on navigation or mount.
+`/login` and `/register` carry the same rail as a vertical spine: as the page scrolls, ticks land at real product facts, in the product's own words, ending at the form. It is the product's only scroll-driven sequence, built on IntersectionObserver and CSS, no library. Amended 2026-10-13: the bounded sequence is allowed again in this block's screens checkpoint under the conditions in `docs/design/experience-brief.md` section 13. The static composition passes review first, the form stays usable without scrolling at 360px, at most four facts sit inside at most two added viewports, transform and opacity only, no animated masks and no clip-path, CSS scroll timelines as progressive enhancement with a complete static fallback for reduced motion and unsupported browsers, and a production frame trace at 4x CPU and Slow 4G. If the effect cannot meet its budget, the static composition ships and no motion library substitutes. No motion runs on navigation or mount.
 
 No WebGL, no 3D, no illustration, no mesh background, no scroll cue, no "scroll to explore". The form is visible without scrolling, and the headline is set in the product's own words, not a slogan.
 
@@ -186,7 +192,7 @@ Each question below is settled by the criterion recorded with it. The losing opt
    Amber is chosen on the criterion that the accent must stay distinct from every state hue, and it meets that criterion as approved with no lift. It doubles as the awaiting hue, so it has to sit apart from the states it is drawn beside: 83 degrees of hue from executed, against 33 for chartreuse, whose nearest state is executed at 0.111. It is also the approved brand colour, and a colour that has to be lifted to clear a bar is no longer the approved one. Lifting chartreuse does restore the distance, to 0.158 from executed at `0.845 0.204 122` `#B7DF07`, the most chroma that lightness holds in sRGB, but only by leaving the approved lightness.
 
    A label on the accent fill is the supporting role: Lc 60 at 14px and above at weight 600. `--accent-ink` measures Lc 63.0 at rest and Lc 71.7 on the hover, so the role is met with 3.0 to spare, and the gate declares that pair under the supporting role. It is not the reading role: the most a label can reach on this fill is Lc 64.2 with black ink, so text needing Lc 75 is never placed on the accent. If that changes, lifting the accent to `0.845 0.126 72` `#FFBE6A` measures Lc 75.7 for a black label, at the price of a paler amber, and is recorded here as the remedy rather than taken.
-2. Font: Geist Sans, decided by rendering the same screen in both.
+2. Font: Geist Sans, decided by rendering the same screen in both. Amended 2026-10-13: reopened by the mentor ruling and superseded by the type lane in the section above. The winner is chosen by rendering the auth screen in Fraunces or Unbounded, each with Archivo and Martian Mono, at 360px and 1440px. The comparison recorded below stays as the history of the earlier round and its criterion.
 
    Both faces are legible at 14px and 16px on the ground and both carry working tabular figures: with `font-variant-numeric: tabular-nums` a digit measures 8px at 14px in each, and a string of zeros and a string of ones measure the same, so a column of figures holds its alignment.
 
