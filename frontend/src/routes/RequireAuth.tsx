@@ -20,9 +20,10 @@ export function RequireAuth() {
     return (
       <Page title="The service is unavailable">
         <p>
-          The dashboard could not reach the API to check your session, so you have
-          not been signed out and nothing has been lost. Your session is still
-          stored on this device.
+          The dashboard could not reach the API to check your session. The token
+          from your last sign in is still stored on this device. Whether the
+          server still accepts that token is unknown until a check gets through,
+          so this screen does not claim either answer.
         </p>
 
         <Notice
@@ -37,8 +38,8 @@ export function RequireAuth() {
             </>
           }
         >
-          Retrying reads your session again and changes nothing. Signing out ends
-          it on this device.
+          Retry checks the session again. Sign out clears this device&apos;s session
+          and returns you to sign in.
         </Notice>
       </Page>
     )
