@@ -228,7 +228,7 @@ What is in the tree now is the static composition: the headline and the form, th
 
 Conditions, all binding:
 
-- The static auth composition passes review first; the form stays usable without scrolling at 360 px; nothing gates the form.
+- Amended 2026-10-14 by the planning verdict: the wait for a separate static-screen verdict is withdrawn. Inside the combined completion block the static fixes complete and are locally tested first: the visible restoration words after two seconds with one announcement and timer cleanup after completion and unmount, the honest retained-credential and unknown-validity copy with Retry restoration and Retry-to-401 coverage, and the unavailable state's Sign out explicit as local-only. The bounded enhancement is then implemented on top of them in the same block. The form stays usable without scrolling at 360 px and nothing gates the form.
 - Amended 2026-10-14, binding on the sequence: a viewport with no scroll range still shows every fact completely. The sequence must not leave a fact reachable only by scrolling, and it must not turn a fact into something a reader has to scrub past to see. If the composition fits the viewport already, the sequence either does nothing there or shows the facts whole.
 - At most four short facts, and all of them inside at most two added viewports of total height. Not one viewport per fact.
 - Transform and opacity only. No animated masks, no `clip-path`, no scroll hijacking, no parallax, no word animation, no loops.
@@ -244,6 +244,8 @@ Conditions, all binding:
 - Evidence: a production frame trace with the device and browser named and the 4x CPU, Slow 4G preset. The 60 fps bar is judged against that setup, not as a universal claim. If the effect cannot meet it, the static composition ships. A motion library is not the fallback.
 
 At the screens checkpoint the authenticated app ships with no scroll reveals, no route entrances and no ambient motion. That is the shipped state, not a standing ban: section 9 carries the reopened placement rules, and the replacement rules with their guards land before any new motion does.
+
+The enhancement ships inside the combined B2 completion block: findings 2 and 3 plus this sequence as one block, one head, one evidence bundle and one consolidated verdict, carrying finding 1's outstanding regression evidence rather than assuming it closed. The binding conditions above survive the combination: native CSS scroll timelines as progressive enhancement, the four-fact and two-added-viewport limit, the usable form, the complete fallbacks under reduced motion, a missing scroll timeline and no scroll range, and the recorded performance requirement.
 
 ## 14. What changes in PR #69, what stays
 
@@ -301,6 +303,7 @@ Unchanged by this brief, and not to be traded against the new identity bar:
 - Amended 2026-10-14 by the planning verdict: the default submission is the CI browser-evidence run and its report link. One browser-evidence job produces one HTML report entry point plus the walk recordings as run artifacts, and the report names the tested SHA, the outcomes, the browser, the viewport and DPR, and fixture versus real-data provenance. A failing run uploads whatever evidence exists and never converts a failure into a pass, and credentials and provider secrets stay out of recordings. If artifact access is blocked for the reviewer, the same bundle is uploaded once with the submission; supplementary evidence is then requested only for a named coverage gap or failure, not to repeat captures the bundle covers. Recordings do not replace frame-timing measurements and do not prove live-API behaviour. Manual captures at the established viewports, with the rendered source SHA and data provenance, remain for what the job cannot cover.
 - Browser evidence runs on `@playwright/test` 1.64.0, dev-only, Apache-2.0, for the walks, the report and the recordings, with browser discovery kept separate from Vitest and jsdom. No runtime dependency, no paid reporting service, no screenshot-diff gate and no branch-protection change is authorized.
 - A public fixture demo build is deferred as a separate delivery surface and is not approved inside B2. Labelled fixtures remain allowed in isolated tests and specimens.
+- The Week 8 design-only specimen batch is approved as one coherent batch, prepared together on contract-shaped labelled fixtures, with no invented capabilities and no unavailable fields. It authorizes no production data view in PR #69, and Week 8 feature implementation still follows B2 acceptance, the merge and post-merge CI.
 - Detailed evidence in the chat reply; the PR stays product-focused.
 - No public-chain transactions to manufacture activity.
 
