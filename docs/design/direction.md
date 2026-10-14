@@ -159,13 +159,13 @@ Three easing tokens, from the vendored motion standards:
 - `--ease-in-out: cubic-bezier(0.77, 0, 0.175, 1)` for movement already on screen.
 - `--ease-drawer: cubic-bezier(0.32, 0.72, 0, 1)` for drawers and sheets.
 
-`linear` is the one curve outside those three, and it is allowed in exactly one place: a continuously turning working indicator, where constant angular velocity is what makes it read as work rather than as a stutter. An eased rotation accelerates and slows every turn, which looks like the interface is struggling. Nothing else uses `linear`: a transition, a settle or any other animation that moves on screen takes one of the three tokens above.
+`linear` is the one curve outside those three, and it is allowed in exactly two places, each named here. The first is a continuously turning working indicator, where constant angular velocity is what makes it read as work rather than as a stutter; an eased rotation accelerates and slows every turn, which looks like the interface is struggling. The second, recorded 2026-10-14, is the scroll-linked auth explanation, whose timeline is scroll rather than time, so an eased mapping would read as rubber-banding against the reader's own gesture. Nothing else uses `linear`: a transition, a settle or any other animation that moves on screen takes one of the three tokens above.
 
 Durations, named: `--duration-press: 120ms`, `--duration-feedback: 180ms` for hover and feedback, `--duration-state: 240ms`, `--duration-settle: 320ms`, and `--duration-ceiling: 480ms` for overlays, used only when an overlay exists. The budgets these sit inside: press 100 to 160ms, state feedback 150 to 250ms, overlays 200 to 500ms. Transform and opacity only, on the easing tokens above. Colour feedback may change immediately, or settle inside the state feedback budget; it never drives layout. Never `transition: all`, never `ease-in` on UI, never `scale(0)`. No motion runs on navigation or on mount: a screen arriving is not an event. Anything a user sees a hundred times a day does not animate. Every transition that moves more than a few pixels respects `prefers-reduced-motion`.
 
-### The one authored moment: the block-time rail
+### The authored moments, bounded
 
-The pattern, amended 2026-10-13: one authored data rail inside the app, plus one bounded factual explanation on auth (`docs/design/experience-brief.md` section 13). Nothing else is a moment.
+The pattern, amended 2026-10-13 and reopened 2026-10-14: one bounded factual explanation on auth, drawn on the facts list by a native scroll timeline (`docs/design/experience-brief.md` sections 9 and 13), and one authored data rail inside the app once real indexed rows exist to draw it. The count is bounded to those two surfaces, and each has to state a fact rather than decorate one. Nothing else is a moment.
 
 Reserved, not built. This is the product's one authored moment and it stays reserved until real indexed data exists to draw. B2 renders none of it: a static rail drawing indexed rows is a data view and belongs to Week 8 with real rows. The API exposes no head, checkpoint or lag, so nothing draws a progress meter toward the reversible window and no mock timeline substitutes for the rail. When Week 9's browser-side head exists, the remaining window may show as a count, always described as reversible.
 

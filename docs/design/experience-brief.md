@@ -170,6 +170,15 @@ Governed by the direction document's values. This section sets behaviour.
 
 Amended 2026-10-14 by the planning verdict. Frontend feel, visual design and animation choices are the author's, and the mentor's review keeps functionality, data and API contracts, security, accessibility and measured performance, not aesthetic preference. The placement and count restrictions above are reopened: the blanket bans on route and mount motion and the fixed count of authored moments no longer bind by themselves. The replacement placement and count rules are recorded in this section, and the guards that hold them are updated in the same commit, before any new motion relies on them. Numeric values still belong in the direction document. Reduced motion, contrast, targets, usable forms, truthful states and measured performance stay binding, and with them the bounded auth fallback in section 13.
 
+Replacement placement and count rules, recorded 2026-10-14 before any effect relies on them:
+
+- Motion is placed in three places and nowhere else: the micro-feedback list above, one scroll-linked factual explanation on the auth facts list in section 13, and the indexed data rail once real rows exist to draw.
+- Route and mount entrances stay out although the blanket ban is reopened: a screen arriving is a state change, not an event, and anything a reader sees a hundred times a day does not animate.
+- The authored count is bounded to the two named surfaces, the auth explanation and the data rail, and each has to state a fact rather than decorate one.
+- Scroll-linked motion runs on a native animation timeline, never on a JavaScript scroll clock, and IntersectionObserver is never a progress clock.
+- A scroll-linked sequence is timed linear, because its timeline is scroll rather than time and an eased mapping reads as rubber-banding against the reader's own gesture. This is the second documented exception beside the turning indicator, and the direction document names both.
+- Every scroll-linked rule sits inside an `@supports` gate for the timeline and a `prefers-reduced-motion: no-preference` gate, so an unsupported browser and a reduced-motion reader both get the complete static content.
+
 ## 10. States matrix
 
 | Surface | Loading | Empty | Failure | Availability |

@@ -7,6 +7,8 @@
  * rotation reads as a stutter. A media query cannot be exercised in jsdom, so
  * the rule that implements it is read here instead.
  */
+import { resolve } from 'node:path'
+
 import { describe, expect, it } from 'vitest'
 
 import { files, filesUnder, read } from './tokens.ts'
@@ -16,6 +18,8 @@ const stylesheets = filesUnder(files.src, (name) => name.endsWith('.css')).map((
   css: read(path),
 }))
 
+const relative = (path: string): string => path.slice(files.src.length + 1)
+
 const animated = stylesheets.filter(({ css }) => /animation:|transition:/.test(css))
 
 /** The easing tokens the direction names, plus the one documented exception. */
@@ -23,6 +27,26 @@ const EASING_TOKEN = /var\(--ease-[a-z]+\)/
 const RAW_CURVES = /(?:^|[\s,])(ease|ease-in|ease-out|ease-in-out|linear|steps|step-start|step-end|cubic-bezier|spring)\(?/
 
 const isSpinner = (path: string): boolean => path.endsWith('Spinner.module.css')
+
+/**
+ * The scroll-linked auth explanation. Its timeline is scroll rather than
+ * time, so `linear` is the only timing that maps the reader's gesture
+ * without rubber-banding. The direction names it as the second exception.
+ */
+const isScrollSequence = (path: string): boolean => path.endsWith('AuthComposition.module.css')
+
+const isLinearException = (path: string, value: string): 'spinner' | 'sequence' | null => {
+  if (!/\blinear\b/.test(value)) {
+    return null
+  }
+  if (isSpinner(path)) {
+    return 'spinner'
+  }
+  if (isScrollSequence(path)) {
+    return 'sequence'
+  }
+  return null
+}
 
 /** Every easing written into a transition or an animation, with its sheet. */
 function easings(): { path: string; value: string }[] {
@@ -116,15 +140,17 @@ describe('what is allowed to move', () => {
     expect(offenders).toEqual([])
   })
 
-  it('names an easing token everywhere except the documented spinner', () => {
+  it('names an easing token everywhere except the two documented linear places', () => {
     const offenders: string[] = []
-    let exceptionUsed = 0
+    const used = { spinner: 0, sequence: 0 }
 
     for (const { path, value } of easings()) {
       // A duration token is required wherever an easing is written, and the
-      // easing itself is a token, unless this is the rotation.
-      if (isSpinner(path) && /\blinear\b/.test(value)) {
-        exceptionUsed += 1
+      // easing itself is a token, unless this is one of the two linear
+      // places the direction names.
+      const exception = isLinearException(path, value)
+      if (exception !== null) {
+        used[exception] += 1
         continue
       }
       if (!EASING_TOKEN.test(value)) {
@@ -133,8 +159,10 @@ describe('what is allowed to move', () => {
     }
 
     expect(offenders).toEqual([])
-    // The exception is in use, and used in exactly one place.
-    expect(exceptionUsed).toBe(1)
+    // The turning indicator is in use in exactly one place. The scroll
+    // sequence arrives with its own commit, so zero is honest until then.
+    expect(used.spinner).toBe(1)
+    expect(used.sequence).toBeLessThanOrEqual(1)
   })
 
   it('keeps the shell frame free of entrance motion', () => {
@@ -150,7 +178,7 @@ describe('what is allowed to move', () => {
     const offenders: string[] = []
 
     for (const { path, value } of easings()) {
-      if (isSpinner(path) && /\blinear\b/.test(value)) {
+      if (isLinearException(path, value) !== null) {
         continue
       }
       const stripped = value.replace(/var\(--[a-z-]+\)/g, '')
@@ -241,13 +269,39 @@ describe('reduced motion', () => {
   })
 })
 
-describe('the exception is documented where it is claimed to be', () => {
-  it('records linear in the direction, for the turning indicator only', () => {
+describe('the exceptions are documented where they are claimed to be', () => {
+  it('records both linear places in the direction, and closes the list', () => {
     const direction = read(files.direction)
-    const recorded = /`linear`[^.]*\./.exec(direction)?.[0] ?? ''
 
-    expect(recorded).not.toBe('')
-    expect(recorded).toMatch(/working indicator|turning/)
-    expect(recorded).toMatch(/nowhere else|nothing else|one place/i)
+    expect(direction).toMatch(/turning working indicator/)
+    expect(direction).toMatch(/scroll-linked auth explanation/)
+    expect(direction).toMatch(/Nothing else uses `linear`/)
+  })
+
+  it('gates every scroll-linked animation behind support and reduced motion', () => {
+    // A browser without scroll timelines and a reduced-motion reader both get
+    // the complete static content, so the timeline can only be reached
+    // through both gates. Vacuous until a sequence lands, binding once one
+    // does.
+    for (const { path, css } of stylesheets) {
+      if (!css.includes('animation-timeline:')) {
+        continue
+      }
+
+      const supports = css.indexOf('@supports (animation-timeline:')
+      expect(supports, path).toBeGreaterThan(-1)
+      expect(css.slice(0, supports), path).not.toContain('animation-timeline:')
+
+      const media = css.indexOf('@media (prefers-reduced-motion: no-preference)', supports)
+      expect(media, path).toBeGreaterThan(-1)
+      expect(css.indexOf('animation:', media), path).toBeGreaterThan(-1)
+
+      // The component that owns the sheet may not keep a JavaScript scroll
+      // clock: the timeline is the browser's, not a listener's.
+      const component = read(resolve(files.src, relative(path).replace(/\.module\.css$/, '.tsx')))
+      expect(component, path).not.toContain('IntersectionObserver')
+      expect(component, path).not.toMatch(/addEventListener\(['"]scroll/)
+      expect(component, path).not.toContain('requestAnimationFrame')
+    }
   })
 })
