@@ -298,7 +298,9 @@ Unchanged by this brief, and not to be traded against the new identity bar:
 - Heading `scroll-margin-top`, non-breaking brand spaces.
 - React render tracking and a CPU and network throttled production profile.
 - Preserved exact password handling and the reviewed two-line sign out at 360 px.
-- Fresh captures for affected screens from Mayur's machine at the established viewports, with the rendered source SHA and data provenance. The stale screenshot pointer is fixed or removed.
+- Amended 2026-10-14 by the planning verdict: the default submission is the CI browser-evidence run and its report link. One browser-evidence job produces one HTML report entry point plus the walk recordings as run artifacts, and the report names the tested SHA, the outcomes, the browser, the viewport and DPR, and fixture versus real-data provenance. A failing run uploads whatever evidence exists and never converts a failure into a pass, and credentials and provider secrets stay out of recordings. If artifact access is blocked for the reviewer, the same bundle is uploaded once with the submission; supplementary evidence is then requested only for a named coverage gap or failure, not to repeat captures the bundle covers. Recordings do not replace frame-timing measurements and do not prove live-API behaviour. Manual captures at the established viewports, with the rendered source SHA and data provenance, remain for what the job cannot cover.
+- Browser evidence runs on `@playwright/test` 1.64.0, dev-only, Apache-2.0, for the walks, the report and the recordings, with browser discovery kept separate from Vitest and jsdom. No runtime dependency, no paid reporting service, no screenshot-diff gate and no branch-protection change is authorized.
+- A public fixture demo build is deferred as a separate delivery surface and is not approved inside B2. Labelled fixtures remain allowed in isolated tests and specimens.
 - Detailed evidence in the chat reply; the PR stays product-focused.
 - No public-chain transactions to manufacture activity.
 
