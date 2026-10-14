@@ -31,11 +31,14 @@
     flex-direction: column;
     min-block-size: 100vh;
     min-block-size: 100dvh;
-    /* The strip is fixed over the page: this is the room it needs. The row
-       height plus the strip's own block padding, then the space the frame kept
-       between content and strip before, then the device inset. */
+    /* The strip is fixed over the page: this is the room it needs. Its 1px top
+       border, then the row height plus the strip's own block padding, then the
+       space the frame kept between content and strip before, then the device
+       inset. The border is part of the strip's height, so leaving it out spends
+       1px of the gap. */
     padding-block-end: calc(
-      var(--row-height) + var(--space-2) * 2 + var(--space-4) + env(safe-area-inset-bottom)
+      1px + var(--row-height) + var(--space-2) * 2 + var(--space-4) +
+        env(safe-area-inset-bottom)
     );
   }
 

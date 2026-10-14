@@ -54,10 +54,13 @@
 
   /* The signed in frame fixes a strip of destinations to the bottom of a
      phone viewport. Scrolling anything into view stops above it, so a field
-     reached with the keyboard is never under a control the thumb owns. */
+     reached with the keyboard is never under a control the thumb owns. The
+     strip's 1px top border is part of its height, so the reserve carries it and
+     the gap under the content stays the intended one. */
   html {
     scroll-padding-block-end: calc(
-      var(--row-height) + var(--space-2) * 2 + var(--space-4) + env(safe-area-inset-bottom)
+      1px + var(--row-height) + var(--space-2) * 2 + var(--space-4) +
+        env(safe-area-inset-bottom)
     );
   }
 
