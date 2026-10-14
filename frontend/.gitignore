@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 
+# Browser-evidence job outputs. The report and the recordings are run
+# artifacts: they belong in CI, never in the tree.
+test-results/
+playwright-report/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
