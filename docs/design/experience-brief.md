@@ -243,7 +243,7 @@ Conditions, all binding:
 
 - Evidence: a production frame trace with the device and browser named and the 4x CPU, Slow 4G preset. The 60 fps bar is judged against that setup, not as a universal claim. If the effect cannot meet it, the static composition ships. A motion library is not the fallback.
 
-The authenticated app keeps zero scroll theatre: no scroll reveals, no route entrances, no ambient motion.
+At the screens checkpoint the authenticated app ships with no scroll reveals, no route entrances and no ambient motion. That is the shipped state, not a standing ban: section 9 carries the reopened placement rules, and the replacement rules with their guards land before any new motion does.
 
 ## 14. What changes in PR #69, what stays
 
