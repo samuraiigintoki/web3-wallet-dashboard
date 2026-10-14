@@ -281,8 +281,7 @@ describe('the exceptions are documented where they are claimed to be', () => {
   it('gates every scroll-linked animation behind support and reduced motion', () => {
     // A browser without scroll timelines and a reduced-motion reader both get
     // the complete static content, so the timeline can only be reached
-    // through both gates. Vacuous until a sequence lands, binding once one
-    // does.
+    // through both gates.
     for (const { path, css } of stylesheets) {
       if (!css.includes('animation-timeline:')) {
         continue
@@ -295,6 +294,15 @@ describe('the exceptions are documented where they are claimed to be', () => {
       const media = css.indexOf('@media (prefers-reduced-motion: no-preference)', supports)
       expect(media, path).toBeGreaterThan(-1)
       expect(css.indexOf('animation:', media), path).toBeGreaterThan(-1)
+
+      // The timeline reads the true scrollport, never the reserve-inset one:
+      // an argument-less view() insets by auto, and auto reads the root's
+      // scroll padding, where the shell's strip reserve and its safe area
+      // live, so a bottom reserve could leave a fact with no scroll range in
+      // which to finish entering. The decoupling is the explicit zero inset
+      // inside the function; the view-timeline-inset property would not do,
+      // because it feeds named timelines rather than the anonymous one.
+      expect(css.slice(media), path).toMatch(/animation-timeline: view\(block 0px\)/)
 
       // The component that owns the sheet may not keep a JavaScript scroll
       // clock: the timeline is the browser's, not a listener's.

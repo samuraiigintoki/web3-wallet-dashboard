@@ -142,20 +142,26 @@
      linear because the timeline is scroll rather than time, and no height is
      added: the facts keep the flow box they already have.
 
-     The range ends at entry 60% because the strip reserve counts here too.
-     A view timeline insets its scrollport by scroll-padding (inset auto is
-     the spec default), so the root's 77px bottom reserve lifts the line a
-     fact has to clear, and the auth page has only tens of pixels of scroll
-     to clear it with. At entry 70% the last fact's range ended past the
-     bottom of the page and it froze at 0.98 settled; 60% ends inside the
-     scroll the shortest viewport actually has. The browser walks measure
-     the settle at the page bottom and fail if the copy ever outgrows it. */
+     The range ends at entry 70%, and the zero inset travels inside the
+     timeline function. An argument-less view() insets its scrollport by
+     auto, and auto reads the root's scroll padding, where the shell's strip
+     reserve and its safe area live: the reserve would shrink the sequence's
+     scrollport from underneath, and a fact could sit past its entry range at
+     the bottom of the page with no scroll left to reach it. The
+     view-timeline-inset property does not help here; it feeds named
+     timelines, not the anonymous function. The auth surface has no strip, so
+     nothing needs the reserve, and with the inset at zero the range end of a
+     fact always falls inside the page's scroll: it sits above the content
+     bottom by the fact's unsettled entry plus whatever follows the list. The
+     browser walks hold this at both auth routes, at a zero and at a positive
+     bottom inset, scrolled to the bottom and in a just-fitting viewport with
+     no scroll range. */
   @supports (animation-timeline: view()) {
     @media (prefers-reduced-motion: no-preference) {
       .fact {
         animation: fact-rise var(--duration-settle) linear both;
-        animation-timeline: view();
-        animation-range: entry 0% entry 60%;
+        animation-timeline: view(block 0px);
+        animation-range: entry 0% entry 70%;
       }
 
       @keyframes fact-rise {
