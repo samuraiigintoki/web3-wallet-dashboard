@@ -1,0 +1,111 @@
+/*
+ * The design tokens, and nothing else. Every value here comes from
+ * docs/design/direction.md and a guard test holds the two together in both
+ * directions: a token the document does not name fails, and a colour the
+ * document names that this file is missing fails too.
+ *
+ * One tier, on :root. There is no second naming layer, so an application rule
+ * referring to a token refers to the document's own name.
+ *
+ * Colours are OKLCH with no hex fallback. A browser without OKLCH support
+ * would fall back to nothing here, which is deliberate: a second value that
+ * silently drifts from the first is worse than a visible failure.
+ */
+
+@layer reset, base, components;
+
+:root {
+  color-scheme: dark;
+
+  /* Surfaces and lines */
+  --bg-0: oklch(0.155 0.008 75);
+  --bg-1: oklch(0.190 0.008 75);
+  --bg-2: oklch(0.120 0.007 75);
+  --bg-3: oklch(0.230 0.009 75);
+  --line: oklch(0.280 0.008 75);
+  --line-strong: oklch(0.360 0.010 75);
+  /* The only token that may bound a control: 3:1 and Lc 30 are required there,
+     and --line and --line-strong both fall short. */
+  --line-control: oklch(0.600 0.006 75);
+
+  /* Text. --text-3 starts at 14px, and nothing below that may use it. */
+  --text-1: oklch(0.950 0.003 75);
+  --text-2: oklch(0.860 0.004 75);
+  --text-3: oklch(0.780 0.005 75);
+  --text-disabled: oklch(0.485 0.005 75);
+
+  /* Accent */
+  --accent: oklch(0.780 0.150 72);
+  --accent-hover: oklch(0.830 0.139 72);
+  --accent-soft: oklch(0.280 0.050 72);
+  --accent-ink: oklch(0.200 0.030 72);
+
+  /* States. The three neutral states carry no tint and are explained in words. */
+  --state-indexing: oklch(0.640 0.005 75);
+  --state-awaiting: var(--accent);
+  --state-executed: oklch(0.740 0.130 155);
+  --state-revoked: oklch(0.660 0.120 20);
+  --state-vanished: oklch(0.680 0.020 260);
+  --state-error: oklch(0.700 0.170 27);
+  --state-disabled: var(--text-disabled);
+  --state-unsupported: var(--state-indexing);
+
+  /* Tints. --accent-soft is the awaiting tint. A chip label is --text-1 on any
+     of these: --text-2 measures Lc 74.5 to 75.0 across them, which is the bar
+     itself rather than clear of it. */
+  --tint-executed: oklch(0.280 0.050 155);
+  --tint-revoked: oklch(0.280 0.050 20);
+  --tint-vanished: oklch(0.280 0.050 260);
+  --tint-error: oklch(0.280 0.050 27);
+
+  /* Families. Fraunces is the display face: the wordmark, page titles and the
+     auth headline only. Archivo carries the interface. Martian Mono is for raw
+     values: addresses, hashes, block numbers and wei strings. An amount
+     formatted in ETH is the interface face with tabular figures. Each stack
+     names its metric-adjusted fallback face first, then the local families. */
+  --font-display: "Fraunces", "Fraunces Fallback", "Times New Roman", Times, serif;
+  --font-sans: "Archivo", "Archivo Fallback", Arial, Helvetica, sans-serif;
+  --font-mono: "Martian Mono", "Martian Mono Fallback", "Courier New", Courier, monospace;
+
+  /* Type scale, rem on a 16px baseline */
+  --type-meta: 0.75rem; /* 12px */
+  --type-label: 0.8125rem; /* 13px */
+  --type-body: 0.875rem; /* 14px */
+  --type-lead: 1rem; /* 16px */
+  --type-section: 1.1875rem; /* 19px */
+  --type-panel: 1.4375rem; /* 23px */
+  --type-page: 1.75rem; /* 28px */
+  --type-headline: 2.5rem; /* 40px, auth surfaces only */
+  --leading-body: 1.5;
+  --leading-heading: 1.25;
+
+  /* Space, on a 4px base */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+  --row-height: 2.75rem;
+  --pad-panel: 1.25rem;
+  --gutter-page: 1.5rem;
+
+  /* Radius. Nothing above the panel value on a panel. */
+  --radius-control: 0.625rem;
+  --radius-panel: 0.875rem;
+  --radius-pill: 999px;
+
+  /* Durations */
+  --duration-press: 120ms;
+  --duration-feedback: 180ms;
+  --duration-state: 240ms;
+  --duration-settle: 320ms;
+  --duration-ceiling: 480ms;
+
+  /* Easing. These three are the only curves in the system. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+}

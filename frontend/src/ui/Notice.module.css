@@ -1,0 +1,43 @@
+/*
+ * One notice, two urgencies.
+ *
+ * Information sits on a raised panel behind the structural line. A form level
+ * error takes the error tint as its fill and the error hue as its border, with
+ * the label in --text-1: that is the recorded pattern for anything on a tint,
+ * and it measures 12.8:1 and Lc 93 for the label and 5.2:1 and Lc 44 for the
+ * border.
+ *
+ * Nothing here dismisses itself.
+ */
+
+/* The rules sit in the components layer, the last of the three tokens.css
+   declares. Unlayered rules outrank every layer. */
+
+@layer components {
+  .notice {
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    background: var(--bg-1);
+  }
+
+  .alert {
+    color: var(--text-1);
+    background: var(--tint-error);
+    border-color: var(--state-error);
+  }
+
+  .message {
+    margin: 0;
+    max-inline-size: 68ch;
+    color: var(--text-1);
+    line-height: var(--leading-body);
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    margin-block-start: var(--space-3);
+  }
+}

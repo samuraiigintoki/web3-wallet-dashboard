@@ -1,0 +1,66 @@
+/*
+ * A labelled control, with a hint and an error that belong to it.
+ *
+ * The label and the hint are supporting text; the hint sits at the body step,
+ * which is where --text-3 starts. An invalid control is marked twice: the
+ * border takes the error hue, which clears the boundary bar at 6.4:1 and Lc 47
+ * on the panel, and the message says what to do, because a colour on its own
+ * is not a message.
+ */
+
+/* The rules sit in the components layer, the last of the three tokens.css
+   declares. Unlayered rules outrank every layer. */
+
+@layer components {
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .label {
+    color: var(--text-2);
+    font-size: var(--type-label);
+  }
+
+  .control {
+    inline-size: 100%;
+    min-block-size: var(--row-height);
+    padding: var(--space-2) var(--space-3);
+    color: var(--text-1);
+    background: var(--bg-2);
+    border: 1px solid var(--line-control);
+    border-radius: var(--radius-control);
+  }
+
+  .control:hover:not(:disabled) {
+    border-color: var(--text-2);
+  }
+
+  .control[aria-invalid='true'] {
+    border-color: var(--state-error);
+  }
+
+  /* A control that cannot be used is exempt from the boundary rules, so it
+     loses its border rather than keeping one that still reads as an
+     affordance. */
+  .control:disabled {
+    color: var(--text-disabled);
+    background: var(--bg-3);
+    border-color: transparent;
+  }
+
+  .hint,
+  .error {
+    font-size: var(--type-body);
+    line-height: var(--leading-body);
+  }
+
+  .hint {
+    color: var(--text-3);
+  }
+
+  .error {
+    color: var(--text-1);
+  }
+}
