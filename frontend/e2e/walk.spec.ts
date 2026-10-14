@@ -94,6 +94,7 @@ test('names the run it measured', async ({ browser }, testInfo) => {
   // viewport and DPR, and where the data came from. Fixture data only; this
   // job never touches a live RPC or a provider, and holds no credentials.
   const head =
+    process.env.EVIDENCE_HEAD_SHA ??
     process.env.GITHUB_SHA ??
     execFileSync('git', ['rev-parse', 'HEAD'], {
       cwd: `${import.meta.dirname}/..`,
