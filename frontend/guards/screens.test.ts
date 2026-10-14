@@ -400,6 +400,26 @@ describe('the auth composition', () => {
     expect(composition).toContain('{AUTH_FACTS.map(')
   })
 
+  it('keeps the facts complete for a browser without scroll timelines', () => {
+    // The sequence is pure CSS behind two gates, so the sheet before the
+    // support gate has to be the whole composition: no fade, no motion, and
+    // the gated block adds no geometry of its own, because a fact that grew
+    // or shifted outside the gate would move the static read too.
+    const css = raw('ui/AuthComposition.module.css')
+    const gate = css.indexOf('@supports (animation-timeline:')
+    expect(gate).toBeGreaterThan(-1)
+
+    const before = css.slice(0, gate)
+    expect(before).not.toContain('animation:')
+    expect(before).not.toContain('opacity:')
+
+    const gated = css.slice(gate)
+    expect(gated).toContain('@media (prefers-reduced-motion: no-preference)')
+    for (const property of ['block-size', 'margin', 'padding', 'height']) {
+      expect(gated, property).not.toContain(`${property}:`)
+    }
+  })
+
   it('puts the form before the facts in the document', () => {
     // The facts are after the children, and the children are the form. This is
     // the composition: nothing has to be read or dismissed before the form.

@@ -250,7 +250,7 @@ Conditions, all binding:
   3. Twelve blocks is a reversibility heuristic, not finality.
   4. Execution needs the configured approval threshold, not every owner.
 
-- Evidence: a production frame trace with the device and browser named and the 4x CPU, Slow 4G preset. The 60 fps bar is judged against that setup, not as a universal claim. If the effect cannot meet it, the static composition ships. A motion library is not the fallback.
+- Evidence: a production frame trace with the device and browser named and the 4x CPU, Slow 4G preset. The 60 fps bar is judged against that setup, not as a universal claim. If the effect cannot meet it, the static composition ships. A motion library is not the fallback. The decision rule, recorded before measuring: on that preset the median frame interval across one full scroll of the facts stays at or under 20ms and the worst single frame at or under 100ms, on a trace that names the browser; a sequence that cannot meet both numbers leaves the tree and the static composition ships.
 
 At the screens checkpoint the authenticated app ships with no scroll reveals, no route entrances and no ambient motion. That is the shipped state, not a standing ban: section 9 carries the reopened placement rules, and the replacement rules with their guards land before any new motion does.
 

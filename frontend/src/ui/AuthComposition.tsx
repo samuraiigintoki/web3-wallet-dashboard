@@ -22,8 +22,10 @@ type Props = {
  *
  * The four facts follow the form. They are a list, not decoration: this is
  * also what a browser without scroll timelines and a reader with reduced
- * motion get, in the same order, complete. The bounded sequence that lands
- * later draws on this list rather than replacing it.
+ * motion get, in the same order, complete. The bounded sequence draws on this
+ * list rather than replacing it, as a CSS scroll timeline over the same fact
+ * boxes, so no script keeps a scroll clock and the markup never changes
+ * between the enhanced and the static read.
  *
  * The heading is the headline itself, so the screen names itself once. The
  * document title stays the plain name of the screen.

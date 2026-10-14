@@ -9,8 +9,10 @@
  * which clears the reading bar on the ground. Nothing here is hidden, faded or
  * gated: with no enhancement applied this is the whole composition.
  *
- * Nothing animates in this module. The authored moment, when it lands, is the
- * bounded sequence and it is a separate rule set with a static fallback.
+ * Nothing animates in this module except the bounded sequence at the end of
+ * it. The sequence draws on the facts list rather than replacing it, and it
+ * sits behind a support gate and a reduced-motion gate, so the static list
+ * above is what every other reader gets.
  */
 
 /* The rules sit in the components layer, the last of the three tokens.css
@@ -128,5 +130,37 @@
     block-size: 1rem;
     margin-block-start: 0.3em;
     background: var(--line-strong);
+  }
+
+  /* The bounded sequence. Each fact rises one space step and fades in on its
+     own view() timeline as the reader scrolls it into the viewport, and the
+     entry range ends before the fact is half read. The two gates are the
+     fallback: a browser without scroll timelines never enters the block, and
+     a reduced-motion reader is excluded by the query, so both get the static
+     list above, complete and in order. A fact that is already whole inside a
+     viewport with no scroll range is past its entry range on first paint, so
+     it reads complete there too. Transform and opacity only, linear because
+     the timeline is scroll rather than time, and no height is added: the
+     facts keep the flow box they already have. */
+  @supports (animation-timeline: view()) {
+    @media (prefers-reduced-motion: no-preference) {
+      .fact {
+        animation: fact-rise var(--duration-settle) linear both;
+        animation-timeline: view();
+        animation-range: entry 0% entry 70%;
+      }
+
+      @keyframes fact-rise {
+        from {
+          opacity: 0;
+          transform: translateY(var(--space-2));
+        }
+
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+    }
   }
 }
