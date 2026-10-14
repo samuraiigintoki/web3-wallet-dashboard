@@ -21,7 +21,15 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { AUTH_FACTS } from '../src/ui/authFacts.ts'
-import { files, filesUnder, minimumRem, parseCssTokens, read, resolveToken } from './tokens.ts'
+import {
+  files,
+  filesUnder,
+  minimumRem,
+  parseCssTokens,
+  parseDeclarations,
+  read,
+  resolveToken,
+} from './tokens.ts'
 
 type Block = { path: string; selector: string; body: string }
 
@@ -73,6 +81,26 @@ const findBlock = (file: string, selector: string): Block => {
 }
 
 const raw = (file: string): string => read(resolve(files.src, file))
+
+/**
+ * The arguments of every `max()` in a declaration block.
+ *
+ * Written out rather than split on commas, because a two-value padding is
+ * comma-free at the top level and full of commas one level in.
+ */
+const maxArguments = (body: string): string[] =>
+  [...body.matchAll(/max\(([^()]*(?:\([^()]*\)[^()]*)*)\)/g)].map(
+    (match) => match[1]?.trim() ?? '',
+  )
+
+/**
+ * The whole expression a `calc()` declares, inner functions included.
+ *
+ * One level of nesting is all the reserves carry, and stopping at the first
+ * closing bracket would return half of one.
+ */
+const calcExpression = (body: string): string =>
+  /calc\(([^()]*(?:\([^()]*\)[^()]*)*)\)/.exec(body)?.[1]?.replace(/\s+/g, ' ').trim() ?? ''
 
 const direction = read(files.direction)
 const brief = read(resolve(files.direction, '..', 'experience-brief.md'))
@@ -249,7 +277,16 @@ describe('the frame', () => {
     const ring = 4
     const strip = findBlock('ui/Shell.module.css', '.list')
     expect(strip.body).toContain('padding-block: var(--space-2)')
-    expect(strip.body).toMatch(/padding-inline:\s*max\(env\(safe-area-inset-left\),\s*var\(--space-3\)\)/)
+
+    // Both outer sides of the strip carry the same floor, and the floor is a
+    // `max()`: a device inset wider than the token widens the padding, and an
+    // inset narrower than it cannot pull the destination toward the edge.
+    const sides = maxArguments(strip.body)
+    expect(strip.body).toContain('padding-inline:')
+    expect(sides).toEqual([
+      'env(safe-area-inset-left), var(--space-3)',
+      'env(safe-area-inset-right), var(--space-3)',
+    ])
 
     const css = raw('ui/Shell.module.css')
     const wide = css.slice(css.indexOf('@media (min-width: 48rem)'))
@@ -277,9 +314,20 @@ describe('the frame', () => {
     ] as const) {
       expect(value, name).toBeGreaterThanOrEqual(ring)
     }
+
+    // The strip's two outer sides resolve through their own `max()`, so the
+    // floor each of them holds is measured here rather than assumed from the
+    // loop above.
+    for (const side of sides) {
+      const floor = /var\((--[a-z0-9-]+)\)\s*$/.exec(side)?.[1]
+      if (floor === undefined) {
+        throw new Error(`${side} names no token floor`)
+      }
+      expect(px(floor), side).toBeGreaterThanOrEqual(ring)
+    }
   })
 
-  it("reserves more than the strip's height, so no control is covered", () => {
+  it("reserves the strip's whole height, so no control is covered", () => {
     const tokens = parseCssTokens(read(files.tokens))
     const px = (name: string): number => {
       const value = resolveToken(name, tokens)
@@ -290,17 +338,37 @@ describe('the frame', () => {
       return rem * 16
     }
 
-    const stripHeight = px('--row-height') + 2 * px('--space-2')
-    const reserve = px('--row-height') + 2 * px('--space-2') + px('--space-4')
+    // The border is read from the rule that draws it, so a border widened
+    // without the reserves following fails here instead of costing the gap.
+    const nav = parseDeclarations(findBlock('ui/Shell.module.css', '.nav').body)
+    const borderTop = nav.get('border-block-start') ?? ''
+    const borderRem = minimumRem(borderTop.split(' ')[0] ?? '', tokens)
+    expect(borderTop, 'the strip draws no top border to reserve for').toContain('solid')
+    if (borderRem === null) {
+      throw new Error(`the strip's border does not resolve to a length: ${borderTop}`)
+    }
+    const border = borderRem * 16
+
+    const stripHeight = border + px('--row-height') + 2 * px('--space-2')
+    const reserve = border + px('--row-height') + 2 * px('--space-2') + px('--space-4')
 
     expect(reserve).toBeGreaterThan(stripHeight)
+    // The additional gap is the intended one, and it survives the border being
+    // counted: the reserve is the strip's height plus 16px, not 15px.
+    expect(reserve - stripHeight).toBe(px('--space-4'))
 
-    // The frame and the root scroller state the same reserve.
-    expect(findBlock('ui/Shell.module.css', '.shell').body).toContain(
-      'var(--row-height) + var(--space-2) * 2 + var(--space-4) + env(safe-area-inset-bottom)',
-    )
-    expect(findBlock('styles/base.css', 'html').body).toContain(
-      'var(--row-height) + var(--space-2) * 2 + var(--space-4) + env(safe-area-inset-bottom)',
+    // The frame and the root scroller state one expression between them, and
+    // that expression carries the border.
+    const shell = findBlock('ui/Shell.module.css', '.shell')
+    const html = findBlock('styles/base.css', 'html')
+    expect(shell.body).toContain('padding-block-end: calc(')
+    expect(html.body).toContain('scroll-padding-block-end: calc(')
+
+    const frame = calcExpression(shell.body)
+    const scroller = calcExpression(html.body)
+    expect(frame).toBe(scroller)
+    expect(frame).toBe(
+      '1px + var(--row-height) + var(--space-2) * 2 + var(--space-4) + env(safe-area-inset-bottom)',
     )
   })
 
