@@ -133,21 +133,29 @@
   }
 
   /* The bounded sequence. Each fact rises one space step and fades in on its
-     own view() timeline as the reader scrolls it into the viewport, and the
-     entry range ends before the fact is half read. The two gates are the
-     fallback: a browser without scroll timelines never enters the block, and
-     a reduced-motion reader is excluded by the query, so both get the static
-     list above, complete and in order. A fact that is already whole inside a
-     viewport with no scroll range is past its entry range on first paint, so
-     it reads complete there too. Transform and opacity only, linear because
-     the timeline is scroll rather than time, and no height is added: the
-     facts keep the flow box they already have. */
+     own view() timeline as the reader scrolls it into the viewport. The two
+     gates are the fallback: a browser without scroll timelines never enters
+     the block, and a reduced-motion reader is excluded by the query, so both
+     get the static list above, complete and in order. A fact that is already
+     whole inside a viewport with no scroll range is past its entry range on
+     first paint, so it reads complete there too. Transform and opacity only,
+     linear because the timeline is scroll rather than time, and no height is
+     added: the facts keep the flow box they already have.
+
+     The range ends at entry 60% because the strip reserve counts here too.
+     A view timeline insets its scrollport by scroll-padding (inset auto is
+     the spec default), so the root's 77px bottom reserve lifts the line a
+     fact has to clear, and the auth page has only tens of pixels of scroll
+     to clear it with. At entry 70% the last fact's range ended past the
+     bottom of the page and it froze at 0.98 settled; 60% ends inside the
+     scroll the shortest viewport actually has. The browser walks measure
+     the settle at the page bottom and fail if the copy ever outgrows it. */
   @supports (animation-timeline: view()) {
     @media (prefers-reduced-motion: no-preference) {
       .fact {
         animation: fact-rise var(--duration-settle) linear both;
         animation-timeline: view();
-        animation-range: entry 0% entry 70%;
+        animation-range: entry 0% entry 60%;
       }
 
       @keyframes fact-rise {
