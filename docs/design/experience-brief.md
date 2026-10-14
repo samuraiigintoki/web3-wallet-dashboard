@@ -168,6 +168,8 @@ Governed by the direction document's values. This section sets behaviour.
 - Banned: page-load choreography, route entrances, scroll reveals inside the authenticated app, animated masks and `clip-path`, scroll hijacking, parallax, word animation, ambient loops, animated numerals on mount, and any new raw timing that is not one of the recorded tokens.
 - Reduced motion neutralizes every moving transition. The auth sequence renders complete and static, the rail renders static, and state stays legible in words rather than only in colour.
 
+Amended 2026-10-14 by the planning verdict. Frontend feel, visual design and animation choices are the author's, and the mentor's review keeps functionality, data and API contracts, security, accessibility and measured performance, not aesthetic preference. The placement and count restrictions above are reopened: the blanket bans on route and mount motion and the fixed count of authored moments no longer bind by themselves. The replacement placement and count rules are recorded in this section, and the guards that hold them are updated in the same commit, before any new motion relies on them. Numeric values still belong in the direction document. Reduced motion, contrast, targets, usable forms, truthful states and measured performance stay binding, and with them the bounded auth fallback in section 13.
+
 ## 10. States matrix
 
 | Surface | Loading | Empty | Failure | Availability |
