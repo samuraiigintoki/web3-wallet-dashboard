@@ -95,12 +95,6 @@ export function AuthProvider({ children, storage = tokenStorage }: AuthProviderP
     return { generation: generationRef.current, controller }
   }, [endIdentity])
 
-  const applyIfCurrent = useCallback((generation: number, next: Session): void => {
-    if (generationRef.current === generation) {
-      setSession(next)
-    }
-  }, [])
-
   /** The bound credential, never a fresh read of the shared store. */
   const getToken = useCallback((): string | null => credentialRef.current, [])
 
@@ -320,26 +314,30 @@ export function AuthProvider({ children, storage = tokenStorage }: AuthProviderP
         setLogoutProblem(describeApiError(error))
       }
     } finally {
-      const shared = storage.read()
+      // An obsolete sign-out does nothing at all: it lost its identity while it
+      // was in flight, and every side effect left to it is wrong. A clear here
+      // would drop a notification another tab's removal is about to deliver,
+      // because the storage module would read the key back as the value it
+      // already announced, and dropping the binding would disturb the identity
+      // this tab has adopted since. The fence therefore covers the store and the
+      // binding, not only the state update.
+      if (isCurrent(generation)) {
+        const shared = storage.read()
 
-      // Another tab may have stored a newer credential while this sign-out was
-      // in flight. Erasing that would end a session this tab does not own, so
-      // the store is only cleared while it still holds the credential this
-      // sign-out captured, or nothing at all.
-      if (shared === credential || shared === null) {
-        storage.clear()
-      }
+        // A current sign-out may end the session it owns even while the store
+        // holds a credential it does not own: that newer credential belongs to
+        // the tab that stored it, and this tab ends its own session locally.
+        if (shared === credential || shared === null) {
+          storage.clear()
+        }
 
-      // The server session this tab was showing has been revoked either way, so
-      // this tab ends it locally. The bound credential is only dropped while it
-      // is still the one this sign-out captured: an identity this tab adopted
-      // in the meantime keeps its own.
-      if (credentialRef.current === credential) {
-        credentialRef.current = null
+        if (credentialRef.current === credential) {
+          credentialRef.current = null
+        }
+        setSession({ status: 'anonymous' })
       }
-      applyIfCurrent(generation, { status: 'anonymous' })
     }
-  }, [applyIfCurrent, client, isCurrent, startIdentity, storage])
+  }, [client, isCurrent, startIdentity, storage])
 
   const retryRestore = useCallback(() => {
     // Decide here the way the subscription does, because the token can be gone

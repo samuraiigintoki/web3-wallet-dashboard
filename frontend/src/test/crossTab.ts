@@ -39,6 +39,15 @@ export function otherTabStoresSilently(token: string): void {
   window.localStorage.setItem(SESSION_TOKEN_KEY, token)
 }
 
+/**
+ * Removes the key without announcing anything: another tab's removal from the
+ * moment it writes up to the moment this document handles the notification.
+ * The delivery that follows is the caller's to make later.
+ */
+export function otherTabRemovesSilently(): void {
+  window.localStorage.removeItem(SESSION_TOKEN_KEY)
+}
+
 /** Announces a change to a value already in the store, without writing it. */
 export function announceStoredCredential(token: string): void {
   announceStorageChange({ key: SESSION_TOKEN_KEY, newValue: token })

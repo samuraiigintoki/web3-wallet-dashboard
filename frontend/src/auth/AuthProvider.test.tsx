@@ -7,6 +7,7 @@ import {
   announceStoredCredential,
   otherTabClearsStorage,
   otherTabRemoves,
+  otherTabRemovesSilently,
   otherTabStores,
   otherTabStoresSilently,
 } from '../test/crossTab.ts'
@@ -1014,6 +1015,57 @@ describe('superseded identity work', () => {
     await waitFor(() => {
       expect(result.current.session).toEqual({ status: 'authenticated', user: OTHER_USER })
     })
+  })
+
+  it('does not let an obsolete sign-out suppress a removal it never heard about', async () => {
+    const late = lateResponse()
+    stubFetch((url, init) => {
+      if (url.endsWith('/auth/logout')) {
+        return late.responder()
+      }
+      return identityFrom({ 'tab-a-token': USER, 'tab-b-token': OTHER_USER })(url, init)
+    })
+    window.localStorage.setItem(SESSION_TOKEN_KEY, 'tab-a-token')
+    const { result } = renderAuth(createTokenStorage())
+
+    await waitFor(() => {
+      expect(result.current.session).toEqual({ status: 'authenticated', user: USER })
+    })
+
+    let signOut: Promise<void> = Promise.resolve()
+    await act(async () => {
+      signOut = result.current.logout()
+    })
+
+    // The tab adopts the credential another tab stored, so this sign-out is
+    // obsolete by the time it completes.
+    await act(async () => {
+      otherTabStores('tab-b-token')
+    })
+    await waitFor(() => {
+      expect(result.current.session).toEqual({ status: 'authenticated', user: OTHER_USER })
+    })
+
+    // That credential is removed, and the notification is still on its way when
+    // the obsolete sign-out finishes.
+    otherTabRemovesSilently()
+
+    await act(async () => {
+      late.release(jsonResponse({ data: { message: 'logged out' } }))
+      await signOut
+    })
+
+    // An obsolete sign-out must not touch the store: a clear here would record
+    // the removal as already announced and the tab would keep a session whose
+    // credential is gone.
+    expect(result.current.session).toEqual({ status: 'authenticated', user: OTHER_USER })
+    expect(window.localStorage.getItem(SESSION_TOKEN_KEY)).toBe(null)
+
+    await act(async () => {
+      announceStorageChange({ key: SESSION_TOKEN_KEY, oldValue: 'tab-b-token', newValue: null })
+    })
+
+    expect(result.current.session).toEqual({ status: 'anonymous' })
   })
 
   it('does not end a newer session when a logout completes after a replacement', async () => {
