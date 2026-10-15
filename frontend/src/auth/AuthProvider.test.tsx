@@ -974,6 +974,48 @@ describe('superseded identity work', () => {
     expect(result.current.session).toEqual({ status: 'authenticated', user: OTHER_USER })
   })
 
+  it('does not overwrite a credential another tab stored before the notification', async () => {
+    const late = lateResponse()
+    stubFetch((url, init) =>
+      url.endsWith('/auth/login')
+        ? late.responder()
+        : identityFrom({ 'tab-b-token': OTHER_USER })(url, init),
+    )
+    const { result } = renderAuth(createTokenStorage())
+
+    let signIn: Promise<void> = Promise.resolve()
+    let superseded: unknown = null
+    await act(async () => {
+      signIn = result.current.login({ email: 'ada@example.com', password: 'pw' })
+      void signIn.catch((error: unknown) => {
+        superseded = error
+      })
+    })
+
+    // Another tab stores its credential while this sign-in is in flight, and the
+    // notification about it has not been delivered yet: the generation has not
+    // moved, so only the store itself can tell this tab that it lost the row.
+    otherTabStoresSilently('tab-b-token')
+
+    await act(async () => {
+      late.release(
+        jsonResponse({ data: { token: 'issued-then-superseded', expiresAt: '2026-10-20T00:00:00Z' } }),
+      )
+    })
+    await act(async () => {
+      await signIn.catch(() => undefined)
+    })
+
+    expect(superseded).toMatchObject({ code: 'ABORTED' })
+    expect(window.localStorage.getItem(SESSION_TOKEN_KEY)).toBe('tab-b-token')
+
+    // The tab follows the credential the store holds rather than the identity
+    // its own sign-in was issued.
+    await waitFor(() => {
+      expect(result.current.session).toEqual({ status: 'authenticated', user: OTHER_USER })
+    })
+  })
+
   it('does not end a newer session when a logout completes after a replacement', async () => {
     const late = lateResponse()
     stubFetch((url, init) => {

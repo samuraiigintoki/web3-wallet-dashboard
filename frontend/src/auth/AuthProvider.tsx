@@ -19,6 +19,15 @@ type AuthProviderProps = {
   storage?: TokenStorage
 }
 
+/** The outcome of a sign-in that another tab's credential superseded. */
+function supersededSignIn(): ApiError {
+  return new ApiError({
+    code: 'ABORTED',
+    status: 0,
+    message: 'the sign-in was superseded by another tab',
+  })
+}
+
 export function AuthProvider({ children, storage = tokenStorage }: AuthProviderProps) {
   // The first state is derived, not set from an effect. With no stored token
   // there is nothing to restore, so the application starts anonymous and the
@@ -52,7 +61,6 @@ export function AuthProvider({ children, storage = tokenStorage }: AuthProviderP
    * session the user has already left cannot land later and resurrect it.
    */
   const activeRequest = useRef<AbortController | null>(null)
-
   /** The API client, built on first use rather than during render: it holds the
    * credential source for this tab, and nothing needs it before the first
    * request. */
@@ -226,17 +234,32 @@ export function AuthProvider({ children, storage = tokenStorage }: AuthProviderP
     async (body: LoginRequest): Promise<void> => {
       const { generation, controller } = startIdentity()
 
+      /**
+       * Adopts whatever the shared store holds now, while this provider is still
+       * mounted. A superseded sign-in leaves the tab with no identity of its own,
+       * so it follows the credential the other tab is holding instead of sitting
+       * on a screen whose session the store no longer has.
+       */
+      const reconcile = (): void => {
+        syncFromStorage(storage.read())
+      }
+
+      // The credential boundary this sign-in started from. A sign-in is answered
+      // on the wire, not in this tab: another tab can store its credential while
+      // this one waits, and the notification announcing it can still be sitting
+      // in the queue when the answer arrives. The generation alone would not
+      // notice that, because nothing has been delivered yet, so the shared value
+      // is compared as well before anything is committed.
+      const boundary = storage.read()
+
       const { token } = await client().login(body, { signal: controller.signal })
 
-      if (!isCurrent(generation)) {
+      if (!isCurrent(generation) || storage.read() !== boundary) {
         // Another tab replaced the shared credential while this sign-in was in
         // flight. Storing this token would erase that newer session, so it is
         // dropped and this tab follows the credential that is already shared.
-        throw new ApiError({
-          code: 'ABORTED',
-          status: 0,
-          message: 'the sign-in was superseded by another tab',
-        })
+        reconcile()
+        throw supersededSignIn()
       }
 
       storage.write(token)
@@ -247,21 +270,33 @@ export function AuthProvider({ children, storage = tokenStorage }: AuthProviderP
         if (!isCurrent(generation)) {
           return
         }
+
+        if (storage.read() !== token) {
+          // The credential this sign-in issued is no longer the shared one:
+          // another tab replaced it while the identity was being checked.
+          // Committing this result would present a session the store no longer
+          // holds, so the shared credential wins and the answer is dropped.
+          reconcile()
+          throw supersededSignIn()
+        }
+
         setLogoutProblem(null)
         setSession({ status: 'authenticated', user })
       } catch (error) {
-        // The token was issued but the identity never arrived. Keeping it would
-        // persist half a session that no screen can render. The clear is
-        // guarded: if another tab has replaced the credential by now, erasing
-        // it here would sign that tab out.
-        if (storage.read() === token) {
+        // The token was issued but the identity never arrived, or the sign-in was
+        // superseded on the way. Keeping a token that is no longer the shared one
+        // would persist half a session no screen can render, and clearing a newer
+        // credential would sign the tab that stored it out, so the clear only
+        // happens while this operation is still current and still holds the
+        // shared key.
+        if (isCurrent(generation) && storage.read() === token) {
           credentialRef.current = null
           storage.clear()
         }
         throw error
       }
     },
-    [client, isCurrent, startIdentity, storage],
+    [client, isCurrent, startIdentity, storage, syncFromStorage],
   )
 
   const logout = useCallback(async (): Promise<void> => {
