@@ -189,7 +189,7 @@ describe('restore on load', () => {
     expect(fetchStub.mock.mock.calls.length).toBe(callsBefore)
   })
 
-  it('applies the restore once under StrictMode', async () => {
+  it('applies the restore under StrictMode', async () => {
     const fetchStub = stubFetch(() => jsonResponse({ data: USER }))
     const { result } = renderAuth(memoryStorage('stored-token'), { strict: true })
 
@@ -700,6 +700,50 @@ describe('cross-tab identity', () => {
     expect(result.current.session).toEqual({ status: 'authenticated', user: USER })
   })
 
+  it('aborts and drops identity work when the provider unmounts mid-flight', async () => {
+    const late = lateResponse()
+    const fetchStub = stubFetch((url) =>
+      url.endsWith('/auth/login')
+        ? late.responder()
+        : jsonResponse({ data: USER }),
+    )
+    const { result, unmount } = renderAuth(createTokenStorage())
+
+    let signIn: Promise<void> = Promise.resolve()
+    let superseded: unknown = null
+    await act(async () => {
+      signIn = result.current.login({ email: 'ada@example.com', password: 'pw' })
+      void signIn.catch((error: unknown) => {
+        superseded = error
+      })
+    })
+
+    const loginCall = fetchStub.calls.find((call) => call.url.endsWith('/auth/login'))
+    expect(loginCall?.init.signal?.aborted).toBe(false)
+
+    unmount()
+    // Teardown aborts the identity request that is still in flight.
+    expect(loginCall?.init.signal?.aborted).toBe(true)
+
+    // A credential another tab stores now must survive an answer that belongs to
+    // a provider that is no longer there.
+    otherTabStoresSilently('tab-b-token')
+
+    await act(async () => {
+      late.release(
+        jsonResponse({ data: { token: 'issued-then-superseded', expiresAt: '2026-10-20T00:00:00Z' } }),
+      )
+    })
+    await act(async () => {
+      await signIn.catch(() => undefined)
+    })
+
+    expect(superseded).toMatchObject({ code: 'ABORTED' })
+    expect(window.localStorage.getItem(SESSION_TOKEN_KEY)).toBe('tab-b-token')
+    // And the unmounted provider started nothing for the credential it found.
+    expect(fetchStub.calls.filter((call) => call.url.endsWith('/users/me')).length).toBe(0)
+  })
+
   it('stops listening when the provider unmounts', async () => {
     const fetchStub = stubFetch(() => jsonResponse({ data: USER }))
     const removeListener = vi.spyOn(window, 'removeEventListener')
@@ -718,7 +762,7 @@ describe('cross-tab identity', () => {
     expect(fetchStub.mock.mock.calls.length).toBe(callsBefore)
   })
 
-  it('checks the stored credential once under StrictMode', async () => {
+  it('leaves one effective identity check under StrictMode', async () => {
     const fetchStub = stubFetch(() => jsonResponse({ data: USER }))
     window.localStorage.setItem(SESSION_TOKEN_KEY, 'tab-a-token')
     const { result } = renderAuth(createTokenStorage(), { strict: true })
@@ -727,7 +771,12 @@ describe('cross-tab identity', () => {
       expect(result.current.session).toEqual({ status: 'authenticated', user: USER })
     })
 
-    expect(fetchStub.calls.filter((call) => call.url.endsWith('/users/me')).length).toBe(1)
+    // StrictMode mounts, tears down and mounts again, so the development probe
+    // is aborted by the first teardown. What has to hold is that one check is
+    // left to answer the session and that no work survives the teardown.
+    const checks = fetchStub.calls.filter((call) => call.url.endsWith('/users/me'))
+    expect(checks.filter((call) => call.init.signal?.aborted === false).length).toBe(1)
+    expect(checks.length).toBeLessThanOrEqual(2)
   })
 
   it('makes no request when the store cannot be read', async () => {

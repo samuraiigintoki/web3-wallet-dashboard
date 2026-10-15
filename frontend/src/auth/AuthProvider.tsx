@@ -61,6 +61,16 @@ export function AuthProvider({ children, storage = tokenStorage }: AuthProviderP
    * session the user has already left cannot land later and resurrect it.
    */
   const activeRequest = useRef<AbortController | null>(null)
+
+  /**
+   * False once the provider has been unmounted. Teardown retires the generation,
+   * so every operation still bound to the old one is obsolete, but a late answer
+   * also has to be stopped from starting new work: an unmounted provider must
+   * not issue a request or write to the shared store on behalf of an identity it
+   * has already given up.
+   */
+  const mountedRef = useRef(true)
+
   /** The API client, built on first use rather than during render: it holds the
    * credential source for this tab, and nothing needs it before the first
    * request. */
@@ -217,6 +227,26 @@ export function AuthProvider({ children, storage = tokenStorage }: AuthProviderP
     [endIdentity, startIdentity, validate],
   )
 
+  /**
+   * Teardown. Unmounting retires the generation, so whatever identity work was
+   * in flight is obsolete, aborts the request it is waiting on, and drops the
+   * bound credential. Without the last two, a sign-in answered after unmount
+   * would still store its token and overwrite a credential another tab has put
+   * in the store since, and a late 401 would still clear it.
+   *
+   * The effect also runs before the subscription is installed, so a mount that
+   * follows a teardown reports as mounted before anything can be heard.
+   */
+  useEffect(() => {
+    mountedRef.current = true
+
+    return () => {
+      mountedRef.current = false
+      endIdentity()
+      credentialRef.current = null
+    }
+  }, [endIdentity])
+
   useEffect(() => storage.subscribe(syncFromStorage), [storage, syncFromStorage])
 
   const register = useCallback(
@@ -235,7 +265,9 @@ export function AuthProvider({ children, storage = tokenStorage }: AuthProviderP
        * on a screen whose session the store no longer has.
        */
       const reconcile = (): void => {
-        syncFromStorage(storage.read())
+        if (mountedRef.current) {
+          syncFromStorage(storage.read())
+        }
       }
 
       // The credential boundary this sign-in started from. A sign-in is answered
