@@ -61,11 +61,14 @@ export type ApiResult<T> = {
 export type RequestDependencies = {
   getToken: () => string | null
   /**
-   * Called once per 401 UNAUTHENTICATED on a request that carried a token.
-   * Never called for login's 401 INVALID_CREDENTIALS, which is a form error
-   * and not an expired session.
+   * Called once per 401 UNAUTHENTICATED on a request that carried a token,
+   * with the token that was actually sent. The caller decides whether that
+   * credential is still the one its session holds: an answer that arrives
+   * after the credential was replaced describes a session nobody is using, so
+   * it must not end the newer one. Never called for login's 401
+   * INVALID_CREDENTIALS, which is a form error and not an expired session.
    */
-  onUnauthorized: () => void
+  onUnauthorized: (sentToken: string) => void
   fetchImpl?: typeof fetch
   timeoutMs?: number
 }
@@ -165,7 +168,7 @@ export function createRequest(dependencies: RequestDependencies): RequestFn {
 
     // Opting in is not the same as sending one. With no token stored there is
     // no header, so a 401 says nothing about a session and must not end one.
-    let sentToken = false
+    let sentToken: string | null = null
 
     if (auth) {
       const token = getToken()
@@ -173,7 +176,7 @@ export function createRequest(dependencies: RequestDependencies): RequestFn {
         // The server checks the case-sensitive prefix "Bearer ", so the
         // spelling here is load bearing.
         headers['Authorization'] = `Bearer ${token}`
-        sentToken = true
+        sentToken = token
       }
     }
 
@@ -267,8 +270,8 @@ function toApiError(
   response: Response,
   text: string,
   requestId: string | undefined,
-  sentToken: boolean,
-  onUnauthorized: () => void,
+  sentToken: string | null,
+  onUnauthorized: (sentToken: string) => void,
 ): ApiError {
   const retryAfterSeconds =
     response.status === 429
@@ -297,8 +300,8 @@ function toApiError(
   // Only a request that actually carried a token can have had it rejected.
   // Login's 401 is INVALID_CREDENTIALS and never reaches this branch, and a
   // call that opted in with nothing stored sent no header to reject.
-  if (sentToken && response.status === 401 && code === 'UNAUTHENTICATED') {
-    onUnauthorized()
+  if (sentToken !== null && response.status === 401 && code === 'UNAUTHENTICATED') {
+    onUnauthorized(sentToken)
   }
 
   return new ApiError({
