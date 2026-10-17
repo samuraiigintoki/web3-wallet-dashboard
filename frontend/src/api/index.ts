@@ -21,10 +21,13 @@ export {
   type RequestOptions,
 } from './request.ts'
 export type {
+  ListWalletsParams,
   LoginRequest,
   LoginResult,
   MessageResult,
   Pagination,
   RegisterRequest,
   User,
+  Wallet,
+  WalletList,
 } from './types.ts'
