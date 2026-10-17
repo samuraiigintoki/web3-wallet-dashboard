@@ -20,7 +20,15 @@ export function renderApp(
 ) {
   const storage = options.storage ?? memoryStorage()
   const user = userEvent.setup()
-  const entry = { pathname: options.path ?? '/', state: options.state ?? null }
+
+  // A path may carry a query, and the router wants the two separately: a
+  // pathname holding "?page=3" matches no route at all.
+  const [pathname, search] = (options.path ?? '/').split('?')
+  const entry = {
+    pathname,
+    search: search === undefined || search === '' ? '' : `?${search}`,
+    state: options.state ?? null,
+  }
 
   const utils = render(
     <AuthProvider storage={storage}>

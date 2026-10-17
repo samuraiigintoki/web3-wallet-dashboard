@@ -4,6 +4,8 @@
  * They render static text and make no API call. No illustrative row, count or
  * balance appears anywhere: a fake figure in a wallet product is worse than an
  * empty screen, because a reviewer cannot tell it from a real one.
+ *
+ * Wallets left this file in Week 8 and now lives in WalletsPage.tsx.
  */
 
 export function DashboardPage() {
@@ -14,15 +16,6 @@ export function DashboardPage() {
         You are signed in. Wallet, contract and indexed event views are not built
         yet.
       </p>
-    </main>
-  )
-}
-
-export function WalletsPage() {
-  return (
-    <main className="page">
-      <h1>Wallets</h1>
-      <p>Wallet management is not built yet.</p>
     </main>
   )
 }
