@@ -43,16 +43,18 @@ const UNKNOWN_OUTCOME_MESSAGE =
   'The save did not finish, so it may or may not have been saved. Check the list above before trying again.'
 
 /**
- * Used when the server answered, but the answer could not be verified.
+ * Used when an answer arrived but could not be verified.
  *
- * The three shapes this covers, malformed JSON on a 201, an empty 201 and a 201
- * without `createdAt`, all mean the same thing: the status says something was
- * accepted, and this client has no row it can trust. The write may already be
- * committed, so the honest advice is to look at the list before sending another
- * one, and there is no automatic retry and no claim that it was rolled back.
+ * A malformed JSON 201, an empty 201 and a 201 without `createdAt` all mean the
+ * same thing: the status says something was accepted, and this client has no row
+ * it can trust. An unreadable 502 or 504 belongs here too, because a gateway can
+ * lose the upstream response after the handler already committed the row. In
+ * every case the write may exist, so the honest advice is to look at the list
+ * before sending another one. There is no automatic retry and no claim that it
+ * was rolled back.
  */
 const UNCONFIRMED_RESPONSE_MESSAGE =
-  'The server answered, but not in a way this app could confirm, so the wallet may already be saved. Check the list above before saving again.'
+  'The save could not be confirmed, so the wallet may already be saved. Check the list above before saving again.'
 
 function formMessage(failure: CreateWalletFailure): string {
   const { error, fieldErrors } = failure

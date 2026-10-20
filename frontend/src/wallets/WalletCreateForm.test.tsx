@@ -12,6 +12,7 @@ import {
   hangingFetch,
   jsonResponse,
   pendingResponse,
+  plainTextResponse,
   stubFetch,
   type FetchCall,
 } from '../test/http.ts'
@@ -760,6 +761,57 @@ describe('wallet create form', () => {
       })
     },
   )
+
+  it.each([['502', 502], ['504', 504]])(
+    'treats an unreadable %s gateway response as an unconfirmed write and reconciles by reading',
+    async (_label, status) => {
+      const api = stubApi({
+        // What a gateway sends when it cannot reach the API, or loses the answer
+        // after the API already handled the request. Nothing in it says whether
+        // the row exists.
+        create: () => plainTextResponse(status, 'Bad Gateway'),
+        list: (call) => (call === 1 ? listResponse([]) : listResponse([CREATED])),
+      })
+      const { user } = renderApp({ path: '/wallets', storage: realStorage('token-a') })
+
+      await fillForm(user)
+      await user.click(saveButton())
+
+      // Not "Please try again": the upstream POST may have committed before the
+      // gateway lost the response.
+      await waitFor(() => {
+        expect(screen.getByRole('alert').textContent).toContain('may already be saved')
+      })
+      expect(screen.queryByText(/Please try again/)).toBeNull()
+      expect(api.createCalls).toBe(1)
+
+      const before = api.listCalls
+      await user.click(screen.getByRole('button', { name: 'Check the list' }))
+
+      await waitFor(() => {
+        expect(api.listCalls).toBeGreaterThan(before)
+      })
+      // Reconciliation is a read. Nothing resends the POST.
+      expect(api.createCalls).toBe(1)
+      await waitFor(() => {
+        expect(screen.getByText('Showing 1 of 1 saved wallets.')).toBeDefined()
+      })
+    },
+  )
+
+  it('keeps an unreadable 503 a plain failure, because the API said it did not serve the request', async () => {
+    const api = stubApi({ create: () => plainTextResponse(503, 'unavailable') })
+    const { user } = renderApp({ path: '/wallets', storage: realStorage('token-a') })
+
+    await fillForm(user)
+    await user.click(saveButton())
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('Something went wrong')
+    })
+    expect(screen.queryByRole('button', { name: 'Check the list' })).toBeNull()
+    expect(api.createCalls).toBe(1)
+  })
 
   it('replaces the previous attempt\'s server errors with this attempt\'s own', async () => {
     const api = stubApi({
