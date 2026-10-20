@@ -1,12 +1,15 @@
-import { screen, waitFor } from '@testing-library/react'
-import type { UserEvent } from '@testing-library/user-event'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent, { type UserEvent } from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { Chain, User, Wallet } from '../api/index.ts'
+import { createApiClient, type Chain, type User, type Wallet } from '../api/index.ts'
 import { createTokenStorage, type TokenStorage } from '../auth/storage.ts'
+import { WalletCreateForm } from './WalletCreateForm.tsx'
 import { otherTabStores } from '../test/crossTab.ts'
 import {
   errorResponse,
+  hangingFetch,
   jsonResponse,
   pendingResponse,
   stubFetch,
@@ -67,7 +70,7 @@ function createdResponse(wallet: Wallet = CREATED) {
 
 type Handlers = {
   chains?: (call: number) => Response | Promise<Response>
-  list?: (call: number) => Response | Promise<Response>
+  list?: (call: number, init: RequestInit, url: string) => Response | Promise<Response>
   create?: (body: unknown, call: number) => Response | Promise<Response>
   me?: (token: string) => Response
 }
@@ -106,12 +109,17 @@ function stubApi(handlers: Handlers = {}) {
     if (url.includes('/wallets')) {
       if (init.method === 'POST') {
         createCalls += 1
-        createBodies.push(JSON.parse(String(init.body)) as unknown)
+        // Read as text: the helper serialises the body itself, and a non-string
+        // body would not be the JSON this test claims to inspect.
+        const rawBody = init.body
+        createBodies.push(
+          typeof rawBody === 'string' ? (JSON.parse(rawBody) as unknown) : rawBody,
+        )
         return handlers.create?.(createBodies.at(-1), createCalls) ?? createdResponse()
       }
 
       listCalls += 1
-      return handlers.list?.(listCalls) ?? listResponse([])
+      return handlers.list?.(listCalls, init, url) ?? listResponse([])
     }
 
     throw new Error(`unexpected request: ${url}`)
@@ -230,7 +238,7 @@ describe('wallet create form', () => {
       expect(api.chainCalls).toBeGreaterThan(0)
     })
 
-    await screen.getByRole('button', { name: 'Retry' }).click()
+    screen.getByRole('button', { name: 'Retry' }).click()
 
     await waitFor(() => {
       expect(chainSelect().options.length).toBeGreaterThan(1)
@@ -379,7 +387,7 @@ describe('wallet create form', () => {
     })
   })
 
-  it('reports a timeout as an unknown outcome and does not replay the save', async () => {
+  it('reports a dropped connection as an unknown outcome and does not replay the save', async () => {
     const held = pendingResponse<Response>()
     const api = stubApi({
       create: () => held.promise,
@@ -389,8 +397,9 @@ describe('wallet create form', () => {
     await fillForm(user)
     await user.click(saveButton())
 
-    // A timeout reached no verdict, so the row may or may not exist. Saying it
-    // failed would invite the second submit that becomes the duplicate.
+    // A connection that dropped reached no verdict, so the row may or may not
+    // exist. Saying it failed would invite the second submit that becomes the
+    // duplicate.
     held.reject(new Error('boom'))
 
     await waitFor(() => {
@@ -592,5 +601,255 @@ describe('wallet create form', () => {
     })
     expect(currentPath()).toBe('/wallets')
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeDefined()
+  })
+
+  it('retires a first list read that is still in flight when the save is confirmed', async () => {
+    const held = pendingResponse<Response>()
+    let aborted = false
+    const api = stubApi({
+      list: (call, init) => {
+        if (call === 1) {
+          init.signal?.addEventListener('abort', () => {
+            aborted = true
+          })
+          return held.promise
+        }
+
+        return listResponse([CREATED])
+      },
+    })
+    const { user } = renderApp({ path: '/wallets', storage: realStorage('token-a') })
+
+    await waitFor(() => {
+      expect(screen.getByText(/Loading wallets/)).toBeDefined()
+    })
+
+    await fillForm(user)
+    await user.click(saveButton())
+
+    await waitFor(() => {
+      expect(screen.getByText('Saved Treasury.')).toBeDefined()
+    })
+
+    // The read that left before the save is superseded work. Invalidation alone
+    // reuses it when the query holds no data yet, so it is cancelled instead.
+    await waitFor(() => {
+      expect(aborted).toBe(true)
+    })
+
+    // Releasing the pre-save answer is now harmless: the client asked again and
+    // the rows it kept are the ones the server has after the save.
+    held.resolve(listResponse([], paginationFor(0)))
+
+    await waitFor(() => {
+      expect(screen.getByText('Showing 1 of 1 saved wallets.')).toBeDefined()
+    })
+    expect(screen.queryByText(/no saved wallets yet/)).toBeNull()
+    expect(screen.getByText('Saved Treasury.')).toBeDefined()
+    expect(api.listCalls).toBe(2)
+  })
+
+  it('returns to page 1 when the user pages on while the save is in flight', async () => {
+    const held = pendingResponse<Response>()
+    const api = stubApi({
+      create: () => held.promise,
+      list: (call) => {
+        if (call === 1) {
+          return listResponse([EXISTING], paginationFor(25, 1))
+        }
+        if (call === 2) {
+          return listResponse([], paginationFor(25, 2))
+        }
+
+        return listResponse([CREATED, EXISTING], paginationFor(2, 1))
+      },
+    })
+    const { user } = renderApp({ path: '/wallets', storage: realStorage('token-a') })
+
+    await waitFor(() => {
+      expect(screen.getByText(EXISTING.label)).toBeDefined()
+    })
+
+    await fillForm(user)
+    await user.click(saveButton())
+
+    await waitFor(() => {
+      expect(api.createCalls).toBe(1)
+    })
+
+    // Paging away while the POST is still open. The submission started on page
+    // 1, and the decision after it answers has to be made against the route as
+    // it stands then, not against the one it started from.
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    await waitFor(() => {
+      expect(currentPath()).toBe('/wallets?page=2')
+    })
+
+    held.resolve(createdResponse())
+
+    await waitFor(() => {
+      expect(screen.getByText('Saved Treasury.')).toBeDefined()
+    })
+    await waitFor(() => {
+      expect(currentPath()).toBe('/wallets?page=1')
+    })
+    await waitFor(() => {
+      expect(screen.getByText('Showing 2 of 2 saved wallets.')).toBeDefined()
+    })
+  })
+
+  const unconfirmableSuccess: [string, () => Response][] = [
+    [
+      'a malformed JSON body',
+      () =>
+        new Response('{"data":', {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+    ],
+    ['an empty body', () => new Response('', { status: 201 })],
+    [
+      'a row without createdAt',
+      () =>
+        jsonResponse(
+          {
+            data: {
+              id: CREATED.id,
+              address: CREATED.address,
+              chainId: CREATED.chainId,
+              label: CREATED.label,
+            },
+          },
+          { status: 201 },
+        ),
+    ],
+  ]
+
+  it.each(unconfirmableSuccess)(
+    'treats a 201 with %s as an unconfirmed write and points at the list',
+    async (_name, respond) => {
+      const api = stubApi({
+        create: respond,
+        list: (call) => (call === 1 ? listResponse([EXISTING]) : listResponse([CREATED, EXISTING])),
+      })
+      const { user } = renderApp({ path: '/wallets', storage: realStorage('token-a') })
+
+      await fillForm(user)
+      await user.click(saveButton())
+
+      // The status says something was accepted and this client has no row it can
+      // trust, so the outcome is unknown rather than failed.
+      await waitFor(() => {
+        expect(screen.getByRole('alert').textContent).toContain('may already be saved')
+      })
+      expect(screen.queryByText(/Please try again/)).toBeNull()
+      expect(api.createCalls).toBe(1)
+
+      // The only thing that can settle it is the server's own list, and reading
+      // it is not a second write.
+      const before = api.listCalls
+      await user.click(screen.getByRole('button', { name: 'Check the list' }))
+
+      await waitFor(() => {
+        expect(api.listCalls).toBeGreaterThan(before)
+      })
+      expect(api.createCalls).toBe(1)
+      await waitFor(() => {
+        expect(screen.getByText('Showing 2 of 2 saved wallets.')).toBeDefined()
+      })
+    },
+  )
+
+  it('replaces the previous attempt\'s server errors with this attempt\'s own', async () => {
+    const api = stubApi({
+      create: () =>
+        errorResponse(422, 'VALIDATION_ERROR', {
+          message: 'chain is not enabled',
+          details: { chainId: 'chain 11155111 is not enabled' },
+        }),
+    })
+    const { user } = renderApp({ path: '/wallets', storage: realStorage('token-a') })
+
+    await fillForm(user)
+    await user.click(saveButton())
+
+    await waitFor(() => {
+      expect(screen.getByText('chain 11155111 is not enabled')).toBeDefined()
+    })
+
+    // Another chain, and no label. This attempt is rejected here, before any
+    // request, and its verdict is the only one on screen.
+    await user.selectOptions(chainSelect(), String(ETHEREUM.chainId))
+    await user.clear(labelInput())
+    await user.click(saveButton())
+
+    await waitFor(() => {
+      expect(screen.getByText('Enter a label.')).toBeDefined()
+    })
+    expect(labelInput().getAttribute('aria-invalid')).toBe('true')
+    expect(document.activeElement).toBe(labelInput())
+    expect(screen.queryByText('chain 11155111 is not enabled')).toBeNull()
+    expect(chainSelect().getAttribute('aria-invalid')).toBe('false')
+    // No POST: a client-invalid attempt is settled locally.
+    expect(api.createCalls).toBe(1)
+  })
+})
+
+/**
+ * The waits this form depends on are real timers, and the one case that needs a
+ * short bound is mounted directly with its own client instead of through the
+ * routes: the whole application uses the same ten second default, which is
+ * correct in production and useless in a test.
+ */
+describe('wallet create form, a bounded wait', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('reports a real timer-driven timeout as an unknown outcome', async () => {
+    const http = stubFetch((url, init) =>
+      url.includes('/chains') ? chainsResponse() : hangingFetch(url, init),
+    )
+
+    const client = createApiClient({
+      getToken: () => 'token-a',
+      onUnauthorized: () => undefined,
+      // The only thing narrowed here is the wait. Everything else is the
+      // production path: one attempt, one bounded call, no replay. The stubbed
+      // call only ever rejects when its signal aborts, and the only thing that
+      // aborts it here is the timer, so this cannot pass as a dropped
+      // connection.
+      timeoutMs: 25,
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const user = userEvent.setup()
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <WalletCreateForm
+          dataSession={{ userId: 5, generation: 1, client }}
+          onSaved={() => undefined}
+          onCheckList={() => undefined}
+        />
+      </QueryClientProvider>,
+    )
+
+    await fillForm(user)
+    await user.click(saveButton())
+
+    // A call that ran out of time reached no verdict: the row may or may not
+    // exist, so the form says so and offers a read rather than a second write.
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('did not finish')
+    })
+    expect(screen.getByRole('button', { name: 'Check the list' })).toBeDefined()
+
+    const createCalls = http.calls.filter(
+      (call) => call.url.includes('/wallets') && call.init.method === 'POST',
+    )
+    expect(createCalls).toHaveLength(1)
   })
 })
