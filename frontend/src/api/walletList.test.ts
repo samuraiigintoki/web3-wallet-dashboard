@@ -26,6 +26,14 @@ const WALLET_B = {
 
 const PAGINATION: Pagination = { page: 1, pageSize: 20, totalItems: 2, totalPages: 1 }
 
+/** The reply a page 3 request has to carry: the same page it asked for. */
+const PAGINATION_PAGE_THREE: Pagination = {
+  page: 3,
+  pageSize: 20,
+  totalItems: 42,
+  totalPages: 3,
+}
+
 function walletListClient(getToken: () => string | null = () => null, onUnauthorized = vi.fn()) {
   return {
     client: createApiClient({ getToken, onUnauthorized }),
@@ -54,12 +62,17 @@ describe('wallet list call', () => {
   })
 
   it('asks for the caller own wallets by page and carries the bearer', async () => {
-    const fetchStub: FetchStub = stubFetch(() => listPayload([WALLET_A, WALLET_B]))
+    const fetchStub: FetchStub = stubFetch(() =>
+      listPayload([WALLET_A, WALLET_B], { pagination: PAGINATION_PAGE_THREE }),
+    )
     const { client } = walletListClient(() => TOKEN)
 
     const result = await client.listWallets({ page: 3, pageSize: 20 })
 
-    expect(result).toEqual({ wallets: [WALLET_A, WALLET_B], pagination: PAGINATION })
+    expect(result).toEqual({
+      wallets: [WALLET_A, WALLET_B],
+      pagination: PAGINATION_PAGE_THREE,
+    })
     expect(fetchStub.lastCall().url).toBe(`${API_BASE}/wallets?page=3&pageSize=20`)
     expect(fetchStub.lastCall().init.method).toBe('GET')
     expect(fetchStub.headers()['authorization']).toBe(`Bearer ${TOKEN}`)
@@ -168,6 +181,43 @@ describe('wallet list response validation', () => {
     const { client } = walletListClient(() => TOKEN)
 
     return expectUnexpectedResponse(() => client.listWallets({ page: 1, pageSize: 20 }))
+  })
+
+  it('rejects a reply that describes a page other than the one requested', async () => {
+    // The rows are real, but they are page 1's rows. Rendering them under
+    // "Page 3 of 3" would label one page's data as another.
+    stubFetch(() => listPayload([WALLET_A], { pagination: PAGINATION }))
+    const { client } = walletListClient(() => TOKEN)
+
+    return expectUnexpectedResponse(() => client.listWallets({ page: 3, pageSize: 20 }))
+  })
+
+  it('rejects a reply that describes a page size other than the one requested', async () => {
+    stubFetch(() =>
+      listPayload([WALLET_A], { pagination: { ...PAGINATION, page: 1, pageSize: 50 } }),
+    )
+    const { client } = walletListClient(() => TOKEN)
+
+    return expectUnexpectedResponse(() => client.listWallets({ page: 1, pageSize: 20 }))
+  })
+
+  it('accepts a past-end page, which echoes the requested page and keeps real totals', async () => {
+    // Not a mismatch: a page past the end describes the page that was asked
+    // for, with no rows and the totals that are actually there.
+    stubFetch(() =>
+      listPayload([], { pagination: { page: 7, pageSize: 20, totalItems: 12, totalPages: 1 } }),
+    )
+    const { client } = walletListClient(() => TOKEN)
+
+    const result = await client.listWallets({ page: 7, pageSize: 20 })
+
+    expect(result.wallets).toEqual([])
+    expect(result.pagination).toEqual({
+      page: 7,
+      pageSize: 20,
+      totalItems: 12,
+      totalPages: 1,
+    })
   })
 
   it('accepts a row with an empty label, which is a saved wallet with no name', async () => {
