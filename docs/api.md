@@ -358,7 +358,7 @@ Query parameters:
 
 Sort: `createdAt` descending, then `id` descending.
 
-Every entry carries `indexingStatus`, the read-time indexing availability of that deployment: `disabled` (the deployment is excluded from indexing), `unsupported` (the deployment is not on the chain the indexer follows, currently Sepolia), or `pending` (indexed, so far with no progress to report). The values are a description of what the backend can do, never a live scanner state: the scanner's own `running` / `idle` / `error` states and its error text are not part of any response in v1. `indexingStatus` never changes `enabled`, and `enabled` never changes `indexingStatus`.
+Every entry carries exactly five fields: `id`, `address`, `chainId`, `label` and `createdAt`. A wallet record has no balance, no indexing status and no key-control field: a saved address is only a saved address. `indexingStatus` is a read-time indexing availability field on tracked contract representations, described under `GET /api/v1/contracts` below, and it is not part of a wallet row in either this response or the `wallet` schema in `docs/openapi.yaml`.
 
 A page past the last page returns `200` with `"data": []` and the true `totalItems` / `totalPages`.
 

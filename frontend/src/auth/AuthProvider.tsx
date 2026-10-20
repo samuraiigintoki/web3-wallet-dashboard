@@ -10,7 +10,12 @@ import {
   type RegisterRequest,
   type User,
 } from '../api/index.ts'
-import { AuthContext, type AuthContextValue, type Session } from './session.ts'
+import {
+  AuthContext,
+  type DataSession,
+  type AuthContextValue,
+  type Session,
+} from './session.ts'
 import { tokenStorage, type TokenStorage } from './storage.ts'
 
 type AuthProviderProps = {
@@ -36,6 +41,14 @@ export function AuthProvider({ children, storage = tokenStorage }: AuthProviderP
     storage.read() === null ? { status: 'anonymous' } : { status: 'restoring' },
   )
   const [logoutProblem, setLogoutProblem] = useState<string | null>(null)
+
+  /**
+   * The data capability for the current identity, and the only way a data view
+   * can reach the API. It is created when an identity is validated and dropped
+   * the moment that identity ends, so there is never a window in which a screen
+   * showing one user holds a client for another.
+   */
+  const [dataSession, setDataSession] = useState<DataSession | null>(null)
 
   /**
    * Identity generation. Every transition that can change who this tab is bumps
@@ -89,6 +102,11 @@ export function AuthProvider({ children, storage = tokenStorage }: AuthProviderP
     generationRef.current += 1
     activeRequest.current?.abort()
     activeRequest.current = null
+    // The identity that owned the data capability has ended. Any query still
+    // holding it belongs to a session nobody is presenting, so it loses its
+    // client here as well as its generation; the query layer cancels and drops
+    // the cached work when the new identity arrives.
+    setDataSession(null)
   }, [])
 
   /**
@@ -116,21 +134,51 @@ export function AuthProvider({ children, storage = tokenStorage }: AuthProviderP
    */
   const onUnauthorized = useCallback(
     (sentToken: string): void => {
+      // The ownership check comes first and is unchanged: a 401 for a
+      // credential this tab no longer holds, or one the shared store has
+      // already replaced, describes a session nobody is using and must do
+      // nothing at all.
       if (sentToken !== credentialRef.current || storage.read() !== sentToken) {
         return
       }
 
+      // Retire the identity, not only the credential. Clearing the store left
+      // two things live: the generation stayed current, so the request that
+      // produced this answer was still allowed to finish as itself, and the
+      // data session stayed non-null, so the query layer never learned that
+      // the identity had ended and neither cancelled the reads it owned nor
+      // removed their cache. Ending the generation is what the first depends
+      // on, and dropping the data session is what the second watches for.
+      endIdentity()
       credentialRef.current = null
       storage.clear()
       setSession({ status: 'anonymous' })
     },
-    [storage],
+    [endIdentity, storage],
   )
 
   const client = useCallback((): ApiClient => {
     clientRef.current ??= createApiClient({ getToken, onUnauthorized })
     return clientRef.current
   }, [getToken, onUnauthorized])
+
+  /**
+   * Builds the data capability for one validated identity.
+   *
+   * The credential is captured here, not read from the ref at request time: a
+   * client built on `getToken` would send whatever this tab holds when the
+   * request happens, which is how a screen showing one user ends up acting as
+   * another. `onUnauthorized` stays the shared one, so a 401 still ends only
+   * the credential it was sent with.
+   */
+  const openDataSession = useCallback(
+    (token: string, user: User, generation: number): DataSession => ({
+      userId: user.id,
+      generation,
+      client: createApiClient({ getToken: () => token, onUnauthorized }),
+    }),
+    [onUnauthorized],
+  )
 
   /**
    * Validates a credential against the server and applies the outcome, unless
@@ -147,6 +195,7 @@ export function AuthProvider({ children, storage = tokenStorage }: AuthProviderP
 
           setLogoutProblem(null)
           setSession({ status: 'authenticated', user })
+          setDataSession(openDataSession(token, user, generation))
         } catch (error) {
           if (!isCurrent(generation) || controller.signal.aborted) {
             return
@@ -173,7 +222,7 @@ export function AuthProvider({ children, storage = tokenStorage }: AuthProviderP
 
       void run()
     },
-    [client, isCurrent, storage],
+    [client, isCurrent, openDataSession, storage],
   )
 
   /**
@@ -308,6 +357,7 @@ export function AuthProvider({ children, storage = tokenStorage }: AuthProviderP
 
         setLogoutProblem(null)
         setSession({ status: 'authenticated', user })
+        setDataSession(openDataSession(token, user, generation))
       } catch (error) {
         // The token was issued but the identity never arrived, or the sign-in was
         // superseded on the way. Keeping a token that is no longer the shared one
@@ -322,7 +372,7 @@ export function AuthProvider({ children, storage = tokenStorage }: AuthProviderP
         throw error
       }
     },
-    [client, isCurrent, startIdentity, storage, syncFromStorage],
+    [client, isCurrent, openDataSession, startIdentity, storage, syncFromStorage],
   )
 
   const logout = useCallback(async (): Promise<void> => {
@@ -404,6 +454,7 @@ export function AuthProvider({ children, storage = tokenStorage }: AuthProviderP
   const value: AuthContextValue = useMemo(
     () => ({
       session,
+      dataSession,
       register,
       login,
       logout,
@@ -411,7 +462,16 @@ export function AuthProvider({ children, storage = tokenStorage }: AuthProviderP
       signOutLocally,
       logoutProblem,
     }),
-    [session, register, login, logout, retryRestore, signOutLocally, logoutProblem],
+    [
+      session,
+      dataSession,
+      register,
+      login,
+      logout,
+      retryRestore,
+      signOutLocally,
+      logoutProblem,
+    ],
   )
 
   return <AuthContext value={value}>{children}</AuthContext>

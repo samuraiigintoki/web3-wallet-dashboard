@@ -5,10 +5,9 @@
  * four endpoints, and a generator would have to be configured, pinned and kept
  * honest for less type coverage than this file gives.
  *
- * Only what this block actually uses is declared. Wallet, contract, chain and
- * event types arrive with the Week 8 views that consume them, so no type here
- * asserts a contract that nothing tests. When they do arrive, uint256 values
- * such as valueWei and multisigTxIndex are strings, never numbers.
+ * Only what is actually consumed is declared. Contract, chain and event types
+ * arrive with the views that consume them, so no type here asserts a contract
+ * that nothing tests. uint256 values are strings, never numbers.
  */
 
 /** Every list response carries this alongside its data array. */
@@ -42,6 +41,38 @@ export type LoginResult = {
 /** POST /api/v1/auth/logout. */
 export type MessageResult = {
   message: string
+}
+
+/**
+ * GET /api/v1/wallets, one row.
+ *
+ * Exactly the five fields the handler and the OpenAPI `wallet` schema carry.
+ * There is no balance, no indexing status and no key-control proof on a saved
+ * address, so none of those are declared here.
+ */
+export type Wallet = {
+  id: number
+  address: string
+  chainId: number
+  label: string
+  /** RFC 3339 timestamp, kept as the string the API sent. */
+  createdAt: string
+}
+
+/** GET /api/v1/wallets, one page. */
+export type WalletList = {
+  wallets: Wallet[]
+  pagination: Pagination
+}
+
+/**
+ * The page this client asks for. Both values are validated before they reach a
+ * URL or a query key, because the server answers a malformed or over-cap one
+ * with 400 rather than clamping it.
+ */
+export type ListWalletsParams = {
+  page: number
+  pageSize: number
 }
 
 export type RegisterRequest = {

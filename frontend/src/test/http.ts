@@ -147,6 +147,29 @@ export function hangingBodyResponse(status = 200): Response {
   return new Response(body, { status })
 }
 
+/**
+ * A response held until the test decides to deliver it.
+ *
+ * The promise ignores the abort signal on purpose: an answer the server had
+ * already produced can still reach the client after the identity moved on, and
+ * the guards have to survive that rather than depend on the abort winning.
+ */
+export function pendingResponse<T>() {
+  let resolve: (value: T) => void = () => undefined
+  let reject: (reason: unknown) => void = () => undefined
+
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+
+  return {
+    promise,
+    resolve,
+    reject,
+  }
+}
+
 /** A fetch that never settles until the request is aborted. */
 export function hangingFetch(_url: string, init: RequestInit): Promise<Response> {
   return new Promise<Response>((_resolve, reject) => {

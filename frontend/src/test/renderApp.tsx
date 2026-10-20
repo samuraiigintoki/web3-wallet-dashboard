@@ -1,5 +1,6 @@
 import { render } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { QueryClient } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router'
 
 import { AppRoutes } from '../App.tsx'
@@ -16,17 +17,31 @@ export function memoryStorage(initial: string | null = null): TokenStorage {
 }
 
 export function renderApp(
-  options: { path?: string; storage?: TokenStorage; state?: unknown } = {},
+  options: {
+    path?: string
+    storage?: TokenStorage
+    state?: unknown
+    /** Lets a test inspect and seed the cache the routes share. */
+    queryClient?: QueryClient
+  } = {},
 ) {
   const storage = options.storage ?? memoryStorage()
   const user = userEvent.setup()
-  const entry = { pathname: options.path ?? '/', state: options.state ?? null }
+
+  // A path may carry a query, and the router wants the two separately: a
+  // pathname holding "?page=3" matches no route at all.
+  const [pathname, search] = (options.path ?? '/').split('?')
+  const entry = {
+    pathname,
+    search: search === undefined || search === '' ? '' : `?${search}`,
+    state: options.state ?? null,
+  }
 
   const utils = render(
     <AuthProvider storage={storage}>
       <MemoryRouter initialEntries={[entry]}>
         <LocationProbe />
-        <AppRoutes />
+        <AppRoutes queryClient={options.queryClient} />
       </MemoryRouter>
     </AuthProvider>,
   )
