@@ -6,7 +6,7 @@ import { describeApiError, type Pagination, type Wallet } from '../api/index.ts'
 import { useAuth } from '../auth/useAuth.ts'
 import type { IdentityRef } from '../data/identityKeys.ts'
 import { MAX_PAGE, parsePageParam } from '../wallets/page.ts'
-import { isWalletListKeyFor, walletListQuery } from '../wallets/walletQueries.ts'
+import { refreshWalletLists, walletListQuery } from '../wallets/walletQueries.ts'
 import { WalletCreateForm } from '../wallets/WalletCreateForm.tsx'
 
 /**
@@ -38,13 +38,28 @@ export function WalletsPage() {
   )
 
   /**
+   * Reads this identity's list pages again, after a save or on request.
+   *
+   * The retirement comes first and is not optional: a list request that left
+   * before the save is superseded work, and it is cancelled rather than reused,
+   * so an empty pre-save page cannot land next to a save confirmation.
+   */
+  const refreshLists = useCallback(
+    (identity: IdentityRef): void => {
+      void refreshWalletLists(queryClient, identity)
+    },
+    [queryClient],
+  )
+
+  /**
    * After a save that belongs to the identity still presented.
    *
-   * The pages of that identity are invalidated, and cancelling on invalidate is
-   * what stops a list response that was already on the wire from landing after
-   * the fresh one and overwriting it. The URL then returns to page 1, because a
-   * new wallet is saved at the top of the list and a page the user was on
-   * earlier no longer describes the data behind it.
+   * The route is read here, at the moment the answer arrives, not when the
+   * submit was made. A submission holds the callback it started with, and the
+   * user may have paged on while the POST was in flight; deciding from the page
+   * captured at submit time would leave that newer page in the URL with no rows
+   * behind it. The functional update is what makes the decision against the
+   * current search string.
    *
    * A refresh that fails is the list's failure to report, not the save's: the
    * save already answered 201, and the list shows its own error with its own
@@ -52,14 +67,33 @@ export function WalletsPage() {
    */
   const handleSaved = useCallback(
     (identity: IdentityRef): void => {
-      void queryClient.invalidateQueries({ predicate: isWalletListKeyFor(identity) })
+      refreshLists(identity)
 
-      if (page !== 1) {
-        goToPage(1)
-      }
+      setSearchParams((current) => {
+        if (parsePageParam(current.get('page')) === 1) {
+          return current
+        }
+
+        const next = new URLSearchParams(current)
+        next.set('page', '1')
+        return next
+      })
     },
-    [goToPage, page, queryClient],
+    [refreshLists, setSearchParams],
   )
+
+  /**
+   * A manual read of this identity's list, for a save whose outcome the client
+   * could not confirm.
+   *
+   * It is the same retirement and refetch as after a save, and deliberately not
+   * a second write: nothing here replays the POST.
+   */
+  const handleCheckList = useCallback((): void => {
+    if (dataSession !== null) {
+      refreshLists({ userId: dataSession.userId, generation: dataSession.generation })
+    }
+  }, [dataSession, refreshLists])
 
   if (dataSession === null) {
     return (
@@ -74,7 +108,11 @@ export function WalletsPage() {
     <main className="page" aria-busy={isPending}>
       <h1>Wallets</h1>
 
-      <WalletCreateForm dataSession={dataSession} onSaved={handleSaved} />
+      <WalletCreateForm
+        dataSession={dataSession}
+        onSaved={handleSaved}
+        onCheckList={handleCheckList}
+      />
 
       {error !== null && (
         // A failed wallet read is a data error, not a lost session. It clears

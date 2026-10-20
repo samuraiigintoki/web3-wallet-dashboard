@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { ApiError, isApiError, type Wallet } from '../api/index.ts'
+import { ApiError, isApiError, type ApiErrorCode, type Wallet } from '../api/index.ts'
 import type { DataSession } from '../auth/session.ts'
 import type { IdentityRef } from '../data/identityKeys.ts'
 import { walletFieldErrorsFrom, type WalletFormField } from '../forms/serverErrors.ts'
@@ -44,6 +44,42 @@ export type UseCreateWalletOptions = {
   onSaved: (identity: IdentityRef) => void
 }
 
+/**
+ * Whether a failed create left the fate of the write unknown.
+ *
+ * Two families share that property. A timeout, a dropped connection or a
+ * cancelled attempt never reached a verdict. A success-shaped response this
+ * client could not verify, malformed JSON, an empty body, a row missing a
+ * field the contract requires, is the other: the server answered 2xx, and the
+ * row may already be committed. Neither is "not saved", and neither may be
+ * retried blind without looking at the server's own list first.
+ *
+ * A failure the API itself reported is not in this set. A 409, a 422 or a 503
+ * is an answer, not an unknown.
+ */
+const UNCONFIRMED_CODES: readonly ApiErrorCode[] = [
+  'TIMEOUT',
+  'ABORTED',
+  'NETWORK_ERROR',
+  'UNEXPECTED_RESPONSE',
+]
+
+export function isUnconfirmedWrite(error: ApiError): boolean {
+  if (!UNCONFIRMED_CODES.includes(error.code)) {
+    return false
+  }
+
+  // An unreadable response only means the write's fate is unknown when the
+  // status says the server accepted something: 2xx, or the statusless failure
+  // the client raises for a body it could not use. An unreadable 502 is a
+  // failure the proxy sent, and it stays a plain failure.
+  if (error.code === 'UNEXPECTED_RESPONSE') {
+    return error.status === 0 || (error.status >= 200 && error.status < 300)
+  }
+
+  return true
+}
+
 function toFailure(error: unknown): CreateWalletFailure {
   // Only an ApiError reaches here: the request helper translates every outcome
   // into one, so a raw TypeError never escapes to a component.
@@ -83,6 +119,21 @@ export function useCreateWallet({
       ? null
       : { userId: dataSession.userId, generation: dataSession.generation },
   )
+
+  /**
+   * The callback as it stands now.
+   *
+   * A submission can outlive the render that started it, and the callback it
+   * captured would then be a description of a page the user has since left.
+   * Reading the latest one keeps the decision after a save on the current
+   * screen. It is still only reached for an answer that belongs to the identity
+   * still presented, which is the check above it.
+   */
+  const onSavedRef = useRef(onSaved)
+
+  useEffect(() => {
+    onSavedRef.current = onSaved
+  }, [onSaved])
 
   /** The controller for whatever create is in flight. One at a time. */
   const controllerRef = useRef<AbortController | null>(null)
@@ -168,7 +219,7 @@ export function useCreateWallet({
         }
 
         setState({ status: 'saved', wallet })
-        onSaved(identity)
+        onSavedRef.current(identity)
       } catch (error) {
         // Same fence on the way out. An error for a superseded identity is not
         // this form's failure to report, and a late 401 has already been
@@ -185,7 +236,7 @@ export function useCreateWallet({
         }
       }
     },
-    [dataSession, isCurrent, onSaved],
+    [dataSession, isCurrent],
   )
 
   return { state, submit, reset }

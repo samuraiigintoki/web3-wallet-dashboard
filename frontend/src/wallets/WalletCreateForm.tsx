@@ -6,7 +6,11 @@ import type { DataSession } from '../auth/session.ts'
 import type { IdentityRef } from '../data/identityKeys.ts'
 import type { WalletFormField } from '../forms/serverErrors.ts'
 import { chainCatalogQuery } from './chainQueries.ts'
-import { useCreateWallet, type CreateWalletFailure } from './useCreateWallet.ts'
+import {
+  isUnconfirmedWrite,
+  useCreateWallet,
+  type CreateWalletFailure,
+} from './useCreateWallet.ts'
 import {
   WALLET_FIELD_ORDER,
   chainOptionLabel,
@@ -38,6 +42,18 @@ const DUPLICATE_MESSAGE = 'That address is already saved on this chain.'
 const UNKNOWN_OUTCOME_MESSAGE =
   'The save did not finish, so it may or may not have been saved. Check the list above before trying again.'
 
+/**
+ * Used when the server answered, but the answer could not be verified.
+ *
+ * The three shapes this covers, malformed JSON on a 201, an empty 201 and a 201
+ * without `createdAt`, all mean the same thing: the status says something was
+ * accepted, and this client has no row it can trust. The write may already be
+ * committed, so the honest advice is to look at the list before sending another
+ * one, and there is no automatic retry and no claim that it was rolled back.
+ */
+const UNCONFIRMED_RESPONSE_MESSAGE =
+  'The server answered, but not in a way this app could confirm, so the wallet may already be saved. Check the list above before saving again.'
+
 function formMessage(failure: CreateWalletFailure): string {
   const { error, fieldErrors } = failure
 
@@ -51,12 +67,10 @@ function formMessage(failure: CreateWalletFailure): string {
     return DUPLICATE_MESSAGE
   }
 
-  if (
-    error.code === 'TIMEOUT' ||
-    error.code === 'ABORTED' ||
-    error.code === 'NETWORK_ERROR'
-  ) {
-    return UNKNOWN_OUTCOME_MESSAGE
+  if (isUnconfirmedWrite(error)) {
+    return error.code === 'UNEXPECTED_RESPONSE'
+      ? UNCONFIRMED_RESPONSE_MESSAGE
+      : UNKNOWN_OUTCOME_MESSAGE
   }
 
   return describeApiError(error)
@@ -67,9 +81,21 @@ type WalletCreateFormProps = {
   dataSession: DataSession
   /** Refreshes that identity's list pages and returns the URL to page 1. */
   onSaved: (identity: IdentityRef) => void
+  /**
+   * Reads the list again without writing anything.
+   *
+   * Offered for a save whose outcome could not be confirmed: the only thing that
+   * can say whether the row exists is the server's own list, and this is the
+   * control that asks it.
+   */
+  onCheckList: () => void
 }
 
-export function WalletCreateForm({ dataSession, onSaved }: WalletCreateFormProps) {
+export function WalletCreateForm({
+  dataSession,
+  onSaved,
+  onCheckList,
+}: WalletCreateFormProps) {
   const addressId = useId()
   const chainIdId = useId()
   const labelId = useId()
@@ -88,7 +114,7 @@ export function WalletCreateForm({ dataSession, onSaved }: WalletCreateFormProps
   const chainRef = useRef<HTMLSelectElement>(null)
   const labelRef = useRef<HTMLInputElement>(null)
 
-  const { state, submit } = useCreateWallet({ dataSession, onSaved })
+  const { state, submit, reset } = useCreateWallet({ dataSession, onSaved })
 
   /**
    * The identity this form belongs to.
@@ -160,6 +186,14 @@ export function WalletCreateForm({ dataSession, onSaved }: WalletCreateFormProps
 
     if (submitting) {
       return
+    }
+
+    // Every attempt answers for itself. The previous attempt's server errors are
+    // retired before this one is judged, or a stale chain error would sit on a
+    // field the user has already corrected and override the label error this
+    // attempt found, including on an attempt that sends no POST at all.
+    if (state.status === 'failed') {
+      reset()
     }
 
     const nextErrors: Partial<Record<WalletFormField, string>> = {}
@@ -315,9 +349,16 @@ export function WalletCreateForm({ dataSession, onSaved }: WalletCreateFormProps
         )}
 
         {state.status === 'failed' && (
-          <p className="notice" role="alert">
-            {formMessage(state)}
-          </p>
+          <div className="notice" role="alert">
+            <p>{formMessage(state)}</p>
+            {isUnconfirmedWrite(state.error) && (
+              <div className="status__actions">
+                <button type="button" onClick={onCheckList}>
+                  Check the list
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </form>
     </section>
