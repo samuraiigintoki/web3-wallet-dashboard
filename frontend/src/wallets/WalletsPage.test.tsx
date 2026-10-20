@@ -59,6 +59,14 @@ function apiFetch(
       return jsonResponse({ data: USER })
     }
 
+    // The catalog is public and answered here so it never reaches the wallet
+    // responder, which counts and answers wallet calls only.
+    if (url.includes('/chains')) {
+      return jsonResponse({
+        data: [{ chainId: 11155111, name: 'Sepolia', symbol: 'ETH', isTestnet: true }],
+      })
+    }
+
     walletCalls += 1
     return respondWallets(url, init, walletCalls)
   })
