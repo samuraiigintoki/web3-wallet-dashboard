@@ -2,8 +2,31 @@ import type { UseQueryOptions } from '@tanstack/react-query'
 
 import { ApiError, type WalletList } from '../api/index.ts'
 import type { DataSession } from '../auth/session.ts'
-import { identityKey } from '../data/identityKeys.ts'
+import { identityKey, type IdentityRef } from '../data/identityKeys.ts'
 import { PAGE_SIZE } from './page.ts'
+
+/**
+ * Matches every wallet-list page belonging to one identity, and nothing else.
+ *
+ * The predicate is built from the same key the query uses, so it cannot drift
+ * from it. Invalidation is scoped this tightly because a save changes one
+ * account's totals: refreshing another identity's pages, or another
+ * collection's, would spend requests on data that did not change.
+ *
+ * It is also the fence against a stale refresh. The key carries the generation,
+ * so after a credential replacement there is no query left under the old
+ * identity to invalidate, and an invalidation issued before the switch cannot
+ * reach the new one.
+ */
+export function isWalletListKeyFor(
+  identity: IdentityRef,
+): (query: { queryKey: readonly unknown[] }) => boolean {
+  const prefix: readonly unknown[] = [...identityKey(identity), 'wallets', 'list']
+
+  return (query: { queryKey: readonly unknown[] }): boolean =>
+    query.queryKey.length === prefix.length + 2 &&
+    prefix.every((part, index) => query.queryKey[index] === part)
+}
 
 /**
  * One page of the signed-in user's wallets.

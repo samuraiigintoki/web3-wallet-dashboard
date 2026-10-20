@@ -1,0 +1,192 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+
+import { ApiError, isApiError, type Wallet } from '../api/index.ts'
+import type { DataSession } from '../auth/session.ts'
+import type { IdentityRef } from '../data/identityKeys.ts'
+import { walletFieldErrorsFrom, type WalletFormField } from '../forms/serverErrors.ts'
+
+/**
+ * One wallet create, bound to the identity that started it.
+ *
+ * This is deliberately not a Query mutation. A mutation would keep its own
+ * cached state and its own callbacks, and both outlive the identity in ways
+ * this slice has to rule out: a mutation result stays in the cache after the
+ * component is gone, and an `onSuccess` that fires late would need the same
+ * identity check this hook makes before it did anything. The lifetime rules are
+ * shorter to state and easier to prove against a controller the hook owns.
+ */
+
+export type CreateWalletInput = {
+  address: string
+  chainId: number
+  label: string
+}
+
+export type CreateWalletFailure = {
+  error: ApiError
+  /** Field-keyed messages from a 422. Empty for every other failure. */
+  fieldErrors: Partial<Record<WalletFormField, string>>
+}
+
+export type CreateWalletState =
+  | { status: 'idle' }
+  | { status: 'submitting' }
+  | { status: 'saved'; wallet: Wallet }
+  | ({ status: 'failed' } & CreateWalletFailure)
+
+export type UseCreateWalletOptions = {
+  dataSession: DataSession | null
+  /**
+   * Runs once, after a save that is confirmed to belong to the identity still
+   * presented. It refreshes that identity's list pages and returns the URL to
+   * page 1. It never runs for a late answer.
+   */
+  onSaved: (identity: IdentityRef) => void
+}
+
+function toFailure(error: unknown): CreateWalletFailure {
+  // Only an ApiError reaches here: the request helper translates every outcome
+  // into one, so a raw TypeError never escapes to a component.
+  const apiError = isApiError(error)
+    ? error
+    : new ApiError({
+        code: 'UNEXPECTED_RESPONSE',
+        status: 0,
+        message: 'the save failed for a reason this client does not understand',
+      })
+
+  return { error: apiError, fieldErrors: walletFieldErrorsFrom(apiError) }
+}
+
+export function useCreateWallet({
+  dataSession,
+  onSaved,
+}: UseCreateWalletOptions): {
+  state: CreateWalletState
+  submit: (input: CreateWalletInput) => Promise<void>
+  reset: () => void
+} {
+  const [state, setState] = useState<CreateWalletState>({ status: 'idle' })
+
+  /**
+   * The identity as it stands now, read through a ref rather than from the
+   * closure that started the request.
+   *
+   * The closure captures the `dataSession` from the render the submit happened
+   * in. Checking the answer against that value would always succeed, because it
+   * is by definition the identity the request was started under. The question
+   * is whether that identity is still the one being presented, which only a ref
+   * kept current can answer.
+   */
+  const identityRef = useRef<IdentityRef | null>(
+    dataSession === null
+      ? null
+      : { userId: dataSession.userId, generation: dataSession.generation },
+  )
+
+  /** The controller for whatever create is in flight. One at a time. */
+  const controllerRef = useRef<AbortController | null>(null)
+
+  /** Guards the door as well as the button: a second submit is refused here. */
+  const submittingRef = useRef(false)
+
+  const userId = dataSession?.userId ?? null
+  const generation = dataSession?.generation ?? null
+
+  useEffect(() => {
+    const next =
+      userId === null || generation === null ? null : { userId, generation }
+
+    identityRef.current = next
+
+    // The identity moved on, so whatever this form owned is retired: the
+    // request is aborted and the submission state is dropped. A held answer
+    // that arrives afterwards finds its identity gone and does nothing at all,
+    // which is the only behaviour that is safe for a late success and for a
+    // late 401 alike.
+    controllerRef.current?.abort()
+    controllerRef.current = null
+    submittingRef.current = false
+    setState({ status: 'idle' })
+  }, [userId, generation])
+
+  // Unmount retires owned work the same way, so a component that is going away
+  // cannot write to a form or a cache nobody is looking at.
+  useEffect(
+    () => () => {
+      controllerRef.current?.abort()
+      controllerRef.current = null
+      submittingRef.current = false
+    },
+    [],
+  )
+
+  const isCurrent = useCallback((identity: IdentityRef): boolean => {
+    const current = identityRef.current
+    return (
+      current !== null &&
+      current.userId === identity.userId &&
+      current.generation === identity.generation
+    )
+  }, [])
+
+  const reset = useCallback((): void => {
+    setState({ status: 'idle' })
+  }, [])
+
+  const submit = useCallback(
+    async (input: CreateWalletInput): Promise<void> => {
+      if (submittingRef.current || dataSession === null) {
+        // A second submit is refused, and so is one with no identity to act as.
+        return
+      }
+
+      const identity: IdentityRef = {
+        userId: dataSession.userId,
+        generation: dataSession.generation,
+      }
+
+      const controller = new AbortController()
+      controllerRef.current = controller
+      submittingRef.current = true
+      setState({ status: 'submitting' })
+
+      try {
+        const wallet = await dataSession.client.createWallet(
+          {
+            address: input.address,
+            chainId: input.chainId,
+            label: input.label,
+          },
+          { signal: controller.signal },
+        )
+
+        // The answer belongs to another identity. Nothing is applied: no
+        // success message, no form reset, no refresh, no URL change.
+        if (!isCurrent(identity) || controller.signal.aborted) {
+          return
+        }
+
+        setState({ status: 'saved', wallet })
+        onSaved(identity)
+      } catch (error) {
+        // Same fence on the way out. An error for a superseded identity is not
+        // this form's failure to report, and a late 401 has already been
+        // handled, or correctly ignored, by the auth layer.
+        if (!isCurrent(identity) || controller.signal.aborted) {
+          return
+        }
+
+        setState({ status: 'failed', ...toFailure(error) })
+      } finally {
+        if (controllerRef.current === controller) {
+          controllerRef.current = null
+          submittingRef.current = false
+        }
+      }
+    },
+    [dataSession, isCurrent, onSaved],
+  )
+
+  return { state, submit, reset }
+}

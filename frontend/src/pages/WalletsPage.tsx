@@ -1,21 +1,25 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useCallback } from 'react'
 import { useSearchParams } from 'react-router'
 
 import { describeApiError, type Pagination, type Wallet } from '../api/index.ts'
 import { useAuth } from '../auth/useAuth.ts'
+import type { IdentityRef } from '../data/identityKeys.ts'
 import { MAX_PAGE, parsePageParam } from '../wallets/page.ts'
-import { walletListQuery } from '../wallets/walletQueries.ts'
+import { isWalletListKeyFor, walletListQuery } from '../wallets/walletQueries.ts'
+import { WalletCreateForm } from '../wallets/WalletCreateForm.tsx'
 
 /**
  * The saved wallets of the signed-in account.
  *
- * One read-only slice: the rows come from the API, the owner comes from the
+ * One read and one write: the rows come from the API, the owner comes from the
  * bearer, and every state on screen says what actually happened. There is no
- * create, edit or delete control here, and no figure that the API did not send.
+ * edit or delete control here, and no figure that the API did not send.
  */
 export function WalletsPage() {
   const { dataSession } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
+  const queryClient = useQueryClient()
 
   // The page lives in the URL, so a reload, a back button and a shared link all
   // land on the same page. Anything malformed is page 1, never a crash.
@@ -24,11 +28,38 @@ export function WalletsPage() {
 
   const { data, error, isPending, isFetching, refetch } = query
 
-  const goToPage = (next: number): void => {
-    const params = new URLSearchParams(searchParams)
-    params.set('page', String(next))
-    setSearchParams(params)
-  }
+  const goToPage = useCallback(
+    (next: number): void => {
+      const params = new URLSearchParams(searchParams)
+      params.set('page', String(next))
+      setSearchParams(params)
+    },
+    [searchParams, setSearchParams],
+  )
+
+  /**
+   * After a save that belongs to the identity still presented.
+   *
+   * The pages of that identity are invalidated, and cancelling on invalidate is
+   * what stops a list response that was already on the wire from landing after
+   * the fresh one and overwriting it. The URL then returns to page 1, because a
+   * new wallet is saved at the top of the list and a page the user was on
+   * earlier no longer describes the data behind it.
+   *
+   * A refresh that fails is the list's failure to report, not the save's: the
+   * save already answered 201, and the list shows its own error with its own
+   * Retry.
+   */
+  const handleSaved = useCallback(
+    (identity: IdentityRef): void => {
+      void queryClient.invalidateQueries({ predicate: isWalletListKeyFor(identity) })
+
+      if (page !== 1) {
+        goToPage(1)
+      }
+    },
+    [goToPage, page, queryClient],
+  )
 
   if (dataSession === null) {
     return (
@@ -42,6 +73,8 @@ export function WalletsPage() {
   return (
     <main className="page" aria-busy={isPending}>
       <h1>Wallets</h1>
+
+      <WalletCreateForm dataSession={dataSession} onSaved={handleSaved} />
 
       {error !== null && (
         // A failed wallet read is a data error, not a lost session. It clears
@@ -144,8 +177,7 @@ function EmptyWallets({ pagination, page, onPage }: EmptyWalletsProps) {
   if (pagination.totalItems === 0) {
     return (
       <p role="status">
-        You have no saved wallets yet. Wallets are added from the API in this
-        slice; there is no create control here yet.
+        You have no saved wallets yet. Add one with the form above.
       </p>
     )
   }
