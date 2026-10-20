@@ -75,6 +75,33 @@ export type ListWalletsParams = {
   pageSize: number
 }
 
+/**
+ * GET /api/v1/chains, one row of the public catalog.
+ *
+ * Exactly the four fields the handler sends. There is no `enabled` flag here:
+ * the route returns enabled chains only, so a disabled chain is absent rather
+ * than present and false.
+ */
+export type Chain = {
+  chainId: number
+  name: string
+  symbol: string
+  isTestnet: boolean
+}
+
+/**
+ * POST /api/v1/wallets, the request body.
+ *
+ * Three fields and no more. The handler decodes with unknown fields
+ * disallowed, so a fourth key is a 400 rather than an ignored extra, and the
+ * owner is never a body field the client could get wrong.
+ */
+export type CreateWalletRequest = {
+  address: string
+  chainId: number
+  label: string
+}
+
 export type RegisterRequest = {
   email: string
   password: string

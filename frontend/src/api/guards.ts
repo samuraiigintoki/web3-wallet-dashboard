@@ -7,6 +7,7 @@
  */
 
 import type {
+  Chain,
   LoginResult,
   MessageResult,
   Pagination,
@@ -127,6 +128,43 @@ export function isCollectionPagination(value: unknown): value is Pagination {
     isSafeInteger(value.totalPages) &&
     value.totalPages >= 0
   )
+}
+
+/**
+ * One row of the public chain catalog.
+ *
+ * Every consumed field is checked. `chainId` becomes the `chainId` this client
+ * sends back on create and the value a saved row is matched against, so a
+ * float or a numeric string would both build a request the server rejects and
+ * an option that can never match a saved row. `isTestnet` is a real boolean
+ * because the option label is chosen on it.
+ */
+export function isChain(value: unknown): value is Chain {
+  return (
+    isRecord(value) &&
+    isSafeInteger(value.chainId) &&
+    value.chainId > 0 &&
+    typeof value.name === 'string' &&
+    typeof value.symbol === 'string' &&
+    typeof value.isTestnet === 'boolean'
+  )
+}
+
+/**
+ * The whole catalog, or nothing.
+ *
+ * An empty catalog is a valid answer and is preserved: it means this
+ * deployment has no enabled chains, which is a real state the form has to
+ * render. A catalog with one unusable row is not, for the same reason a bad
+ * wallet row fails the whole page: showing half a list of chains would let a
+ * user pick an option whose fields the client never actually read.
+ */
+export function isChainList(value: unknown): value is Chain[] {
+  if (!Array.isArray(value)) {
+    return false
+  }
+
+  return value.every((entry: unknown) => isChain(entry))
 }
 
 /**

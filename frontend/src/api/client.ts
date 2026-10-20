@@ -12,6 +12,7 @@ import {
   isLoginResult,
   isMessageResult,
   isUser,
+  isWallet,
   isWalletList,
 } from './guards.ts'
 import {
@@ -21,6 +22,7 @@ import {
   type RequestDependencies,
 } from './request.ts'
 import type {
+  CreateWalletRequest,
   ListWalletsParams,
   LoginRequest,
   LoginResult,
@@ -28,6 +30,7 @@ import type {
   Pagination,
   RegisterRequest,
   User,
+  Wallet,
   WalletList,
 } from './types.ts'
 
@@ -41,6 +44,8 @@ export type ApiClient = {
   getMe: (init?: CallInit) => Promise<User>
   /** The caller's own wallets, one page. The owner comes from the bearer. */
   listWallets: (params: ListWalletsParams, init?: CallInit) => Promise<WalletList>
+  /** Saves one wallet for the caller. The owner comes from the bearer. */
+  createWallet: (body: CreateWalletRequest, init?: CallInit) => Promise<Wallet>
 }
 
 /** A body is required where the contract says one is returned. */
@@ -194,6 +199,29 @@ export function createApiClient(dependencies: RequestDependencies): ApiClient {
         wallets: requireData(result),
         pagination: requirePagination(result, params),
       }
+    },
+
+    async createWallet(body, init) {
+      // Owner-scoped by construction, exactly like the list: the handler takes
+      // the owner from the bearer, so no user id is sent and none can be sent.
+      //
+      // Selected field by field rather than forwarded. The handler decodes with
+      // unknown fields disallowed, so a fourth key is a 400 rather than an
+      // ignored extra, and a caller that hands over its whole form state, error
+      // messages and all, still sends exactly three fields.
+      const result = await request({
+        method: 'POST',
+        path: '/wallets',
+        auth: true,
+        body: { address: body.address, chainId: body.chainId, label: body.label },
+        // All five fields, including createdAt. A row missing the timestamp is
+        // not a row this client can render or key, so it is a contract
+        // violation rather than a wallet with a blank cell.
+        guard: isWallet,
+        signal: init?.signal,
+      })
+
+      return requireData(result)
     },
   }
 }

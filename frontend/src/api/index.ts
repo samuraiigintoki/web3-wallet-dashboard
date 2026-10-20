@@ -1,5 +1,10 @@
 export { createApiClient, type ApiClient } from './client.ts'
 export {
+  chainCatalog,
+  createChainCatalog,
+  type ChainCatalog,
+} from './chains.ts'
+export {
   ApiError,
   isApiError,
   isServerErrorCode,
@@ -21,6 +26,8 @@ export {
   type RequestOptions,
 } from './request.ts'
 export type {
+  Chain,
+  CreateWalletRequest,
   ListWalletsParams,
   LoginRequest,
   LoginResult,
@@ -31,3 +38,4 @@ export type {
   Wallet,
   WalletList,
 } from './types.ts'
+export { isChain, isChainList } from './guards.ts'

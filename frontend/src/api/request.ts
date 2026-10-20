@@ -149,7 +149,7 @@ export function createRequest(dependencies: RequestDependencies): RequestFn {
   const {
     getToken,
     onUnauthorized,
-    fetchImpl = globalThis.fetch.bind(globalThis),
+    fetchImpl: configuredFetch,
     timeoutMs = DEFAULT_TIMEOUT_MS,
   } = dependencies
 
@@ -157,6 +157,18 @@ export function createRequest(dependencies: RequestDependencies): RequestFn {
     options: RequestOptions<T>,
   ): Promise<ApiResult<T>> {
     const { method, path, body, auth = false, guard, signal } = options
+
+    /**
+     * Resolved per request rather than captured when the client was built.
+     *
+     * A client that held one reference to `globalThis.fetch` would keep using
+     * it forever, which makes a long-lived client impossible to point at
+     * another implementation after it exists. The catalog is such a client: it
+     * is built once for the whole application. Reading the global at call time
+     * keeps the injected seam and the real one behaving identically.
+     */
+    const fetchImpl = configuredFetch ?? globalThis.fetch.bind(globalThis)
+
 
     assertRelativePath(path)
 
