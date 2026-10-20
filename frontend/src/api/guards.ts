@@ -42,10 +42,20 @@ export function isPagination(value: unknown): value is Pagination {
   )
 }
 
+/**
+ * The identity of the signed-in user.
+ *
+ * `id` is a safe positive integer or it is not an identity. It is copied
+ * straight into a cache key, so a float, a value beyond 2^53, a numeric string
+ * or a non-positive number would build a key that no real user owns and let a
+ * response that is not an identity open a data session. It is rejected here, at
+ * the seam, and never rounded or coerced into something that looks valid.
+ */
 export function isUser(value: unknown): value is User {
   return (
     isRecord(value) &&
-    isFiniteNumber(value.id) &&
+    isSafeInteger(value.id) &&
+    value.id > 0 &&
     typeof value.email === 'string' &&
     typeof value.createdAt === 'string'
   )

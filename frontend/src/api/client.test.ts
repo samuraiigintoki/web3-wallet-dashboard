@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { errorResponse, hangingFetch, jsonResponse, stubFetch } from '../test/http.ts'
 import { createApiClient } from './client.ts'
+import { ApiError, isApiError } from './errors.ts'
 import { API_BASE } from './request.ts'
 import type { LoginRequest, RegisterRequest } from './types.ts'
 
@@ -148,5 +149,40 @@ describe('api client', () => {
     controller.abort()
 
     expect(await settled).toMatchObject({ code: 'ABORTED', status: 0 })
+  })
+})
+
+/**
+ * A user id becomes a cache identity, so a value that is not a real identifier
+ * has to fail at the seam rather than be rounded into one.
+ */
+describe('user identity validation', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it.each([
+    ['a fractional id', { ...USER, id: 1.5 }],
+    ['an id beyond safe integers', { ...USER, id: 2 ** 53 }],
+    ['an id as a string', { ...USER, id: '3' }],
+    ['a zero id', { ...USER, id: 0 }],
+    ['a negative id', { ...USER, id: -1 }],
+    ['a missing id', { email: USER.email, createdAt: USER.createdAt }],
+    ['a null id', { ...USER, id: null }],
+  ])('rejects a /users/me reply carrying %s', async (_name, body) => {
+    stubFetch(() => jsonResponse({ data: body }))
+
+    const error = await client(() => TOKEN)
+      .getMe()
+      .catch((thrown: unknown) => thrown)
+
+    expect(isApiError(error)).toBe(true)
+    expect((error as ApiError).code).toBe('UNEXPECTED_RESPONSE')
+  })
+
+  it('accepts the id the API actually issues', async () => {
+    stubFetch(() => jsonResponse({ data: USER }))
+
+    await expect(client(() => TOKEN).getMe()).resolves.toEqual(USER)
   })
 })
