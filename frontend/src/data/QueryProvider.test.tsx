@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { errorResponse, jsonResponse, pendingResponse, stubFetch } from '../test/http.ts'
 import { otherTabStores } from '../test/crossTab.ts'
 import { createTokenStorage, SESSION_TOKEN_KEY } from '../auth/storage.ts'
+import { isProtectedKey } from './identityKeys.ts'
 import { currentPath, renderApp } from '../test/renderApp.tsx'
 import { PAGE_SIZE } from '../wallets/page.ts'
 
@@ -53,6 +54,34 @@ function userForToken(token: string) {
   return token === TOKEN_B ? USER_B : USER_A
 }
 
+/**
+ * The public chain catalog.
+ *
+ * The wallets screen reads it, so every stub here has to answer it. It is not a
+ * wallet request and must not count as one: these tests measure exactly how
+ * many wallet reads happen, and a catalog call in that count would make every
+ * number wrong.
+ */
+/**
+ * The cached entries a guard is responsible for.
+ *
+ * The public chain catalog is in the same cache and is deliberately not
+ * protected: it belongs to no identity, so it is expected to survive a sign-out
+ * and counting it would make every assertion here about nothing.
+ */
+function protectedQueries(queryClient: QueryClient) {
+  return queryClient
+    .getQueryCache()
+    .getAll()
+    .filter((query) => isProtectedKey(query.queryKey))
+}
+
+function chainsResponse() {
+  return jsonResponse({
+    data: [{ chainId: 11155111, name: 'Sepolia', symbol: 'ETH', isTestnet: true }],
+  })
+}
+
 function button(name: string): HTMLButtonElement {
   return screen.getByRole('button', { name }) as HTMLButtonElement
 }
@@ -96,6 +125,10 @@ describe('identity-bound wallet data', () => {
       if (url.includes('/users/me')) {
         return held.promise
       }
+      if (url.includes('/chains')) {
+        return chainsResponse()
+      }
+
       walletCalls += 1
       return pageResponse([])
     })
@@ -123,6 +156,10 @@ describe('identity-bound wallet data', () => {
     stubFetch((url, init) => {
       if (url.includes('/users/me')) {
         return jsonResponse({ data: userForToken(tokenOf(init)) })
+      }
+
+      if (url.includes('/chains')) {
+        return chainsResponse()
       }
 
       walletCalls += 1
@@ -172,6 +209,10 @@ describe('identity-bound wallet data', () => {
         return jsonResponse({ data: userForToken(tokenOf(init)) })
       }
 
+      if (url.includes('/chains')) {
+        return chainsResponse()
+      }
+
       walletCalls += 1
       sentTokens.push(tokenOf(init))
       return walletCalls === 1 ? lateA.promise : pageResponse([WALLET_B])
@@ -201,6 +242,10 @@ describe('identity-bound wallet data', () => {
     stubFetch((url, init) => {
       if (url.includes('/users/me')) {
         return jsonResponse({ data: userForToken(tokenOf(init)) })
+      }
+
+      if (url.includes('/chains')) {
+        return chainsResponse()
       }
 
       walletCalls += 1
@@ -239,6 +284,10 @@ describe('identity-bound wallet data', () => {
       // Same account, new credential: /users/me answers for both.
       if (url.includes('/users/me')) {
         return jsonResponse({ data: USER_A })
+      }
+
+      if (url.includes('/chains')) {
+        return chainsResponse()
       }
 
       walletCalls += 1
@@ -287,6 +336,10 @@ describe('identity-bound wallet data', () => {
         return jsonResponse({ data: userForToken(tokenOf(init)) })
       }
 
+      if (url.includes('/chains')) {
+        return chainsResponse()
+      }
+
       walletCalls += 1
       return walletCalls === 1
         ? pageResponse([WALLET_A], {
@@ -304,7 +357,7 @@ describe('identity-bound wallet data', () => {
     await waitFor(() => {
       expect(screen.getByText(WALLET_A.label)).toBeDefined()
     })
-    expect(queryClient.getQueryCache().getAll()).toHaveLength(1)
+    expect(protectedQueries(queryClient)).toHaveLength(1)
 
     // A second protected read on the same identity, still open.
     await user.click(button('Next'))
@@ -321,8 +374,9 @@ describe('identity-bound wallet data', () => {
     expect(storage.read()).toBeNull()
 
     // Both pages are gone, not just unreachable, and no read was started for a
-    // session that no longer exists.
-    expect(queryClient.getQueryCache().getAll()).toHaveLength(0)
+    // session that no longer exists. The public catalog is still there, and
+    // that is intended: it was never this identity's to drop.
+    expect(protectedQueries(queryClient)).toHaveLength(0)
     await settle()
     expect(walletCalls).toBe(2)
   })
@@ -337,6 +391,10 @@ describe('identity-bound wallet data', () => {
       }
       if (url.includes('/auth/logout')) {
         return jsonResponse({ data: { message: 'signed out' } })
+      }
+
+      if (url.includes('/chains')) {
+        return chainsResponse()
       }
 
       walletCalls += 1

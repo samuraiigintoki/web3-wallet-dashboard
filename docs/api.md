@@ -324,13 +324,17 @@ Validation:
 - Request body size bounded to 1 MB maximum.
 
 Success: `201 Created`.
+
+Every entry carries exactly five fields: `id`, `address`, `chainId`, `label` and `createdAt`. `createdAt` is RFC3339 from `time.Time` (UTC if the value is UTC), and it is set by the server on create, so it is present on this response too.
+
 ```json
 {
   "data": {
     "id": 1,
     "address": "0x0000000000000000000000000000000000000001",
     "chainId": 11155111,
-    "label": "Primary Sepolia signer"
+    "label": "Primary Sepolia signer",
+    "createdAt": "2026-09-18T10:00:00Z"
   }
 }
 ```
