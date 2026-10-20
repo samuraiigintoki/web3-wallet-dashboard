@@ -1,4 +1,5 @@
 import { BrowserRouter, Route, Routes } from 'react-router'
+import type { QueryClient } from '@tanstack/react-query'
 
 import { AuthProvider } from './auth/AuthProvider.tsx'
 import { QueryProvider } from './data/QueryProvider.tsx'
@@ -21,9 +22,13 @@ import { RequireAuth } from './routes/RequireAuth.tsx'
  * The query provider sits inside the auth provider and around the routes, so no
  * data view can mount without an identity and none can outlive one.
  */
-export function AppRoutes() {
+/**
+ * `queryClient` is a seam for tests. The application builds its own, and the
+ * only reason to pass one is to look inside the cache afterwards.
+ */
+export function AppRoutes({ queryClient }: { queryClient?: QueryClient } = {}) {
   return (
-    <QueryProvider>
+    <QueryProvider client={queryClient}>
       <Routes>
         <Route element={<GuestOnly />}>
           <Route path="/login" element={<LoginPage />} />

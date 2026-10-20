@@ -134,15 +134,27 @@ export function AuthProvider({ children, storage = tokenStorage }: AuthProviderP
    */
   const onUnauthorized = useCallback(
     (sentToken: string): void => {
+      // The ownership check comes first and is unchanged: a 401 for a
+      // credential this tab no longer holds, or one the shared store has
+      // already replaced, describes a session nobody is using and must do
+      // nothing at all.
       if (sentToken !== credentialRef.current || storage.read() !== sentToken) {
         return
       }
 
+      // Retire the identity, not only the credential. Clearing the store left
+      // two things live: the generation stayed current, so the request that
+      // produced this answer was still allowed to finish as itself, and the
+      // data session stayed non-null, so the query layer never learned that
+      // the identity had ended and neither cancelled the reads it owned nor
+      // removed their cache. Ending the generation is what the first depends
+      // on, and dropping the data session is what the second watches for.
+      endIdentity()
       credentialRef.current = null
       storage.clear()
       setSession({ status: 'anonymous' })
     },
-    [storage],
+    [endIdentity, storage],
   )
 
   const client = useCallback((): ApiClient => {

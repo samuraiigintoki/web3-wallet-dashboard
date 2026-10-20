@@ -1,5 +1,6 @@
 import { render } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { QueryClient } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router'
 
 import { AppRoutes } from '../App.tsx'
@@ -16,7 +17,13 @@ export function memoryStorage(initial: string | null = null): TokenStorage {
 }
 
 export function renderApp(
-  options: { path?: string; storage?: TokenStorage; state?: unknown } = {},
+  options: {
+    path?: string
+    storage?: TokenStorage
+    state?: unknown
+    /** Lets a test inspect and seed the cache the routes share. */
+    queryClient?: QueryClient
+  } = {},
 ) {
   const storage = options.storage ?? memoryStorage()
   const user = userEvent.setup()
@@ -34,7 +41,7 @@ export function renderApp(
     <AuthProvider storage={storage}>
       <MemoryRouter initialEntries={[entry]}>
         <LocationProbe />
-        <AppRoutes />
+        <AppRoutes queryClient={options.queryClient} />
       </MemoryRouter>
     </AuthProvider>,
   )

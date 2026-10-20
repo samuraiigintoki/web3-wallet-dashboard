@@ -1,5 +1,5 @@
-import { render } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { AuthContextValue } from '../auth/session.ts'
@@ -99,6 +99,56 @@ describe('identity cache guard', () => {
     renderGuard(queryClient, null)
 
     expect(queryClient.getQueryCache().getAll()).toHaveLength(0)
+  })
+
+  it('cancels a protected read that is still running when the identity changes', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 60_000 } },
+    })
+    const key = [...identityKey(IDENTITY_A), 'wallets', 'list', 1, 20]
+    let aborted = false
+
+    function Probe() {
+      useQuery({
+        queryKey: key,
+        queryFn: async ({ signal }) => {
+          signal.addEventListener('abort', () => {
+            aborted = true
+          })
+          return await new Promise<typeof PAGE_A>(() => undefined)
+        },
+      })
+
+      return <p>reading</p>
+    }
+
+    // `reading` is the view that owned the read. It goes away with the
+    // identity, which is what happens in the application: the screen that was
+    // showing those rows is not on screen any more once the session ends.
+    const view = (identity: AuthContextValue['dataSession'], reading: boolean) => (
+      <QueryClientProvider client={queryClient}>
+        <AuthContext value={authValue(identity)}>
+          <QueryProvider client={queryClient}>
+            {reading ? <Probe /> : null}
+          </QueryProvider>
+        </AuthContext>
+      </QueryClientProvider>
+    )
+
+    const { rerender } = render(view(dataSessionFor(IDENTITY_A), true))
+
+    await waitFor(() => {
+      expect(queryClient.getQueryCache().getAll()).toHaveLength(1)
+    })
+    expect(aborted).toBe(false)
+
+    rerender(view(dataSessionFor(IDENTITY_B), false))
+
+    await waitFor(() => {
+      expect(aborted).toBe(true)
+    })
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(0)
+    expect(screen.queryByText('reading')).toBeNull()
   })
 
   it('keeps the page belonging to the identity that is current', () => {

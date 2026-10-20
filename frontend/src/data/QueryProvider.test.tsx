@@ -1,4 +1,5 @@
 import { act, screen, waitFor } from '@testing-library/react'
+import { QueryClient } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { errorResponse, jsonResponse, pendingResponse, stubFetch } from '../test/http.ts'
@@ -50,6 +51,18 @@ function tokenOf(init: RequestInit): string {
 
 function userForToken(token: string) {
   return token === TOKEN_B ? USER_B : USER_A
+}
+
+function button(name: string): HTMLButtonElement {
+  return screen.getByRole('button', { name }) as HTMLButtonElement
+}
+
+/**
+ * A client whose entries nothing but the identity transition can collect: the
+ * default collection window is long, so a missing entry means it was removed.
+ */
+function inspectableClient(): QueryClient {
+  return new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 60_000 } } })
 }
 
 /** Starts this tab on a credential the real shared store already holds. */
@@ -253,6 +266,65 @@ describe('identity-bound wallet data', () => {
 
     expect(screen.queryByText(WALLET_STALE.label)).toBeNull()
     expect(screen.getByText(WALLET_A.label)).toBeDefined()
+  })
+
+  /**
+   * The gap this covers: clearing the credential and going anonymous is not the
+   * same as ending the identity. Without retiring the generation and dropping
+   * the data capability, the query layer never learns the session is gone, so
+   * the pages it owns stay in the cache and a read still running keeps running.
+   *
+   * The client is built with a long collection window, so nothing but the
+   * identity transition can explain a missing entry.
+   */
+  it('retires the data identity when the credential this tab uses is rejected', async () => {
+    const queryClient = inspectableClient()
+    const heldPageTwo = pendingResponse<Response>()
+    let walletCalls = 0
+
+    stubFetch((url, init) => {
+      if (url.includes('/users/me')) {
+        return jsonResponse({ data: userForToken(tokenOf(init)) })
+      }
+
+      walletCalls += 1
+      return walletCalls === 1
+        ? pageResponse([WALLET_A], {
+            page: 1,
+            pageSize: PAGE_SIZE,
+            totalItems: 21,
+            totalPages: 2,
+          })
+        : heldPageTwo.promise
+    })
+
+    const storage = storageHolding(TOKEN_A)
+    const { user } = renderApp({ path: '/wallets', storage, queryClient })
+
+    await waitFor(() => {
+      expect(screen.getByText(WALLET_A.label)).toBeDefined()
+    })
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(1)
+
+    // A second protected read on the same identity, still open.
+    await user.click(button('Next'))
+    await waitFor(() => {
+      expect(walletCalls).toBe(2)
+    })
+
+    // The API rejects the credential this tab is actually using.
+    heldPageTwo.resolve(errorResponse(401, 'UNAUTHENTICATED'))
+
+    await waitFor(() => {
+      expect(currentPath()).toBe('/login')
+    })
+    expect(storage.read()).toBeNull()
+
+    // Both pages are gone, not just unreachable, and no read was started for a
+    // session that no longer exists.
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(0)
+    await settle()
+    expect(walletCalls).toBe(2)
   })
 
   it('drops the cached page when the session ends', async () => {
