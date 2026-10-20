@@ -1,0 +1,67 @@
+/*
+ * Two variants, both at the control floor.
+ *
+ * Colour changes are immediate: nothing here transitions a background or a
+ * foreground, so the pending state is visible the moment it happens. The only
+ * transition is the press, which moves by a pixel and is switched off under
+ * reduced motion.
+ */
+
+/* The rules sit in the components layer, the last of the three tokens.css
+   declares. Unlayered rules outrank every layer. */
+
+@layer components {
+  .button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    min-block-size: var(--row-height);
+    padding-inline: var(--space-4);
+    font-weight: 600;
+    border: 1px solid transparent;
+    border-radius: var(--radius-control);
+    cursor: pointer;
+    transition: transform var(--duration-press) var(--ease-out);
+  }
+
+  .primary {
+    color: var(--accent-ink);
+    background: var(--accent);
+  }
+
+  .primary:hover:not(:disabled) {
+    background: var(--accent-hover);
+  }
+
+  .secondary {
+    color: var(--text-1);
+    background: var(--bg-1);
+    border-color: var(--line-control);
+  }
+
+  .secondary:hover:not(:disabled) {
+    background: var(--bg-3);
+  }
+
+  .button:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+
+  /* A control that cannot be used is muted and loses its boundary, rather than
+     keeping a border that reads as an affordance. */
+  .button:disabled {
+    color: var(--text-disabled);
+    background: var(--bg-3);
+    border-color: transparent;
+    cursor: default;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .button,
+    .button:active:not(:disabled) {
+      transition: none;
+      transform: none;
+    }
+  }
+}

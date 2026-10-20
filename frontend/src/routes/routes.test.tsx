@@ -20,7 +20,9 @@ describe('route guard', () => {
       await waitFor(() => {
         expect(currentPath()).toBe('/login')
       })
-      expect(screen.getByRole('heading', { name: 'Sign in' })).toBeDefined()
+      expect(
+        screen.getByRole('heading', { name: 'Sign in to read the record.' }),
+      ).toBeDefined()
     },
   )
 
@@ -184,7 +186,9 @@ describe('guest-only routes', () => {
     renderApp({ path: '/login' })
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Sign in' })).toBeDefined()
+      expect(
+        screen.getByRole('heading', { name: 'Sign in to read the record.' }),
+      ).toBeDefined()
     })
     expect(currentPath()).toBe('/login')
   })
@@ -274,5 +278,22 @@ describe('unknown paths', () => {
       expect(screen.getByRole('heading', { name: 'Page not found' })).toBeDefined()
     })
     expect(currentPath()).toBe('/nowhere')
+  })
+
+  it('offers a recovery link to the overview, which the guard turns into login', async () => {
+    stubFetch(() => jsonResponse({ data: USER }))
+    const { user } = renderApp({ path: '/nowhere' })
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Page not found' })).toBeDefined()
+    })
+
+    const link = screen.getByRole('link', { name: 'Go to the overview' })
+    expect(link.getAttribute('href')).toBe('/')
+
+    await user.click(link)
+    await waitFor(() => {
+      expect(currentPath()).toBe('/login')
+    })
   })
 })
