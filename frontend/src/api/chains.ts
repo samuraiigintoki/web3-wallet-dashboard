@@ -27,12 +27,19 @@ export type ChainCatalog = {
   listChains: (init?: CallInit) => Promise<Chain[]>
 }
 
-export function createChainCatalog(): ChainCatalog {
+/**
+ * `onUnauthorized` is unreachable in production: the helper only reports a 401
+ * for a request that actually carried a token, and this client never has one to
+ * send. The parameter exists so that the guarantee can be observed rather than
+ * assumed, with a callback the test can count, instead of a counter wired to
+ * nothing.
+ */
+export function createChainCatalog(
+  onUnauthorized: () => void = () => undefined,
+): ChainCatalog {
   const request = createRequest({
     getToken: () => null,
-    // Unreachable: the catalog call never carries a credential, and the helper
-    // only reports a 401 for a request that actually sent one.
-    onUnauthorized: () => undefined,
+    onUnauthorized,
   })
 
   return {

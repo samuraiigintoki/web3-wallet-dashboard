@@ -314,12 +314,13 @@ describe('chain catalog call', () => {
   })
 
   it('never reaches the unauthorized callback, because it sends no credential', async () => {
-    let unauthorizedCalls = 0
-    // The catalog client is built with a callback that would fail the run.
-    const catalog = createChainCatalog()
+    // Connected to the callback the helper actually calls, so the assertion
+    // below is an observation rather than a variable nothing writes to.
+    const onUnauthorized = vi.fn()
+    const catalog = createChainCatalog(onUnauthorized)
     stubFetch(() => errorResponse(401, 'UNAUTHENTICATED'))
 
     await expect(catalog.listChains()).rejects.toBeInstanceOf(ApiError)
-    expect(unauthorizedCalls).toBe(0)
+    expect(onUnauthorized).not.toHaveBeenCalled()
   })
 })
