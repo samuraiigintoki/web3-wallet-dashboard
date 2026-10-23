@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   errorResponse,
+  hangingFetch,
   jsonResponse,
   pendingResponse,
   plainTextResponse,
@@ -11,6 +12,7 @@ import {
   type FetchCall,
 } from '../test/http.ts'
 import { currentPath, memoryStorage, renderApp } from '../test/renderApp.tsx'
+import { createQueryClient } from '../data/queryClient.ts'
 import { PAGE_SIZE } from './page.ts'
 
 const USER = { id: 5, email: 'ada@example.com', createdAt: '2026-10-06T12:00:00Z' }
@@ -502,6 +504,97 @@ describe('wallets page', () => {
     if (readback !== null) {
       expect(readback.textContent).toContain('Renamed on the server')
     }
+  })
+
+  /** Wallet GETs, which is what a revived read would add to. */
+  function walletGets(calls: FetchCall[]): FetchCall[] {
+    return walletCalls(calls).filter((call) => (call.init.method ?? 'GET') === 'GET')
+  }
+
+  it('revives no cached work for a check whose session ended while it waited', async () => {
+    const heldLogout = pendingResponse<Response>()
+    const queryClient = createQueryClient()
+    let listCalls = 0
+
+    const fetchStub = apiFetch((url, init) => {
+      // The sign-out answer is held, so the identity is retired while this
+      // screen is still mounted and still holding the check.
+      if (url.includes('/auth/logout')) {
+        return heldLogout.promise
+      }
+
+      if (init.method === 'PATCH') {
+        return plainTextResponse(502, 'Bad Gateway')
+      }
+
+      listCalls += 1
+
+      // The first load answers. The check's read is a request that only settles
+      // when it is aborted, which is what a real cancelled fetch does.
+      return listCalls === 1 ? pageResponse([WALLET_A]) : hangingFetch(url, init)
+    })
+
+    const { user } = renderApp({
+      path: '/wallets',
+      storage: memoryStorage('stored-token'),
+      queryClient,
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('Primary signer')).toBeDefined()
+    })
+
+    const ownerKeys = queryClient
+      .getQueryCache()
+      .findAll({ queryKey: ['identity', USER.id] })
+      .map((query) => query.queryKey)
+
+    expect(ownerKeys.length).toBeGreaterThan(0)
+
+    await user.click(screen.getByRole('button', { name: 'Edit label' }))
+    await user.click(screen.getByRole('button', { name: 'Save label' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('may or may not have been saved')
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Check the list' }))
+
+    await waitFor(() => {
+      expect(listCalls).toBe(2)
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Sign out' }))
+
+    // No session, and this page is still mounted: a check keyed on "is the
+    // editor still open" would think it is free to carry on.
+    await waitFor(() => {
+      expect(screen.getByRole('status').textContent).toContain('Waiting for your session')
+    })
+
+    const getsBefore = walletGets(fetchStub.calls).length
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    // The aborted check settles here, and its continuation must not read again.
+    // A read would both issue a request with a credential this tab has given up
+    // and put the retired identity's page back into a cache the sign-out
+    // dropped.
+    expect(walletGets(fetchStub.calls)).toHaveLength(getsBefore)
+    expect(
+      queryClient.getQueryCache().findAll({ queryKey: ['identity', USER.id] }),
+    ).toHaveLength(0)
+
+    heldLogout.resolve(jsonResponse({ data: { message: 'signed out' } }))
+    await waitFor(() => {
+      expect(currentPath()).toBe('/login')
+    })
+    expect(walletGets(fetchStub.calls)).toHaveLength(getsBefore)
+    expect(
+      queryClient.getQueryCache().findAll({ queryKey: ['identity', USER.id] }),
+    ).toHaveLength(0)
   })
 
   it('retires a selection whose row a refresh dropped', async () => {

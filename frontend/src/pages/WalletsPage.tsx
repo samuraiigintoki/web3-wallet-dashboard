@@ -129,6 +129,28 @@ export function WalletsPage() {
   }, [])
 
   /**
+   * What this page is presented for right now: whose data, which credential
+   * generation, and which page of it.
+   *
+   * Written whenever the session or the page changes, so an asynchronous
+   * continuation can ask what is true now instead of what was true when it
+   * started. A captured `dataSession` is a value, not a fact: sign-out, a
+   * credential replacement in this tab or another, or the guard clearing the
+   * cache all happen while a read is on the wire, and this page can still be
+   * mounted with no session at all while a held logout answer is outstanding.
+   * Deciding from the captured value is what revives a retired identity's
+   * request.
+   */
+  const liveView = useRef<{ session: DataSession | null; page: number }>({
+    session: dataSession,
+    page,
+  })
+
+  useEffect(() => {
+    liveView.current = { session: dataSession, page }
+  }, [dataSession, page])
+
+  /**
    * A manual read of this identity's list, for an outcome the client could not
    * confirm.
    *
@@ -166,16 +188,53 @@ export function WalletsPage() {
    */
   const readBackWallet = useCallback(
     async (walletId: number): Promise<Wallet | null> => {
-      if (dataSession === null) {
+      const owner = dataSession
+      const ownerPage = page
+
+      if (owner === null) {
         return null
       }
 
+      /**
+       * True while the owner that asked for this read is still the one on
+       * screen.
+       *
+       * The whole identity, not only the user: a replacement credential is a
+       * different session for the same account and its cache is kept apart, so
+       * a read started under the old one has no business filling the new one
+       * either. The page is part of it because a read is a read of one page, and
+       * one the user has paged away from has nobody to show it to.
+       */
+      const ownerIsCurrent = (): boolean => {
+        const live = liveView.current
+        return (
+          live.session !== null &&
+          live.session.userId === owner.userId &&
+          live.session.generation === owner.generation &&
+          live.page === ownerPage
+        )
+      }
+
       await refreshWalletLists(queryClient, {
-        userId: dataSession.userId,
-        generation: dataSession.generation,
+        userId: owner.userId,
+        generation: owner.generation,
       })
 
-      const refreshed = await queryClient.fetchQuery(walletListQuery(dataSession, page))
+      // The wait above ends the moment another refresh cancels this one, which
+      // is exactly when the session may also have been retired. Starting the
+      // read now would put the retired identity's page back into a cache the
+      // sign-out just cleared, with a credential that is no longer anyone's.
+      if (!ownerIsCurrent()) {
+        throw new Error('the session that asked for this read has ended')
+      }
+
+      const refreshed = await queryClient.fetchQuery(walletListQuery(owner, ownerPage))
+
+      // The same question after the second wait: the answer is only this
+      // owner's to report.
+      if (!ownerIsCurrent()) {
+        return null
+      }
 
       return refreshed.wallets.find((wallet) => wallet.id === walletId) ?? null
     },

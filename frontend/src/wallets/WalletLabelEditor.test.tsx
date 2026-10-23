@@ -7,14 +7,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ApiClient, User, Wallet } from '../api/index.ts'
 import { createTokenStorage, type TokenStorage } from '../auth/storage.ts'
 import type { DataSession } from '../auth/session.ts'
-import { otherTabStores } from '../test/crossTab.ts'
+import { otherTabRemoves, otherTabStores } from '../test/crossTab.ts'
 import {
   errorResponse,
+  hangingFetch,
   jsonResponse,
   pendingResponse,
   plainTextResponse,
   stubFetch,
 } from '../test/http.ts'
+import { createQueryClient } from '../data/queryClient.ts'
 import { currentPath, renderApp } from '../test/renderApp.tsx'
 import { PAGE_SIZE } from './page.ts'
 import { WalletLabelEditor } from './WalletLabelEditor.tsx'
@@ -515,7 +517,6 @@ describe('wallet label editor', () => {
     await waitFor(() => {
       expect(screen.getByText(USER_B.email)).toBeDefined()
     })
-
     const before = api.listCalls
     held.resolve(updatedResponse())
 
@@ -702,6 +703,113 @@ describe('wallet label editor', () => {
     expect(screen.queryByText('The list could not be read. Try again.')).toBeNull()
     expect(labelInput().value).toBe('Second rename')
     expect(screen.getByText(/may or may not have been saved/)).toBeDefined()
+  })
+
+  /**
+   * A check whose owner goes away while its read is on the wire.
+   *
+   * The editor's own fence silences the UI, but the page behind it still owns
+   * the read, so what these assert is the work that must not be revived: a
+   * request under a credential nobody holds, and a protected query back in a
+   * cache its retirement already cleared.
+   */
+  async function startHeldCheck(
+    list: (call: number, init: RequestInit) => Response | Promise<Response>,
+    options: { user?: (token: string) => Response } = {},
+  ) {
+    const queryClient = createQueryClient()
+    const api = stubApi({
+      patch: () => plainTextResponse(502, 'Bad Gateway'),
+      list,
+      ...(options.user === undefined ? {} : { me: options.user }),
+    })
+    const rendered = renderApp({
+      path: '/wallets',
+      storage: realStorage('token-a'),
+      queryClient,
+    })
+
+    await openEditor(rendered.user)
+    await rendered.user.click(saveButton())
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('may or may not have been saved')
+    })
+    await rendered.user.click(within(editorForm()).getByRole('button', { name: 'Check the list' }))
+
+    return { api, queryClient, ...rendered }
+  }
+
+  /** The protected queries this account owns, if any are still in the cache. */
+  function ownerQueries(queryClient: QueryClient): number {
+    return queryClient.getQueryCache().findAll({ queryKey: ['identity', USER_A.id] }).length
+  }
+
+  /** Every key in the cache, for "nothing new appeared" comparisons. */
+  function cacheKeys(queryClient: QueryClient): string {
+    return JSON.stringify(queryClient.getQueryCache().getAll().map((query) => query.queryKey))
+  }
+
+  it('revives nothing for a check whose credential another tab removed', async () => {
+    const { api, queryClient } = await startHeldCheck((call, init) =>
+      call === 1 ? listResponse([WALLET_1]) : hangingFetch('', init),
+    )
+
+    await waitFor(() => {
+      expect(api.listCalls).toBe(2)
+    })
+
+    act(() => {
+      otherTabRemoves()
+    })
+
+    await waitFor(() => {
+      expect(currentPath()).toBe('/login')
+    })
+    await settle()
+
+    const before = api.listCalls
+    const keysBefore = cacheKeys(queryClient)
+    await settle()
+
+    // The retired identity's read must not come back to life: no request, and
+    // no entry put back into a cache its retirement already cleared.
+    expect(api.listCalls).toBe(before)
+    expect(cacheKeys(queryClient)).toBe(keysBefore)
+    expect(currentPath()).toBe('/login')
+  })
+
+  it('revives nothing under a credential another account replaced', async () => {
+    const requests: string[] = []
+    const { api, queryClient } = await startHeldCheck(
+      (call, init) => {
+        requests.push(new Headers(init.headers).get('authorization') ?? '')
+        return call === 1 ? listResponse([WALLET_1]) : hangingFetch('', init)
+      },
+      { user: (token) => jsonResponse({ data: token === 'token-b' ? USER_B : USER_A }) },
+    )
+
+    await waitFor(() => {
+      expect(api.listCalls).toBe(2)
+    })
+
+    act(() => {
+      otherTabStores('token-b')
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText(USER_B.email)).toBeDefined()
+    })
+    await settle()
+
+    const before = api.listCalls
+    const oldBefore = requests.filter((header) => header === 'Bearer token-a').length
+    await settle()
+
+    // Nothing starts for the retired identity, and nothing already started is
+    // re-run under it either.
+    expect(api.listCalls).toBe(before)
+    expect(requests.filter((header) => header === 'Bearer token-a')).toHaveLength(oldBefore)
+    expect(ownerQueries(queryClient)).toBe(0)
   })
 
   it('does not present a failed read as the stored value', async () => {
