@@ -17,6 +17,13 @@ import { ConfirmRemoveWallet } from '../wallets/ConfirmRemoveWallet.tsx'
 import { WalletCreateForm } from '../wallets/WalletCreateForm.tsx'
 import { WalletLabelEditor } from '../wallets/WalletLabelEditor.tsx'
 
+/** A settled removal, with the page that answered for it and when. */
+type SettledRemoval = {
+  id: number
+  page: number
+  at: number
+}
+
 /**
  * The saved wallets of the signed-in account.
  *
@@ -133,15 +140,20 @@ export function WalletsPage() {
 
   /**
    * Rows whose removal has been settled but whose list entry may still be on
-   * screen.
+   * screen, with the page that answered for them and when.
    *
    * A confirmed `204`, or the API's typed "already unavailable", is final for
-   * that record. The row only disappears when fresh server rows arrive, which
-   * may be a moment later or not at all if the refresh fails, and until then it
-   * must not offer to remove itself again. The entry is dropped once the
-   * arrived page no longer holds the row.
+   * that record. The row only disappears when a page holding it is read again,
+   * which may be a moment later or not at all if the refresh fails, and until
+   * then it must not offer to remove itself again.
+   *
+   * The page and the moment are what make the release honest. A different page
+   * not holding the row proves nothing: it never held it. Nor does the same page
+   * holding cached rows from before the answer. Only a response for the page
+   * this removal came from, arriving after it, and without the row, is the list
+   * saying the record is gone.
    */
-  const [settledRemovals, setSettledRemovals] = useState<readonly number[]>([])
+  const [settledRemovals, setSettledRemovals] = useState<readonly SettledRemoval[]>([])
 
   /**
    * True while a confirmation's delete is on the wire.
@@ -345,7 +357,9 @@ export function WalletsPage() {
       const address = wallet.address
 
       setSettledRemovals((previous) =>
-        previous.includes(wallet.id) ? previous : [...previous, wallet.id],
+        previous.some((entry) => entry.id === wallet.id)
+          ? previous
+          : [...previous, { id: wallet.id, page: ownerPage, at: Date.now() }],
       )
 
       /** True while this identity and this page are still the ones on screen. */
@@ -477,19 +491,34 @@ export function WalletsPage() {
   }
 
   /**
-   * A settled row is forgotten once the arrived page stops holding it.
+   * A settled row is forgotten only when its own page answers without it.
    *
-   * That is the only event that proves the list caught up: a refresh that failed,
-   * or has not answered yet, leaves the row on screen, and the row has to stay
-   * blocked for exactly as long as it is still there.
+   * Three things have to hold, and each of them is a way the release could lie.
+   * The page on screen must be the page that answered for the removal, because a
+   * page that never held the row lacking it says nothing. The rows on screen
+   * must have arrived after the answer, because until then they are the cache
+   * the removal has not yet overtaken, and the row is still there to be pressed.
+   * And the row must be absent from them.
+   *
+   * Paging away and back therefore keeps the row blocked. The page it came from
+   * is read again on the way back, and the block lifts when that read lands
+   * without the record, or with the record's page repaired around it.
    */
-  if (
-    visibleWallets !== undefined &&
-    settledRemovals.some((id) => !visibleWallets.some((wallet) => wallet.id === id))
-  ) {
-    setSettledRemovals((previous) =>
-      previous.filter((id) => visibleWallets.some((wallet) => wallet.id === id)),
+  if (visibleWallets !== undefined) {
+    const arrivedAfterRemoval = query.dataUpdatedAt
+
+    const released = settledRemovals.filter(
+      (entry) =>
+        entry.page === page &&
+        arrivedAfterRemoval >= entry.at &&
+        !visibleWallets.some((wallet) => wallet.id === entry.id),
     )
+
+    if (released.length > 0) {
+      setSettledRemovals((previous) =>
+        previous.filter((entry) => !released.includes(entry)),
+      )
+    }
   }
 
   if (dataSession === null) {
@@ -591,9 +620,9 @@ type WalletResultsProps = {
   onPage: (page: number) => void
   /** True while a delete is pending, which stops the page moving under it. */
   navigationLocked: boolean
-  /** Rows whose removal is settled, so their action is blocked until the list
-   * itself drops them. */
-  settledRemovals: readonly number[]
+  /** Rows whose removal is settled, so their action is blocked until their own
+   * page is read again without them. */
+  settledRemovals: readonly SettledRemoval[]
   /** The row with an open editor, or null. At most one at a time. */
   editingId: number | null
   /** The row with an open removal confirmation, or null. */
@@ -640,6 +669,10 @@ function WalletResults({
   onReadBack,
   onFocusReturned,
 }: WalletResultsProps) {
+  /** True while this row's removal is settled and no page has disproved it. */
+  const isSettledRemoval = (walletId: number): boolean =>
+    settledRemovals.some((entry) => entry.id === walletId)
+
   if (wallets.length === 0) {
     return (
       <EmptyWallets
@@ -710,11 +743,9 @@ function WalletResults({
                       wallet={wallet}
                       // Settled by a confirmed answer, so the list entry is the
                       // only thing left to wait for.
-                      settled={settledRemovals.includes(wallet.id)}
+                      settled={isSettledRemoval(wallet.id)}
                       disabled={
-                        editingId !== null ||
-                        removingId !== null ||
-                        settledRemovals.includes(wallet.id)
+                        editingId !== null || removingId !== null || isSettledRemoval(wallet.id)
                       }
                       returnFocus={
                         returnFocusTo === wallet.id && returnFocusAction === 'remove'

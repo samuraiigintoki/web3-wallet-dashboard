@@ -52,7 +52,7 @@ function listResponse(wallets: Wallet[], pagination = paginationFor(wallets.leng
 }
 
 type Handlers = {
-  list?: (call: number, init: RequestInit) => Response | Promise<Response>
+  list?: (call: number, init: RequestInit, page: number) => Response | Promise<Response>
   remove?: (id: number, call: number, init: RequestInit) => Response | Promise<Response>
   fetchOne?: (id: number, call: number, init: RequestInit) => Response | Promise<Response>
   me?: (token: string) => Response
@@ -125,7 +125,18 @@ function stubApi(handlers: Handlers = {}) {
       }
 
       listCalls += 1
-      return handlers.list?.(listCalls, init) ?? listResponse([WALLET_1, WALLET_2])
+
+      // Which page this read is for, so a test can answer page 2 differently
+      // from page 1 and tell a read of the row's page from a read of another.
+      const pageParam = /[?&]page=(\d+)/.exec(url)
+
+      return (
+        handlers.list?.(
+          listCalls,
+          init,
+          pageParam === null ? 1 : Number(pageParam[1]),
+        ) ?? listResponse([WALLET_1, WALLET_2])
+      )
     }
 
     throw new Error(`unexpected request: ${url}`)
@@ -414,6 +425,72 @@ describe('wallet removal answer', () => {
     expect(screen.getByText('The saved record was not removed.')).toBeDefined()
     expect(screen.queryByRole('button', { name: 'Check saved record' })).toBeNull()
     expect(api.removeCalls).toBe(1)
+  })
+
+  it('keeps the block after paging away and back to the stale page', async () => {
+    const PAGE_2_WALLET: Wallet = {
+      id: 21,
+      address: '0x00000000000000000000000000000000000000f6',
+      chainId: 1,
+      label: 'Signer two',
+      createdAt: '2026-10-21T09:00:00Z',
+    }
+
+    const pagination = (pageNumber: number) => ({
+      page: pageNumber,
+      pageSize: PAGE_SIZE,
+      totalItems: 12,
+      totalPages: 2,
+    })
+
+    // Page 1 holds the row that gets removed and answers with the stale page
+    // again after the removal. Page 2 never held it and answers normally.
+    const api = stubApi({
+      list: (_call, _init, pageNumber) => {
+        if (pageNumber === 2) {
+          return listResponse([PAGE_2_WALLET], pagination(2))
+        }
+
+        return listResponse([WALLET_1, WALLET_2], pagination(1))
+      },
+    })
+    const { user } = renderApp({ path: '/wallets', storage: realStorage('token-a') })
+
+    await openConfirm(user)
+    await confirmRemoval(user)
+
+    await waitFor(() => {
+      expect(api.removeCalls).toBe(1)
+    })
+
+    // Page 1 still shows the settled row, and it is blocked there.
+    expect(removeButtons()[0]!.disabled).toBe(true)
+
+    // Page 2 does not hold the row at all. That is not proof of anything: it is
+    // a page that never had it.
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await waitFor(() => {
+      expect(screen.getByText(PAGE_2_WALLET.address)).toBeDefined()
+    })
+    expect(removeButtons().every((button) => !button.disabled)).toBe(true)
+
+    // Back to page 1, whose cache still holds the removed row. The block has to
+    // survive the round trip, or the row is removable again while its page has
+    // not answered since the delete.
+    await user.click(screen.getByRole('button', { name: 'Previous' }))
+    await waitFor(() => {
+      expect(screen.getByText(WALLET_1.address)).toBeDefined()
+    })
+
+    const stale = removeButtons()[0]!
+    expect(stale.disabled).toBe(true)
+    expect(screen.getByText('Removed. Waiting for the list to catch up.')).toBeDefined()
+
+    // Nothing to press, and nothing that pressing it could send.
+    await attemptSecondRemoval(user)
+    expect(screen.queryByRole('group', { name: /^Remove wallet/ })).toBeNull()
+    expect(api.removeCalls).toBe(1)
+    expect(api.readCalls).toBe(0)
   })
 
   it('blocks the stale row while the refreshed list is still on its way', async () => {
