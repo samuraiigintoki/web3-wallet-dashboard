@@ -5,20 +5,10 @@
  * balance appears anywhere: a fake figure in a wallet product is worse than an
  * empty screen, because a reviewer cannot tell it from a real one.
  *
- * Wallets left this file in Week 8 and now lives in WalletsPage.tsx.
+ * Wallets left this file in Week 8 and now lives in WalletsPage.tsx. Overview
+ * left it in Week 9, when the browser-wallet area gave it a reason to exist as
+ * OverviewPage.tsx.
  */
-
-export function DashboardPage() {
-  return (
-    <main className="page">
-      <h1>Overview</h1>
-      <p>
-        You are signed in. Wallet, contract and indexed event views are not built
-        yet.
-      </p>
-    </main>
-  )
-}
 
 export function ContractsPage() {
   return (

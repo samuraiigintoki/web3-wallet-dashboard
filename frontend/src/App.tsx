@@ -4,14 +4,11 @@ import type { QueryClient } from '@tanstack/react-query'
 import { AuthProvider } from './auth/AuthProvider.tsx'
 import { QueryProvider } from './data/QueryProvider.tsx'
 import { LoginPage } from './pages/LoginPage.tsx'
+import { OverviewPage } from './pages/OverviewPage.tsx'
 import { RegisterPage } from './pages/RegisterPage.tsx'
 import { ShellLayout } from './pages/ShellLayout.tsx'
 import { WalletsPage } from './pages/WalletsPage.tsx'
-import {
-  ContractsPage,
-  DashboardPage,
-  NotFoundPage,
-} from './pages/placeholders.tsx'
+import { ContractsPage, NotFoundPage } from './pages/placeholders.tsx'
 import { GuestOnly } from './routes/GuestOnly.tsx'
 import { RequireAuth } from './routes/RequireAuth.tsx'
 
@@ -37,7 +34,7 @@ export function AppRoutes({ queryClient }: { queryClient?: QueryClient } = {}) {
 
         <Route element={<RequireAuth />}>
           <Route path="/" element={<ShellLayout />}>
-            <Route index element={<DashboardPage />} />
+            <Route index element={<OverviewPage />} />
             <Route path="wallets" element={<WalletsPage />} />
             <Route path="contracts" element={<ContractsPage />} />
           </Route>
