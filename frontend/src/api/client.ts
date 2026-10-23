@@ -161,12 +161,21 @@ function unusableId(id: number): ApiError {
  * say so. It is left as an unexpected response rather than accepted against the
  * requested id, because writing another row's fields into this row would be a
  * silent corruption and the label shown would belong to an id nobody opened.
+ *
+ * `X-Request-ID` is carried through. This is a real response from the server,
+ * and the id is the only thing that lets a user report it and someone find it in
+ * the access log.
  */
-function wrongTarget(requestedId: number, returnedId: number): ApiError {
+function wrongTarget(
+  requestedId: number,
+  returnedId: number,
+  requestId: string | undefined,
+): ApiError {
   return new ApiError({
     code: 'UNEXPECTED_RESPONSE',
     status: 200,
     message: `the server described wallet ${String(returnedId)} for a request about wallet ${String(requestedId)}`,
+    requestId,
   })
 }
 
@@ -293,7 +302,7 @@ export function createApiClient(dependencies: RequestDependencies): ApiClient {
       const wallet = requireData(result)
 
       if (wallet.id !== id) {
-        throw wrongTarget(id, wallet.id)
+        throw wrongTarget(id, wallet.id, result.requestId)
       }
 
       return wallet

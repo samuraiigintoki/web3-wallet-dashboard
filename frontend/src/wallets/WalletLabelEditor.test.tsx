@@ -533,6 +533,145 @@ describe('wallet label editor', () => {
     expect(screen.queryByText(/Saved label for/)).toBeNull()
   })
 
+  it('shows what the read-only check found, without resending or replacing the draft', async () => {
+    const api = stubApi({
+      patch: () => plainTextResponse(502, 'Bad Gateway'),
+      list: (call) =>
+        call === 1
+          ? listResponse([WALLET_1])
+          : listResponse([{ ...WALLET_1, label: 'Saved before the gateway fell over' }]),
+    })
+    const { user } = renderApp({ path: '/wallets', storage: realStorage('token-a') })
+
+    await openEditor(user)
+    await user.clear(labelInput())
+    await user.type(labelInput(), 'Draft I typed')
+    await user.click(saveButton())
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('may or may not have been saved')
+    })
+
+    await user.click(within(editorForm()).getByRole('button', { name: 'Check the list' }))
+
+    // The read has to answer the user's actual question. Showing that a GET
+    // happened is not the same as showing what it returned.
+    await waitFor(() => {
+      expect(screen.getByText(/The list now shows this wallet labelled/)).toBeDefined()
+    })
+    expect(
+      screen.getByText(/The list now shows this wallet labelled "Saved before the gateway fell over"\./),
+    ).toBeDefined()
+
+    // Read-only: no second write, and the draft is still the user's typing.
+    expect(api.patchCalls).toBe(1)
+    expect(labelInput().value).toBe('Draft I typed')
+  })
+
+  it('retires the editor when the read finds the wallet gone', async () => {
+    stubApi({
+      patch: () => plainTextResponse(504, 'Gateway Timeout'),
+      list: (call) => (call === 1 ? listResponse([WALLET_1]) : listResponse([])),
+    })
+    const { user } = renderApp({ path: '/wallets', storage: realStorage('token-a') })
+
+    await openEditor(user)
+    await user.click(saveButton())
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('may or may not have been saved')
+    })
+
+    await user.click(within(editorForm()).getByRole('button', { name: 'Check the list' }))
+
+    // The refreshed page does not hold the row, so the editor stops claiming a
+    // wallet that is not there and the page shows what the server sent.
+    await waitFor(() => {
+      expect(screen.getByText(/no saved wallets yet/)).toBeDefined()
+    })
+    expect(editorIsOpen()).toBe(false)
+  })
+
+  it('does not present a failed read as the stored value', async () => {
+    let listCalls = 0
+    stubApi({
+      patch: () => plainTextResponse(502, 'Bad Gateway'),
+      list: () => {
+        listCalls += 1
+        return listCalls === 1
+          ? listResponse([WALLET_1])
+          : errorResponse(500, 'INTERNAL_ERROR', { message: 'boom' })
+      },
+    })
+    const { user } = renderApp({ path: '/wallets', storage: realStorage('token-a') })
+
+    await openEditor(user)
+    await user.click(saveButton())
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('may or may not have been saved')
+    })
+
+    await user.click(within(editorForm()).getByRole('button', { name: 'Check the list' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('The list could not be read. Try again.')).toBeDefined()
+    })
+    // The cached page is not the server's answer, so it is not shown as one.
+    expect(screen.queryByText(/The list now shows this wallet labelled/)).toBeNull()
+  })
+
+  it('replaces a previous server error with this attempt\'s own', async () => {
+    const api = stubApi({
+      patch: () =>
+        errorResponse(422, 'VALIDATION_ERROR', {
+          message: 'label must not be empty',
+          details: { label: 'label must not be empty' },
+        }),
+    })
+    const { user } = renderApp({ path: '/wallets', storage: realStorage('token-a') })
+
+    await openEditor(user)
+    await user.click(saveButton())
+
+    await waitFor(() => {
+      expect(screen.getByText('label must not be empty')).toBeDefined()
+    })
+
+    // Empty again, and rejected here before any request. The old server message
+    // must not survive to describe a value the server never saw.
+    await user.clear(labelInput())
+    await user.click(saveButton())
+
+    await waitFor(() => {
+      expect(screen.getByText('Enter a label.')).toBeDefined()
+    })
+    expect(screen.queryByText('label must not be empty')).toBeNull()
+    expect(document.activeElement).toBe(labelInput())
+    expect(labelInput().getAttribute('aria-invalid')).toBe('true')
+    expect(api.patchCalls).toBe(1)
+  })
+
+  it('keeps focus on every repeated rejection', async () => {
+    stubApi()
+    const { user } = renderApp({ path: '/wallets', storage: realStorage('token-a') })
+
+    await openEditor(user)
+    await user.clear(labelInput())
+
+    await user.click(saveButton())
+    await waitFor(() => {
+      expect(document.activeElement).toBe(labelInput())
+    })
+
+    // Blur, then reject again by the same rule.
+    await user.click(screen.getByRole('heading', { name: 'Wallets' }))
+    await user.click(saveButton())
+    await waitFor(() => {
+      expect(document.activeElement).toBe(labelInput())
+    })
+  })
+
   it('keeps one editor at a time and cannot retarget one that is saving', async () => {
     const held = pendingResponse<Response>()
     const api = stubApi({
@@ -625,7 +764,7 @@ describe('wallet label editor draft', () => {
           wallet={wallet}
           onUpdated={() => undefined}
           onCancel={() => undefined}
-          onCheckList={() => undefined}
+          onReadBack={() => Promise.resolve(null)}
         />
       </QueryClientProvider>
     )

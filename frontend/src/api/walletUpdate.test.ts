@@ -224,6 +224,24 @@ describe('wallet label update call', () => {
     )
   })
 
+  it('keeps the request id on a success that names another wallet', async () => {
+    stubFetch(() => jsonResponse(UPDATED, { headers: { 'X-Request-ID': 'req-wrong-target-1' } }))
+    const { client } = createClient()
+
+    await expect(client.updateWalletLabel(999, { label: 'x' })).rejects.toSatisfy(
+      (error: unknown) => {
+        // The target check is unchanged: another wallet's body is still refused
+        // rather than written into the row that was opened.
+        expect(isApiError(error)).toBe(true)
+        expect((error as ApiError).code).toBe('UNEXPECTED_RESPONSE')
+        expect((error as ApiError).status).toBe(200)
+        // The id is the only thing that lets this be reported and found again.
+        expect((error as ApiError).requestId).toBe('req-wrong-target-1')
+        return true
+      },
+    )
+  })
+
   it('reports an unreadable gateway answer with the status it came with', async () => {
     stubFetch(() => plainTextResponse(502, 'Bad Gateway'))
     const { client } = createClient()

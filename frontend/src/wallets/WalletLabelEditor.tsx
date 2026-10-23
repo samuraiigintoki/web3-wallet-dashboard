@@ -36,8 +36,13 @@ type WalletLabelEditorProps = {
   onUpdated: (identity: IdentityRef, wallet: Wallet) => void
   /** Closes the editor without writing anything. Disabled while submitting. */
   onCancel: () => void
-  /** A manual list read, for an outcome this client could not confirm. */
-  onCheckList: () => void
+  /**
+   * Reads the list again and returns the row the server answered with.
+   *
+   * A read-only reconciliation is only useful if its result is visible, so this
+   * resolves to the refreshed row rather than to nothing.
+   */
+  onReadBack: (walletId: number) => Promise<Wallet | null>
 }
 
 export function WalletLabelEditor({
@@ -45,7 +50,7 @@ export function WalletLabelEditor({
   wallet,
   onUpdated,
   onCancel,
-  onCheckList,
+  onReadBack,
 }: WalletLabelEditorProps) {
   const labelId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -54,11 +59,26 @@ export function WalletLabelEditor({
   const [label, setLabel] = useState(wallet.label)
   const [clientError, setClientError] = useState<string | null>(null)
 
-  const { state, submit } = useUpdateWalletLabel({
+  const { state, submit, reset } = useUpdateWalletLabel({
     dataSession,
     walletId: wallet.id,
     onUpdated,
   })
+
+  /**
+   * What the last manual read of the list showed for this row.
+   *
+   * Kept beside the draft rather than in place of it: the draft is the user's
+   * typing and a read must not overwrite it, while this is what the server
+   * actually holds. Together they are the only honest answer to "did my change
+   * land?".
+   */
+  const [readBack, setReadBack] = useState<
+    | { status: 'idle' }
+    | { status: 'reading' }
+    | { status: 'found'; label: string }
+    | { status: 'unreadable' }
+  >({ status: 'idle' })
 
   const submitting = state.status === 'submitting'
 
@@ -119,6 +139,16 @@ export function WalletLabelEditor({
       return
     }
 
+    // Every attempt answers for itself. The previous attempt's server errors
+    // and its reconciliation result are retired before this one is judged, so a
+    // stale `422` cannot sit beside the client message this attempt found, and a
+    // stale readback cannot describe a value the user has already changed.
+    if (state.status === 'failed') {
+      reset()
+    }
+
+    setReadBack({ status: 'idle' })
+
     const nextError = validateLabel(label)
 
     if (nextError !== null) {
@@ -130,6 +160,22 @@ export function WalletLabelEditor({
     setClientError(null)
 
     void submit({ walletId: wallet.id, label: normalizeLabel(label) })
+  }
+
+  const handleReadBack = (): void => {
+    setReadBack({ status: 'reading' })
+
+    onReadBack(wallet.id).then(
+      (row) => {
+        // A null row means the refreshed page no longer holds this wallet. The
+        // page retires the selection at that point and this editor unmounts, so
+        // there is no message to show here and nothing to keep alive for it.
+        setReadBack(row === null ? { status: 'idle' } : { status: 'found', label: row.label })
+      },
+      () => {
+        setReadBack({ status: 'unreadable' })
+      },
+    )
   }
 
   return (
@@ -184,13 +230,34 @@ export function WalletLabelEditor({
           <p>{formMessage}</p>
           {failure !== null && isUnconfirmedWrite(failure) && (
             <div className="status__actions">
-              <button type="button" onClick={onCheckList}>
+              <button
+                type="button"
+                onClick={handleReadBack}
+                disabled={readBack.status === 'reading'}
+              >
                 Check the list
               </button>
             </div>
           )}
         </div>
       )}
+
+      {/* The result of a read, in its own live region so it is announced. It
+          states what the list holds without touching the draft, and it names the
+          row's stored label so the user can compare it with what they typed. */}
+      {readBack.status === 'found' && (
+        <p className="notice" role="status">
+          {`The list now shows this wallet labelled "${readBack.label}".`}
+        </p>
+      )}
+
+      {readBack.status === 'unreadable' && (
+        <p className="notice" role="status">
+          The list could not be read. Try again.
+        </p>
+      )}
+
+      {readBack.status === 'reading' && <p role="status">Reading the list.</p>}
     </form>
   )
 }

@@ -2,7 +2,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 
-import { describeApiError, type Pagination, type Wallet } from '../api/index.ts'
+import {
+  describeApiError,
+  type Pagination,
+  type Wallet,
+  type WalletList,
+} from '../api/index.ts'
 import type { DataSession } from '../auth/session.ts'
 import { useAuth } from '../auth/useAuth.ts'
 import type { IdentityRef } from '../data/identityKeys.ts'
@@ -129,17 +134,55 @@ export function WalletsPage() {
   }, [])
 
   /**
-   * A manual read of this identity's list, for a save whose outcome the client
-   * could not confirm.
+   * A manual read of this identity's list, for an outcome the client could not
+   * confirm.
    *
    * It is the same retirement and refetch as after a save, and deliberately not
-   * a second write: nothing here replays the POST.
+   * a second write: nothing here replays the write. The create form only needs
+   * the read to happen, so it is called without a wallet id and nothing is
+   * returned.
    */
   const handleCheckList = useCallback((): void => {
     if (dataSession !== null) {
       refreshLists({ userId: dataSession.userId, generation: dataSession.generation })
     }
   }, [dataSession, refreshLists])
+
+  /**
+   * The same read, for one row, after the fresh page is in the cache.
+   *
+   * The editor cannot see what a read produced on its own: the draft belongs to
+   * the component and the rows belong to the query. Returning the row that the
+   * server sent is what lets the editor show the stored label next to the
+   * uncertain draft, which is the whole point of a read-only reconciliation. It
+   * resolves to null when the refreshed page no longer holds that wallet.
+   */
+  const readBackWallet = useCallback(
+    async (walletId: number): Promise<Wallet | null> => {
+      if (dataSession === null) {
+        return null
+      }
+
+      await refreshWalletLists(queryClient, {
+        userId: dataSession.userId,
+        generation: dataSession.generation,
+      })
+
+      const key = walletListQuery(dataSession, page).queryKey
+
+      // An invalidate resolves even when the refetch failed, and the cache then
+      // still holds the old page. Reporting that as the server's answer would
+      // dress a failed read up as a fresh one, so the failure is raised instead.
+      if (queryClient.getQueryState(key)?.status === 'error') {
+        throw new Error('the wallet list could not be read')
+      }
+
+      const refreshed = queryClient.getQueryData(key) as WalletList | undefined
+
+      return refreshed?.wallets.find((wallet) => wallet.id === walletId) ?? null
+    },
+    [dataSession, page, queryClient],
+  )
 
   /**
    * A draft belongs to the session that typed it, not to the account. A
@@ -160,6 +203,28 @@ export function WalletsPage() {
     setEditingId(null)
     setNotice(null)
   }, [identityUser, identityGeneration])
+
+  /**
+   * Retire a selection whose row is no longer in the visible page.
+   *
+   * Paging away, or a refresh that drops the row, unmounts the editor but leaves
+   * the id it was opened for behind. That id then disables every other row's
+   * action with nothing open and no Cancel to press, which is a dead screen.
+   *
+   * The check runs only against a page that has actually arrived: while a new
+   * page is loading there is no row set to judge, and clearing on the way to it
+   * would close an editor the user is still looking at. A row that survives an
+   * ordinary refetch keeps its editor and its draft, because the id is still
+   * present. The URL and the create form's draft are untouched either way.
+   */
+  const visibleWallets = data?.wallets
+  if (
+    editingId !== null &&
+    visibleWallets !== undefined &&
+    !visibleWallets.some((wallet) => wallet.id === editingId)
+  ) {
+    setEditingId(null)
+  }
 
   if (dataSession === null) {
     return (
@@ -219,7 +284,7 @@ export function WalletsPage() {
           }}
           onCancel={closeEditor}
           onUpdated={handleUpdated}
-          onCheckList={handleCheckList}
+          onReadBack={readBackWallet}
           onFocusReturned={() => {
             setReturnFocusTo(null)
           }}
@@ -243,7 +308,8 @@ type WalletResultsProps = {
   onEdit: (wallet: Wallet) => void
   onCancel: () => void
   onUpdated: (identity: IdentityRef, wallet: Wallet) => void
-  onCheckList: () => void
+  /** Reads the list again and returns the refreshed row, for the editor. */
+  onReadBack: (walletId: number) => Promise<Wallet | null>
   onFocusReturned: () => void
 }
 
@@ -258,7 +324,7 @@ function WalletResults({
   onEdit,
   onCancel,
   onUpdated,
-  onCheckList,
+  onReadBack,
   onFocusReturned,
 }: WalletResultsProps) {
   if (wallets.length === 0) {
@@ -301,7 +367,7 @@ function WalletResults({
                     wallet={wallet}
                     onUpdated={onUpdated}
                     onCancel={onCancel}
-                    onCheckList={onCheckList}
+                    onReadBack={onReadBack}
                   />
                 ) : (
                   <>

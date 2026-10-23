@@ -295,6 +295,177 @@ describe('wallets page', () => {
     expect(storage.read()).toBeNull()
   })
 
+  it('retires an editor whose row the next page no longer holds', async () => {
+    const pageTwo = pendingResponse<Response>()
+    const fetchStub = apiFetch((url) => {
+      if (url.includes('page=2')) {
+        return pageTwo.promise
+      }
+
+      return pageResponse([WALLET_A], {
+        page: 1,
+        pageSize: PAGE_SIZE,
+        totalItems: 2,
+        totalPages: 2,
+      })
+    })
+    const { user } = renderApp({ path: '/wallets', storage: memoryStorage('stored-token') })
+
+    await waitFor(() => {
+      expect(screen.getByText('Primary signer')).toBeDefined()
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Edit label' }))
+    expect(screen.getByRole('form', { name: /^Edit label for/ })).toBeDefined()
+
+    await user.click(button('Next'))
+
+    await waitFor(() => {
+      expect(currentPath()).toBe('/wallets?page=2')
+    })
+
+    pageTwo.resolve(
+      pageResponse([WALLET_B], { page: 2, pageSize: PAGE_SIZE, totalItems: 2, totalPages: 2 }),
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Cold storage')).toBeDefined()
+    })
+
+    // The row the editor belonged to is gone with the old page. Its id used to
+    // stay behind and disable the only action on the new page, with no editor
+    // open and no Cancel to press.
+    expect(screen.queryByRole('form', { name: /^Edit label for/ })).toBeNull()
+    expect(screen.getAllByRole('button', { name: 'Edit label' })).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Edit label' }).hasAttribute('disabled')).toBe(
+      false,
+    )
+    // Retiring a selection is not a navigation and not a draft reset.
+    expect(currentPath()).toBe('/wallets?page=2')
+    expect(walletCalls(fetchStub.calls).length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('keeps an unsaved draft through an ordinary list refresh', async () => {
+    let listCall = 0
+    apiFetch((_url, init) => {
+      if (init.method === 'POST') {
+        return jsonResponse(
+          {
+            data: {
+              id: 9,
+              address: '0x00000000000000000000000000000000000000c3',
+              chainId: 11155111,
+              label: 'New signer',
+              createdAt: '2026-10-03T09:00:00Z',
+            },
+          },
+          { status: 201 },
+        )
+      }
+
+      listCall += 1
+      return pageResponse([WALLET_A, WALLET_B], {
+        page: 1,
+        pageSize: PAGE_SIZE,
+        totalItems: 2,
+        totalPages: 1,
+      })
+    })
+    const { user } = renderApp({ path: '/wallets', storage: memoryStorage('stored-token') })
+
+    await waitFor(() => {
+      expect(screen.getByText('Primary signer')).toBeDefined()
+    })
+
+    await user.click(screen.getAllByRole('button', { name: 'Edit label' })[0]!)
+    const editor = screen.getByRole('form', { name: /^Edit label for/ })
+    // The create form renders its own Label field first; the editor's is second.
+    const input = screen.getAllByLabelText('Label')[1] as HTMLInputElement
+    await user.clear(input)
+    await user.type(input, 'Draft nobody saved')
+
+    // A create elsewhere on the page refreshes the list. The editor's row is
+    // still on it, so the draft the user is typing stays exactly as typed.
+    await waitFor(() => {
+      expect(screen.getByLabelText('Chain').querySelectorAll('option').length).toBeGreaterThan(1)
+    })
+    await user.type(
+      screen.getByLabelText('Address'),
+      '0x00000000000000000000000000000000000000c3',
+    )
+    await user.selectOptions(screen.getByLabelText('Chain'), '11155111')
+    await user.type(screen.getAllByLabelText('Label')[0]!, 'New signer')
+    await user.click(screen.getByRole('button', { name: 'Save wallet' }))
+
+    await waitFor(() => {
+      expect(listCall).toBe(2)
+    })
+
+    expect(screen.getByRole('form', { name: /^Edit label for/ })).toBe(editor)
+    expect((screen.getAllByLabelText('Label')[1] as HTMLInputElement).value).toBe(
+      'Draft nobody saved',
+    )
+  })
+
+  it('retires a selection whose row a refresh dropped', async () => {
+    let listCall = 0
+    apiFetch((_url, init) => {
+      if (init.method === 'POST') {
+        return jsonResponse(
+          {
+            data: {
+              id: 9,
+              address: '0x00000000000000000000000000000000000000c3',
+              chainId: 11155111,
+              label: 'New signer',
+              createdAt: '2026-10-03T09:00:00Z',
+            },
+          },
+          { status: 201 },
+        )
+      }
+
+      listCall += 1
+      return pageResponse(listCall === 1 ? [WALLET_A, WALLET_B] : [WALLET_A], {
+        page: 1,
+        pageSize: PAGE_SIZE,
+        totalItems: listCall === 1 ? 2 : 1,
+        totalPages: 1,
+      })
+    })
+    const { user } = renderApp({ path: '/wallets', storage: memoryStorage('stored-token') })
+
+    await waitFor(() => {
+      expect(screen.getByText('Cold storage')).toBeDefined()
+    })
+
+    // Open the editor on the row the refresh will not return.
+    await user.click(screen.getAllByRole('button', { name: 'Edit label' })[1]!)
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Chain').querySelectorAll('option').length).toBeGreaterThan(1)
+    })
+    await user.type(
+      screen.getByLabelText('Address'),
+      '0x00000000000000000000000000000000000000c3',
+    )
+    await user.selectOptions(screen.getByLabelText('Chain'), '11155111')
+    await user.type(screen.getAllByLabelText('Label')[0]!, 'New signer')
+    await user.click(screen.getByRole('button', { name: 'Save wallet' }))
+
+    await waitFor(() => {
+      expect(screen.queryByText('Cold storage')).toBeNull()
+    })
+
+    // The editor's row is gone, so the editor is gone and nothing else is
+    // locked. The remaining row can still be edited.
+    expect(screen.queryByRole('form', { name: /^Edit label for/ })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Edit label' }).hasAttribute('disabled')).toBe(
+      false,
+    )
+    expect(currentPath()).toBe('/wallets')
+  })
+
   it('abandons a wallet request that is still running when the user signs out', async () => {
     const held = pendingResponse<Response>()
     let aborted = false
