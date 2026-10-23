@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 
 import { chainCatalogQuery } from '../wallets/chainQueries.ts'
+import { useAccountBalance, type BalanceState } from './useAccountBalance.ts'
 import { useBrowserWallet } from './useBrowserWallet.ts'
 
 /**
@@ -58,6 +59,23 @@ export function BrowserWalletPanel() {
     return entry === undefined ? { kind: 'unlisted' } : { kind: 'named', name: entry.name }
   })()
 
+  /**
+   * The balance, read only where this app has established the chain.
+   *
+   * `chainFact.kind === 'named'` is the gate, and it is the strict one: the
+   * catalog must have answered, and it must list this chain. A catalog that is
+   * still loading or has failed, and a chain the catalog does not list, all
+   * leave the balance unread, because in each of them this app cannot say what
+   * the wei it was given are wei of.
+   */
+  const balanceEnabled = state.status === 'connected' && chainFact.kind === 'named'
+
+  const balance = useAccountBalance({
+    account: state.status === 'connected' ? state.account : null,
+    chainId: state.status === 'connected' ? state.chainId : null,
+    enabled: balanceEnabled,
+  })
+
   return (
     <section className="status" aria-labelledby="browser-wallet-heading">
       <h2 id="browser-wallet-heading">Browser wallet</h2>
@@ -76,7 +94,22 @@ export function BrowserWalletPanel() {
             {chainFact.kind === 'unlisted' && "Not in this app's chain catalog"}
             {chainFact.kind === 'unknown' && 'Not read'}
           </dd>
+          <dt>Balance</dt>
+          <dd>
+            <BalanceValue
+              balance={balance.state}
+              reason={balanceReason(state.status, chainFact, catalog.isPending)}
+            />
+          </dd>
         </dl>
+      )}
+
+      {state.status === 'connected' && balance.state.status === 'error' && (
+        <div className="status__actions">
+          <button type="button" onClick={balance.retry}>
+            Read the balance again
+          </button>
+        </div>
       )}
 
       {state.status === 'connected' && chainFact.kind === 'unknown' && (
@@ -109,6 +142,65 @@ export function BrowserWalletPanel() {
       </p>
     </section>
   )
+}
+
+/**
+ * Why the balance was not read, in the words that fit the case.
+ *
+ * Each reason is a different fact, and the difference matters: a chain the app
+ * does not list is a limit of this deployment, while a catalog that failed to
+ * load is a limit of this moment. Neither is "no balance", and an empty figure
+ * would be read as one.
+ */
+function balanceReason(
+  status: string,
+  chainFact: ChainFact,
+  catalogPending: boolean,
+): string {
+  if (status !== 'connected') {
+    return 'No connected account.'
+  }
+
+  if (chainFact.kind === 'named') {
+    return ''
+  }
+
+  if (chainFact.kind === 'unlisted') {
+    return 'This app does not list the chain the wallet is on.'
+  }
+
+  return catalogPending
+    ? 'The chain catalog is still being read.'
+    : 'The chain catalog could not be read.'
+}
+
+/**
+ * The balance itself: an exact wei figure, a wait, a failure, or a reason.
+ *
+ * The figure is printed with its unit and nothing else. No symbol, no decimals,
+ * no grouping and no rounding, because every one of those would be a claim this
+ * slice cannot support: the number is wei, and wei is what it says.
+ */
+function BalanceValue({ balance, reason }: { balance: BalanceState; reason: string }) {
+  switch (balance.status) {
+    case 'loaded':
+      return <span className="browser-wallet__wei">{balance.wei} wei</span>
+    case 'loading':
+      return <span role="status">Reading the balance.</span>
+    case 'error':
+      return (
+        <>
+          <span>The balance could not be read.</span>
+          <span className="hint"> {balance.message}</span>
+        </>
+      )
+    case 'idle':
+      return (
+        <span>
+          Not read.<span className="hint"> {reason}</span>
+        </span>
+      )
+  }
 }
 
 /**

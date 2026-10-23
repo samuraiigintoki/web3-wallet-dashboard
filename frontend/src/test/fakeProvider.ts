@@ -17,10 +17,18 @@ export type ProviderRequest = {
   params?: readonly unknown[]
 }
 
-export type ProviderAnswer = (request: ProviderRequest) => unknown
+/** One request, as the fake recorded it, with its position in the sequence. */
+export type ProviderCall = ProviderRequest & {
+  /** 1 for the first request of the test, 2 for the next, and so on. */
+  call: number
+}
+
+export type ProviderAnswer = (request: ProviderCall) => unknown
 
 export type FakeProvider = {
   ethereum: Record<string, unknown>
+  /** Every request the app made, in order, with its parameters. */
+  calls: ProviderCall[]
   /** Methods requested, in order. */
   requested: string[]
   /** Events subscribed to, in order. */
@@ -58,13 +66,20 @@ export function installFakeProvider(options: FakeProviderOptions = {}): FakeProv
   const answer = options.answer ?? DEFAULT_ANSWER
   const listeners = new Map<string, Set<(payload: unknown) => void>>()
   const requested: string[] = []
+  const calls: ProviderCall[] = []
   const subscribed: string[] = []
   const unsubscribed: string[] = []
 
   const ethereum: Record<string, unknown> = {
     request: vi.fn((request: ProviderRequest) => {
       requested.push(request.method)
-      return Promise.resolve().then(() => answer(request))
+      const call: ProviderCall = {
+        method: request.method,
+        ...(request.params === undefined ? {} : { params: request.params }),
+        call: calls.length + 1,
+      }
+      calls.push(call)
+      return Promise.resolve().then(() => answer(call))
     }),
   }
 
@@ -86,6 +101,7 @@ export function installFakeProvider(options: FakeProviderOptions = {}): FakeProv
 
   return {
     ethereum,
+    calls,
     requested,
     subscribed,
     unsubscribed,
