@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 
 import { chainCatalogQuery } from '../wallets/chainQueries.ts'
+import { MultisigSummary } from './MultisigSummary.tsx'
 import { useAccountBalance, type BalanceState } from './useAccountBalance.ts'
 import { useBrowserWallet } from './useBrowserWallet.ts'
 
@@ -76,71 +77,95 @@ export function BrowserWalletPanel() {
     enabled: balanceEnabled,
   })
 
+  /**
+   * What the catalog says about listing, for the multisig summary.
+   *
+   * The summary has its own gate and its own reason text, so it needs the three
+   * catalog outcomes kept apart: a chain the catalog answered without, a catalog
+   * still loading, and a catalog that failed are three different sentences.
+   */
+  const listed: 'listed' | 'loading' | 'failed' | 'unlisted' =
+    chainFact.kind === 'named'
+      ? 'listed'
+      : chainFact.kind === 'unlisted'
+        ? 'unlisted'
+        : catalog.isError
+          ? 'failed'
+          : 'loading'
+
   return (
-    <section className="status" aria-labelledby="browser-wallet-heading">
-      <h2 id="browser-wallet-heading">Browser wallet</h2>
+    <>
+      <section className="status" aria-labelledby="browser-wallet-heading">
+        <h2 id="browser-wallet-heading">Browser wallet</h2>
 
-      <StatusLine state={state} chainFact={chainFact} />
+        <StatusLine state={state} chainFact={chainFact} />
 
-      {state.status === 'connected' && (
-        <dl className="browser-wallet__facts">
-          <dt>Account</dt>
-          <dd>{state.account}</dd>
-          <dt>Chain ID</dt>
-          <dd>{state.chainId}</dd>
-          <dt>Chain name</dt>
-          <dd>
-            {chainFact.kind === 'named' && chainFact.name}
-            {chainFact.kind === 'unlisted' && "Not in this app's chain catalog"}
-            {chainFact.kind === 'unknown' && 'Not read'}
-          </dd>
-          <dt>Balance</dt>
-          <dd>
-            <BalanceValue
-              balance={balance.state}
-              reason={balanceReason(state.status, chainFact, catalog.isPending)}
-            />
-          </dd>
-        </dl>
-      )}
+        {state.status === 'connected' && (
+          <dl className="browser-wallet__facts">
+            <dt>Account</dt>
+            <dd>{state.account}</dd>
+            <dt>Chain ID</dt>
+            <dd>{state.chainId}</dd>
+            <dt>Chain name</dt>
+            <dd>
+              {chainFact.kind === 'named' && chainFact.name}
+              {chainFact.kind === 'unlisted' && "Not in this app's chain catalog"}
+              {chainFact.kind === 'unknown' && 'Not read'}
+            </dd>
+            <dt>Balance</dt>
+            <dd>
+              <BalanceValue
+                balance={balance.state}
+                reason={balanceReason(state.status, chainFact, catalog.isPending)}
+              />
+            </dd>
+          </dl>
+        )}
 
-      {state.status === 'connected' && balance.state.status === 'error' && (
-        <div className="status__actions">
-          <button type="button" onClick={balance.retry}>
-            Read the balance again
-          </button>
-        </div>
-      )}
+        {state.status === 'connected' && balance.state.status === 'error' && (
+          <div className="status__actions">
+            <button type="button" onClick={balance.retry}>
+              Read the balance again
+            </button>
+          </div>
+        )}
 
-      {state.status === 'connected' && chainFact.kind === 'unknown' && (
-        <p className="hint">
-          The chain catalog could not be read, so this app cannot say whether it
-          lists the chain the wallet is on.
-        </p>
-      )}
+        {state.status === 'connected' && chainFact.kind === 'unknown' && (
+          <p className="hint">
+            The chain catalog could not be read, so this app cannot say whether it
+            lists the chain the wallet is on.
+          </p>
+        )}
 
-      {(state.status === 'disconnected' || state.status === 'error') && (
-        <div className="status__actions">
-          <button type="button" onClick={() => void connect()}>
-            Connect wallet
-          </button>
-        </div>
-      )}
+        {(state.status === 'disconnected' || state.status === 'error') && (
+          <div className="status__actions">
+            <button type="button" onClick={() => void connect()}>
+              Connect wallet
+            </button>
+          </div>
+        )}
 
-      {state.status === 'connecting' && (
-        <div className="status__actions">
-          <button type="button" disabled>
-            Connect wallet
-          </button>
-        </div>
-      )}
+        {state.status === 'connecting' && (
+          <div className="status__actions">
+            <button type="button" disabled>
+              Connect wallet
+            </button>
+          </div>
+        )}
 
-      <p className="hint">
-        A browser wallet is separate from signing in to this dashboard. Connecting
-        one asks your wallet which account and chain it is on. It signs nothing,
-        sends no transaction and proves nothing about the wallets saved here.
-      </p>
-    </section>
+          <p className="hint">
+            A browser wallet is separate from signing in to this dashboard. Connecting
+            one asks your wallet which account and chain it is on. It signs nothing,
+            sends no transaction and proves nothing about the wallets saved here.
+          </p>
+      </section>
+
+      <MultisigSummary
+        account={state.status === 'connected' ? state.account : null}
+        chainId={state.status === 'connected' ? state.chainId : null}
+        listed={listed}
+      />
+    </>
   )
 }
 
