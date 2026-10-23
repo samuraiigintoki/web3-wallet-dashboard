@@ -34,6 +34,7 @@ export type {
   MessageResult,
   Pagination,
   RegisterRequest,
+  UpdateWalletRequest,
   User,
   Wallet,
   WalletList,

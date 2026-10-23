@@ -1,14 +1,18 @@
 import { screen, waitFor } from '@testing-library/react'
+import { act } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   errorResponse,
+  hangingFetch,
   jsonResponse,
   pendingResponse,
+  plainTextResponse,
   stubFetch,
   type FetchCall,
 } from '../test/http.ts'
 import { currentPath, memoryStorage, renderApp } from '../test/renderApp.tsx'
+import { createQueryClient } from '../data/queryClient.ts'
 import { PAGE_SIZE } from './page.ts'
 
 const USER = { id: 5, email: 'ada@example.com', createdAt: '2026-10-06T12:00:00Z' }
@@ -293,6 +297,423 @@ describe('wallets page', () => {
       expect(currentPath()).toBe('/login')
     })
     expect(storage.read()).toBeNull()
+  })
+
+  it('retires an editor whose row the next page no longer holds', async () => {
+    const pageTwo = pendingResponse<Response>()
+    const fetchStub = apiFetch((url) => {
+      if (url.includes('page=2')) {
+        return pageTwo.promise
+      }
+
+      return pageResponse([WALLET_A], {
+        page: 1,
+        pageSize: PAGE_SIZE,
+        totalItems: 2,
+        totalPages: 2,
+      })
+    })
+    const { user } = renderApp({ path: '/wallets', storage: memoryStorage('stored-token') })
+
+    await waitFor(() => {
+      expect(screen.getByText('Primary signer')).toBeDefined()
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Edit label' }))
+    expect(screen.getByRole('form', { name: /^Edit label for/ })).toBeDefined()
+
+    await user.click(button('Next'))
+
+    await waitFor(() => {
+      expect(currentPath()).toBe('/wallets?page=2')
+    })
+
+    pageTwo.resolve(
+      pageResponse([WALLET_B], { page: 2, pageSize: PAGE_SIZE, totalItems: 2, totalPages: 2 }),
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Cold storage')).toBeDefined()
+    })
+
+    // The row the editor belonged to is gone with the old page. Its id used to
+    // stay behind and disable the only action on the new page, with no editor
+    // open and no Cancel to press.
+    expect(screen.queryByRole('form', { name: /^Edit label for/ })).toBeNull()
+    expect(screen.getAllByRole('button', { name: 'Edit label' })).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Edit label' }).hasAttribute('disabled')).toBe(
+      false,
+    )
+    // Retiring a selection is not a navigation and not a draft reset.
+    expect(currentPath()).toBe('/wallets?page=2')
+    expect(walletCalls(fetchStub.calls).length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('keeps an unsaved draft through an ordinary list refresh', async () => {
+    let listCall = 0
+    apiFetch((_url, init) => {
+      if (init.method === 'POST') {
+        return jsonResponse(
+          {
+            data: {
+              id: 9,
+              address: '0x00000000000000000000000000000000000000c3',
+              chainId: 11155111,
+              label: 'New signer',
+              createdAt: '2026-10-03T09:00:00Z',
+            },
+          },
+          { status: 201 },
+        )
+      }
+
+      listCall += 1
+      return pageResponse([WALLET_A, WALLET_B], {
+        page: 1,
+        pageSize: PAGE_SIZE,
+        totalItems: 2,
+        totalPages: 1,
+      })
+    })
+    const { user } = renderApp({ path: '/wallets', storage: memoryStorage('stored-token') })
+
+    await waitFor(() => {
+      expect(screen.getByText('Primary signer')).toBeDefined()
+    })
+
+    await user.click(screen.getAllByRole('button', { name: 'Edit label' })[0]!)
+    const editor = screen.getByRole('form', { name: /^Edit label for/ })
+    // The create form renders its own Label field first; the editor's is second.
+    const input = screen.getAllByLabelText('Label')[1] as HTMLInputElement
+    await user.clear(input)
+    await user.type(input, 'Draft nobody saved')
+
+    // A create elsewhere on the page refreshes the list. The editor's row is
+    // still on it, so the draft the user is typing stays exactly as typed.
+    await waitFor(() => {
+      expect(screen.getByLabelText('Chain').querySelectorAll('option').length).toBeGreaterThan(1)
+    })
+    await user.type(
+      screen.getByLabelText('Address'),
+      '0x00000000000000000000000000000000000000c3',
+    )
+    await user.selectOptions(screen.getByLabelText('Chain'), '11155111')
+    await user.type(screen.getAllByLabelText('Label')[0]!, 'New signer')
+    await user.click(screen.getByRole('button', { name: 'Save wallet' }))
+
+    await waitFor(() => {
+      expect(listCall).toBe(2)
+    })
+
+    expect(screen.getByRole('form', { name: /^Edit label for/ })).toBe(editor)
+    expect((screen.getAllByLabelText('Label')[1] as HTMLInputElement).value).toBe(
+      'Draft nobody saved',
+    )
+  })
+
+  it('never reports a cancelled check as the stored label', async () => {
+    const held = pendingResponse<Response>()
+    let listCalls = 0
+
+    apiFetch((_url, init) => {
+      if (init.method === 'PATCH') {
+        return plainTextResponse(502, 'Bad Gateway')
+      }
+
+      if (init.method === 'POST') {
+        return jsonResponse(
+          {
+            data: {
+              id: 9,
+              address: '0x00000000000000000000000000000000000000c3',
+              chainId: 11155111,
+              label: 'New signer',
+              createdAt: '2026-10-03T09:00:00Z',
+            },
+          },
+          { status: 201 },
+        )
+      }
+
+      listCalls += 1
+
+      if (listCalls === 1) {
+        return pageResponse([WALLET_A])
+      }
+
+      // The check is held, and the read that replaces it after the create
+      // carries the renamed value.
+      if (listCalls === 2) {
+        return held.promise
+      }
+
+      return pageResponse([{ ...WALLET_A, label: 'Renamed on the server' }])
+    })
+
+    const { user } = renderApp({ path: '/wallets', storage: memoryStorage('stored-token') })
+
+    await waitFor(() => {
+      expect(screen.getByText('Primary signer')).toBeDefined()
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Edit label' }))
+    await user.click(screen.getByRole('button', { name: 'Save label' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('may or may not have been saved')
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Check the list' }))
+    expect(screen.getByText('Reading the list.')).toBeDefined()
+
+    // Another write on the page refreshes the list, which cancels the check's
+    // request. The query then falls back to the page it held before.
+    await waitFor(() => {
+      expect(screen.getByLabelText('Chain').querySelectorAll('option').length).toBeGreaterThan(1)
+    })
+    await user.type(
+      screen.getByLabelText('Address'),
+      '0x00000000000000000000000000000000000000c3',
+    )
+    await user.selectOptions(screen.getByLabelText('Chain'), '11155111')
+    await user.type(screen.getAllByLabelText('Label')[0]!, 'New signer')
+    await user.click(screen.getByRole('button', { name: 'Save wallet' }))
+
+    await waitFor(() => {
+      expect(listCalls).toBeGreaterThanOrEqual(3)
+    })
+
+    // The cancelled request now answers with the page it was going to send.
+    held.resolve(pageResponse([WALLET_A]))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    // The check reaches a terminal state rather than staying on "Reading".
+    await waitFor(() => {
+      expect(screen.queryByText('Reading the list.')).toBeNull()
+    })
+
+    // Cached success is not a read. Whatever the check reports, it is never the
+    // label the cancelled request was carrying; it either finished on a later
+    // read and reports that value, or says it did not finish.
+    expect(screen.queryByText(/"Primary signer"/)).toBeNull()
+    expect(screen.queryByText(/The list now shows this wallet labelled "Primary signer"/)).toBeNull()
+
+    const readback = screen.queryByText(/The list now shows this wallet labelled/)
+    if (readback !== null) {
+      expect(readback.textContent).toContain('Renamed on the server')
+    }
+  })
+
+  /** Wallet GETs, which is what a revived read would add to. */
+  function walletGets(calls: FetchCall[]): FetchCall[] {
+    return walletCalls(calls).filter((call) => (call.init.method ?? 'GET') === 'GET')
+  }
+
+  it('starts nothing for a check whose page was unmounted', async () => {
+    const queryClient = createQueryClient()
+    let listCalls = 0
+
+    const fetchStub = apiFetch((url, init) => {
+      if (init.method === 'PATCH') {
+        return plainTextResponse(502, 'Bad Gateway')
+      }
+
+      listCalls += 1
+
+      // The check's read only settles when it is aborted, which is what a real
+      // cancelled fetch does.
+      return listCalls === 1 ? pageResponse([WALLET_A]) : hangingFetch(url, init)
+    })
+
+    const { user, unmount } = renderApp({
+      path: '/wallets',
+      storage: memoryStorage('stored-token'),
+      queryClient,
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('Primary signer')).toBeDefined()
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Edit label' }))
+    await user.click(screen.getByRole('button', { name: 'Save label' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('may or may not have been saved')
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Check the list' }))
+
+    await waitFor(() => {
+      expect(listCalls).toBe(2)
+    })
+
+    // Counted before the teardown, so a request made by the continuation shows
+    // up as an addition instead of being folded into the baseline.
+    const getsBefore = walletGets(fetchStub.calls).length
+
+    // The route can go away without this page ever rendering a null session:
+    // a guard redirect is an unmount, not a state this page sees.
+    unmount()
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    expect(walletGets(fetchStub.calls)).toHaveLength(getsBefore)
+    expect(
+      queryClient
+        .getQueryCache()
+        .getAll()
+        .filter((query) => query.queryKey[0] === 'identity'),
+    ).toHaveLength(0)
+  })
+
+  it('revives no cached work for a check whose session ended while it waited', async () => {
+    const heldLogout = pendingResponse<Response>()
+    const queryClient = createQueryClient()
+    let listCalls = 0
+
+    const fetchStub = apiFetch((url, init) => {
+      // The sign-out answer is held, so the identity is retired while this
+      // screen is still mounted and still holding the check.
+      if (url.includes('/auth/logout')) {
+        return heldLogout.promise
+      }
+
+      if (init.method === 'PATCH') {
+        return plainTextResponse(502, 'Bad Gateway')
+      }
+
+      listCalls += 1
+
+      // The first load answers. The check's read is a request that only settles
+      // when it is aborted, which is what a real cancelled fetch does.
+      return listCalls === 1 ? pageResponse([WALLET_A]) : hangingFetch(url, init)
+    })
+
+    const { user } = renderApp({
+      path: '/wallets',
+      storage: memoryStorage('stored-token'),
+      queryClient,
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('Primary signer')).toBeDefined()
+    })
+
+    const ownerKeys = queryClient
+      .getQueryCache()
+      .findAll({ queryKey: ['identity', USER.id] })
+      .map((query) => query.queryKey)
+
+    expect(ownerKeys.length).toBeGreaterThan(0)
+
+    await user.click(screen.getByRole('button', { name: 'Edit label' }))
+    await user.click(screen.getByRole('button', { name: 'Save label' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('may or may not have been saved')
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Check the list' }))
+
+    await waitFor(() => {
+      expect(listCalls).toBe(2)
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Sign out' }))
+
+    // No session, and this page is still mounted: a check keyed on "is the
+    // editor still open" would think it is free to carry on.
+    await waitFor(() => {
+      expect(screen.getByRole('status').textContent).toContain('Waiting for your session')
+    })
+
+    const getsBefore = walletGets(fetchStub.calls).length
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    // The aborted check settles here, and its continuation must not read again.
+    // A read would both issue a request with a credential this tab has given up
+    // and put the retired identity's page back into a cache the sign-out
+    // dropped.
+    expect(walletGets(fetchStub.calls)).toHaveLength(getsBefore)
+    expect(
+      queryClient.getQueryCache().findAll({ queryKey: ['identity', USER.id] }),
+    ).toHaveLength(0)
+
+    heldLogout.resolve(jsonResponse({ data: { message: 'signed out' } }))
+    await waitFor(() => {
+      expect(currentPath()).toBe('/login')
+    })
+    expect(walletGets(fetchStub.calls)).toHaveLength(getsBefore)
+    expect(
+      queryClient.getQueryCache().findAll({ queryKey: ['identity', USER.id] }),
+    ).toHaveLength(0)
+  })
+
+  it('retires a selection whose row a refresh dropped', async () => {
+    let listCall = 0
+    apiFetch((_url, init) => {
+      if (init.method === 'POST') {
+        return jsonResponse(
+          {
+            data: {
+              id: 9,
+              address: '0x00000000000000000000000000000000000000c3',
+              chainId: 11155111,
+              label: 'New signer',
+              createdAt: '2026-10-03T09:00:00Z',
+            },
+          },
+          { status: 201 },
+        )
+      }
+
+      listCall += 1
+      return pageResponse(listCall === 1 ? [WALLET_A, WALLET_B] : [WALLET_A], {
+        page: 1,
+        pageSize: PAGE_SIZE,
+        totalItems: listCall === 1 ? 2 : 1,
+        totalPages: 1,
+      })
+    })
+    const { user } = renderApp({ path: '/wallets', storage: memoryStorage('stored-token') })
+
+    await waitFor(() => {
+      expect(screen.getByText('Cold storage')).toBeDefined()
+    })
+
+    // Open the editor on the row the refresh will not return.
+    await user.click(screen.getAllByRole('button', { name: 'Edit label' })[1]!)
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Chain').querySelectorAll('option').length).toBeGreaterThan(1)
+    })
+    await user.type(
+      screen.getByLabelText('Address'),
+      '0x00000000000000000000000000000000000000c3',
+    )
+    await user.selectOptions(screen.getByLabelText('Chain'), '11155111')
+    await user.type(screen.getAllByLabelText('Label')[0]!, 'New signer')
+    await user.click(screen.getByRole('button', { name: 'Save wallet' }))
+
+    await waitFor(() => {
+      expect(screen.queryByText('Cold storage')).toBeNull()
+    })
+
+    // The editor's row is gone, so the editor is gone and nothing else is
+    // locked. The remaining row can still be edited.
+    expect(screen.queryByRole('form', { name: /^Edit label for/ })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Edit label' }).hasAttribute('disabled')).toBe(
+      false,
+    )
+    expect(currentPath()).toBe('/wallets')
   })
 
   it('abandons a wallet request that is still running when the user signs out', async () => {
