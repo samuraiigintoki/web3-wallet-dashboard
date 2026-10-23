@@ -102,6 +102,21 @@ export type CreateWalletRequest = {
   label: string
 }
 
+/**
+ * PATCH /api/v1/wallets/{id}, the request body.
+ *
+ * One field. Address and chain are not mutable through this route, and the
+ * handler rejects an unknown key with `400 INVALID_JSON`, so a caller that hands
+ * over more than a label is refused rather than silently trimmed.
+ *
+ * The handler and `docs/api.md` also accept an omitted or null label as a
+ * no-op, while `docs/openapi.yaml` describes a string. This client always sends
+ * a validated string, so the discrepancy is neither relied on nor changed here.
+ */
+export type UpdateWalletRequest = {
+  label: string
+}
+
 export type RegisterRequest = {
   email: string
   password: string

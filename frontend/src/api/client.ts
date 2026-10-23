@@ -23,6 +23,7 @@ import {
 } from './request.ts'
 import type {
   CreateWalletRequest,
+  UpdateWalletRequest,
   ListWalletsParams,
   LoginRequest,
   LoginResult,
@@ -46,6 +47,15 @@ export type ApiClient = {
   listWallets: (params: ListWalletsParams, init?: CallInit) => Promise<WalletList>
   /** Saves one wallet for the caller. The owner comes from the bearer. */
   createWallet: (body: CreateWalletRequest, init?: CallInit) => Promise<Wallet>
+  /**
+   * Replaces the label of one saved wallet. The owner comes from the bearer, so
+   * a foreign id is the same `404` a missing one is.
+   */
+  updateWalletLabel: (
+    id: number,
+    body: UpdateWalletRequest,
+    init?: CallInit,
+  ) => Promise<Wallet>
 }
 
 /** A body is required where the contract says one is returned. */
@@ -118,6 +128,46 @@ function requirePagination(
   }
 
   return pagination
+}
+
+/**
+ * The id this client is willing to put in a path.
+ *
+ * `int64` ids arrive as JavaScript numbers, so a float, a value beyond 2^53 or a
+ * non-positive number is not an id this client can address. Building the path
+ * from one would ask the API about a wallet nobody named, and the answer would
+ * then be applied to whatever row the caller had in hand.
+ */
+function addressableId(id: number): string {
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw unusableId(id)
+  }
+
+  return String(id)
+}
+
+function unusableId(id: number): ApiError {
+  return new ApiError({
+    code: 'UNEXPECTED_RESPONSE',
+    status: 0,
+    message: `the wallet id ${String(id)} is not one this client can address`,
+  })
+}
+
+/**
+ * A success that describes a different wallet than the one asked for.
+ *
+ * The row may well have been updated; this response just cannot be trusted to
+ * say so. It is left as an unexpected response rather than accepted against the
+ * requested id, because writing another row's fields into this row would be a
+ * silent corruption and the label shown would belong to an id nobody opened.
+ */
+function wrongTarget(requestedId: number, returnedId: number): ApiError {
+  return new ApiError({
+    code: 'UNEXPECTED_RESPONSE',
+    status: 200,
+    message: `the server described wallet ${String(returnedId)} for a request about wallet ${String(requestedId)}`,
+  })
 }
 
 export function createApiClient(dependencies: RequestDependencies): ApiClient {
@@ -222,6 +272,31 @@ export function createApiClient(dependencies: RequestDependencies): ApiClient {
       })
 
       return requireData(result)
+    },
+
+    async updateWalletLabel(id, body, init) {
+      // Built from a checked id, never from a string the caller happened to
+      // have. `label` is the only key sent: the handler rejects unknown fields,
+      // and the owner is the bearer.
+      const result = await request({
+        method: 'PATCH',
+        path: `/wallets/${addressableId(id)}`,
+        auth: true,
+        body: { label: body.label },
+        // The same five-field guard creation uses, `createdAt` included. A row
+        // missing a field is a contract violation, not a wallet with a blank
+        // cell.
+        guard: isWallet,
+        signal: init?.signal,
+      })
+
+      const wallet = requireData(result)
+
+      if (wallet.id !== id) {
+        throw wrongTarget(id, wallet.id)
+      }
+
+      return wallet
     },
   }
 }

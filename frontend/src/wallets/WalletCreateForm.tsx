@@ -6,11 +6,8 @@ import type { DataSession } from '../auth/session.ts'
 import type { IdentityRef } from '../data/identityKeys.ts'
 import type { WalletFormField } from '../forms/serverErrors.ts'
 import { chainCatalogQuery } from './chainQueries.ts'
-import {
-  isUnconfirmedWrite,
-  useCreateWallet,
-  type CreateWalletFailure,
-} from './useCreateWallet.ts'
+import { useCreateWallet, type CreateWalletFailure } from './useCreateWallet.ts'
+import { isUnconfirmedWrite } from './writeOutcome.ts'
 import {
   WALLET_FIELD_ORDER,
   chainOptionLabel,

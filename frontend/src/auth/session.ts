@@ -18,14 +18,18 @@ export type Session =
 /**
  * The calls a validated identity may make.
  *
- * Not the whole ApiClient on purpose: a data view may read and may save a
- * wallet, and it may not register, sign in or end a session on the side.
+ * Not the whole ApiClient on purpose: a data view may read, may save a wallet
+ * and may correct its label, and it may not register, sign in or end a session
+ * on the side.
  *
  * The catalog is absent by design. `GET /api/v1/chains` is public and belongs
  * to no identity, so it is fetched through its own client rather than handed to
  * every session as if it were session data.
  */
-export type DataClient = Pick<ApiClient, 'listWallets' | 'createWallet'>
+export type DataClient = Pick<
+  ApiClient,
+  'listWallets' | 'createWallet' | 'updateWalletLabel'
+>
 
 /**
  * The capability behind one validated identity.

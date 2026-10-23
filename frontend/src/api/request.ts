@@ -39,7 +39,11 @@ export type CallInit = {
 }
 
 export type RequestOptions<T> = {
-  method: 'GET' | 'POST'
+  /**
+   * Three methods, and no more. `PUT`, `DELETE` and the rest arrive with the
+   * calls that need them rather than as a loosened type no caller exercises.
+   */
+  method: 'GET' | 'POST' | 'PATCH'
   /** Relative to API_BASE. Must start with a single slash. */
   path: string
   /** Serialised as JSON. Contains exactly the typed fields and nothing else. */
