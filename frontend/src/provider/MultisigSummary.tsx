@@ -122,10 +122,6 @@ function SummaryBody({ state, reason }: { state: MultisigState; reason: string }
               </ul>
             </dd>
           </dl>
-          <p className="hint">
-            Threshold and transaction count are read as exact integers, not
-            converted to a floating-point number.
-          </p>
         </>
       )
   }
