@@ -132,6 +132,18 @@ export function WalletsPage() {
   const [returnFocusAction, setReturnFocusAction] = useState<'edit' | 'remove'>('edit')
 
   /**
+   * Rows whose removal has been settled but whose list entry may still be on
+   * screen.
+   *
+   * A confirmed `204`, or the API's typed "already unavailable", is final for
+   * that record. The row only disappears when fresh server rows arrive, which
+   * may be a moment later or not at all if the refresh fails, and until then it
+   * must not offer to remove itself again. The entry is dropped once the
+   * arrived page no longer holds the row.
+   */
+  const [settledRemovals, setSettledRemovals] = useState<readonly number[]>([])
+
+  /**
    * True while a confirmation's delete is on the wire.
    *
    * The page's own navigation is disabled for that window: paging away unmounts
@@ -327,9 +339,15 @@ export function WalletsPage() {
     async (
       identity: IdentityRef,
       ownerPage: number,
-      address: string,
+      wallet: Wallet,
       how: 'removed' | 'unavailable',
     ): Promise<void> => {
+      const address = wallet.address
+
+      setSettledRemovals((previous) =>
+        previous.includes(wallet.id) ? previous : [...previous, wallet.id],
+      )
+
       /** True while this identity and this page are still the ones on screen. */
       const viewIsCurrent = (): boolean => {
         const live = liveView.current
@@ -423,6 +441,7 @@ export function WalletsPage() {
     setEditingId(null)
     setRemovingId(null)
     setRemovalPending(false)
+    setSettledRemovals([])
     setNotice(null)
   }, [identityUser, identityGeneration])
 
@@ -455,6 +474,22 @@ export function WalletsPage() {
   ) {
     setRemovingId(null)
     setRemovalPending(false)
+  }
+
+  /**
+   * A settled row is forgotten once the arrived page stops holding it.
+   *
+   * That is the only event that proves the list caught up: a refresh that failed,
+   * or has not answered yet, leaves the row on screen, and the row has to stay
+   * blocked for exactly as long as it is still there.
+   */
+  if (
+    visibleWallets !== undefined &&
+    settledRemovals.some((id) => !visibleWallets.some((wallet) => wallet.id === id))
+  ) {
+    setSettledRemovals((previous) =>
+      previous.filter((id) => visibleWallets.some((wallet) => wallet.id === id)),
+    )
   }
 
   if (dataSession === null) {
@@ -511,6 +546,7 @@ export function WalletsPage() {
           page={page}
           onPage={goToPage}
           navigationLocked={removalPending}
+          settledRemovals={settledRemovals}
           editingId={editingId}
           removingId={removingId}
           returnFocusTo={returnFocusTo}
@@ -531,7 +567,7 @@ export function WalletsPage() {
             void settleRemoval(
               identity,
               parsePageParam(searchParams.get('page')),
-              wallet.address,
+              wallet,
               how,
             )
           }}
@@ -555,6 +591,9 @@ type WalletResultsProps = {
   onPage: (page: number) => void
   /** True while a delete is pending, which stops the page moving under it. */
   navigationLocked: boolean
+  /** Rows whose removal is settled, so their action is blocked until the list
+   * itself drops them. */
+  settledRemovals: readonly number[]
   /** The row with an open editor, or null. At most one at a time. */
   editingId: number | null
   /** The row with an open removal confirmation, or null. */
@@ -586,6 +625,7 @@ function WalletResults({
   page,
   onPage,
   navigationLocked,
+  settledRemovals,
   editingId,
   removingId,
   returnFocusTo,
@@ -668,7 +708,14 @@ function WalletResults({
                     />
                     <RemoveWalletButton
                       wallet={wallet}
-                      disabled={editingId !== null || removingId !== null}
+                      // Settled by a confirmed answer, so the list entry is the
+                      // only thing left to wait for.
+                      settled={settledRemovals.includes(wallet.id)}
+                      disabled={
+                        editingId !== null ||
+                        removingId !== null ||
+                        settledRemovals.includes(wallet.id)
+                      }
                       returnFocus={
                         returnFocusTo === wallet.id && returnFocusAction === 'remove'
                       }
@@ -745,6 +792,8 @@ function EditLabelButton({
 
 type RemoveWalletButtonProps = {
   wallet: Wallet
+  /** The record is already gone; only the list has yet to catch up. */
+  settled: boolean
   /**
    * Another row operation is open or in flight, so this one cannot start a
    * destructive confirmation over it.
@@ -764,6 +813,7 @@ type RemoveWalletButtonProps = {
  */
 function RemoveWalletButton({
   wallet,
+  settled,
   disabled,
   returnFocus,
   onFocusReturned,
@@ -779,17 +829,28 @@ function RemoveWalletButton({
   }, [returnFocus, onFocusReturned])
 
   return (
-    <button
-      type="button"
-      className="row-action"
-      ref={buttonRef}
-      disabled={disabled}
-      onClick={() => {
-        onRemove(wallet)
-      }}
-    >
-      Remove
-    </button>
+    <>
+      <button
+        type="button"
+        className="row-action"
+        ref={buttonRef}
+        disabled={disabled || settled}
+        // Said in words as well as by the disabled state: the button still reads
+        // `Remove`, so without this a keyboard or screen reader user would only
+        // know the action is unavailable, not why.
+        aria-describedby={settled ? `removed-${String(wallet.id)}` : undefined}
+        onClick={() => {
+          onRemove(wallet)
+        }}
+      >
+        Remove
+      </button>
+      {settled && (
+        <span className="hint" id={`removed-${String(wallet.id)}`}>
+          Removed. Waiting for the list to catch up.
+        </span>
+      )}
+    </>
   )
 }
 

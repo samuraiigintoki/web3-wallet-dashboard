@@ -101,6 +101,17 @@ export function useDeleteWallet({
       : { userId: dataSession.userId, generation: dataSession.generation },
   )
 
+  /**
+   * True once this attempt has reached a terminal answer.
+   *
+   * `removed` and `unavailable` both say the record is not the user's to remove
+   * any more, so a second send would be a delete of something already gone: a
+   * pointless write at best, and at worst the same request twice on a slow
+   * network. The state itself is not readable from the handler that fired the
+   * click, so the terminal flag is kept here where it can be.
+   */
+  const terminalRef = useRef(false)
+
   const removeControllerRef = useRef<AbortController | null>(null)
   const checkControllerRef = useRef<AbortController | null>(null)
   const workingRef = useRef(false)
@@ -131,6 +142,7 @@ export function useDeleteWallet({
 
   const retire = useCallback((): void => {
     attemptRef.current += 1
+    terminalRef.current = false
     removeControllerRef.current?.abort()
     removeControllerRef.current = null
     checkControllerRef.current?.abort()
@@ -159,6 +171,7 @@ export function useDeleteWallet({
   )
 
   const reset = useCallback((): void => {
+    terminalRef.current = false
     setState({ status: 'idle' })
     setCheck({ status: 'idle' })
   }, [])
@@ -167,6 +180,13 @@ export function useDeleteWallet({
     if (workingRef.current || dataSession === null) {
       // A second confirmation, including one from a double click, is refused
       // here as well as by the disabled buttons.
+      return
+    }
+
+    if (terminalRef.current) {
+      // The record is already gone or already unavailable to this owner. Until
+      // the list itself says so, the row may still be on screen, and this is
+      // the guard that keeps that stale row from sending the request again.
       return
     }
 
@@ -200,6 +220,9 @@ export function useDeleteWallet({
         return
       }
 
+      // Terminal from here on: this attempt cannot be sent again, whatever the
+      // list still shows.
+      terminalRef.current = true
       setState({ status: 'removed' })
     } catch (error) {
       if (!isLive(identity, attempt) || controller.signal.aborted) {
@@ -211,6 +234,7 @@ export function useDeleteWallet({
       if (apiError.code === 'RESOURCE_NOT_FOUND') {
         // The documented answer for an id that is already gone. Reported as
         // what it is, and never as a new confirmation.
+        terminalRef.current = true
         setState({ status: 'unavailable' })
         return
       }

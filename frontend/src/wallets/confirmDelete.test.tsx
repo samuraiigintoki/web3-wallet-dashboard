@@ -273,6 +273,33 @@ describe('wallet removal confirmation', () => {
   })
 })
 
+/**
+ * Tries to remove a row that is still on screen after its record was settled.
+ *
+ * A blocked control does nothing, but a reopened confirmation would also be a
+ * way back to the same request, so both paths are exercised: press the row's
+ * action, and if that opens the panel, confirm again. A test that only pressed
+ * the first button would pass against a page that reopened the confirmation.
+ */
+async function attemptSecondRemoval(
+  user: ReturnType<typeof userEvent.setup>,
+  index = 0,
+): Promise<void> {
+  const stale = removeButtons()[index]
+  if (stale === undefined) {
+    return
+  }
+
+  await user.click(stale)
+  await settle()
+
+  const panel = screen.queryByRole('group', { name: /^Remove wallet/ })
+  if (panel !== null) {
+    await user.click(buttonIn(panel, 'Remove wallet'))
+    await settle()
+  }
+}
+
 describe('wallet removal answer', () => {
   beforeEach(() => {
     vi.unstubAllGlobals()
@@ -387,6 +414,116 @@ describe('wallet removal answer', () => {
     expect(screen.getByText('The saved record was not removed.')).toBeDefined()
     expect(screen.queryByRole('button', { name: 'Check saved record' })).toBeNull()
     expect(api.removeCalls).toBe(1)
+  })
+
+  it('blocks the stale row while the refreshed list is still on its way', async () => {
+    const heldRefresh = pendingResponse<Response>()
+    let lists = 0
+    const api = stubApi({
+      list: () => {
+        lists += 1
+        // The first read answers; the refresh after the confirmed delete is
+        // held, so the removed row is still on screen.
+        return lists === 1 ? listResponse([WALLET_1, WALLET_2]) : heldRefresh.promise
+      },
+    })
+    const { user } = renderApp({ path: '/wallets', storage: realStorage('token-a') })
+
+    await openConfirm(user)
+    await confirmRemoval(user)
+
+    await waitFor(() => {
+      expect(api.removeCalls).toBe(1)
+    })
+    // Confirmed, and the row is deliberately still there: the list has not
+    // answered yet.
+    await waitFor(() => {
+      expect(screen.getByText(WALLET_1.address)).toBeDefined()
+    })
+
+    const stale = removeButtons()[0]!
+    expect(stale.disabled).toBe(true)
+    expect(screen.getByText('Removed. Waiting for the list to catch up.')).toBeDefined()
+
+    // Neither the disabled control nor a reopened confirmation can start
+    // another DELETE for a record the server has already confirmed gone.
+    // eslint-disable-next-line no-console
+    console.log('DBG1 disabled=', removeButtons()[0]?.disabled, 'calls=', api.removeCalls)
+    await attemptSecondRemoval(user)
+    // eslint-disable-next-line no-console
+    console.log('DBG2 calls=', api.removeCalls)
+    expect(api.removeCalls).toBe(1)
+    expect(api.readCalls).toBe(0)
+
+    // Once the fresh page arrives without the row, the row and the block go.
+    heldRefresh.resolve(listResponse([WALLET_2]))
+    await waitFor(() => {
+      expect(screen.queryByText(WALLET_1.address)).toBeNull()
+    })
+    expect(api.removeCalls).toBe(1)
+  })
+
+  it('keeps the stale row blocked when the refresh fails, and never resends', async () => {
+    let lists = 0
+    const api = stubApi({
+      list: () => {
+        lists += 1
+        return lists === 1
+          ? listResponse([WALLET_1, WALLET_2])
+          : errorResponse(503, 'SERVICE_UNAVAILABLE')
+      },
+    })
+    const { user } = renderApp({ path: '/wallets', storage: realStorage('token-a') })
+
+    await openConfirm(user)
+    await confirmRemoval(user)
+
+    await waitFor(() => {
+      expect(screen.getByText(/The list could not be refreshed/)).toBeDefined()
+    })
+
+    // The confirmed row survives the failed refresh, and it stays blocked: the
+    // answer is final even though the list cannot show it yet.
+    expect(screen.getByText(WALLET_1.address)).toBeDefined()
+
+    await attemptSecondRemoval(user)
+    expect(api.removeCalls).toBe(1)
+    expect(api.readCalls).toBe(0)
+    expect(removeButtons()[0]!.disabled).toBe(true)
+
+    // Retrying the list is a read. It never becomes another delete, and the
+    // block lifts only when a page without the row arrives.
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+    await waitFor(() => {
+      expect(lists).toBeGreaterThan(2)
+    })
+    expect(api.removeCalls).toBe(1)
+  })
+
+  it('blocks a row the server already reports as unavailable', async () => {
+    let lists = 0
+    const api = stubApi({
+      remove: () => errorResponse(404, 'RESOURCE_NOT_FOUND'),
+      list: () => {
+        lists += 1
+        return lists === 1 ? listResponse([WALLET_1, WALLET_2]) : listResponse([WALLET_1, WALLET_2])
+      },
+    })
+    const { user } = renderApp({ path: '/wallets', storage: realStorage('token-a') })
+
+    await openConfirm(user)
+    await confirmRemoval(user)
+
+    await waitFor(() => {
+      expect(screen.getByText(/is no longer available to your account/)).toBeDefined()
+    })
+
+    // A typed not-found is terminal too. If the refreshed page somehow still
+    // holds the row, it is not offered again.
+    await attemptSecondRemoval(user)
+    expect(api.removeCalls).toBe(1)
+    expect(removeButtons()[0]!.disabled).toBe(true)
+    expect(lists).toBeGreaterThan(1)
   })
 
   it('stops the page moving while the delete is on the wire', async () => {

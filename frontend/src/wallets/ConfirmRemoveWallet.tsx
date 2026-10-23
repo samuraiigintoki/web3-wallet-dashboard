@@ -75,18 +75,34 @@ export function ConfirmRemoveWallet({
   /**
    * Removes the record, reporting the in-flight window to the page around it.
    *
-   * The flag is raised and dropped in the handler rather than from an effect,
-   * so it follows the request exactly: raised before it starts, cleared when
-   * the answer has been applied either way.
+   * The flag is raised before the request and only dropped by the effect below,
+   * once the answer is known. Dropping it in the handler's `finally` would
+   * release it the moment the DELETE resolved, which is before this panel has
+   * necessarily unmounted: for that interval the row behind it would look idle
+   * again while its list entry is still on screen.
    */
   const handleRemove = async (): Promise<void> => {
     onPendingChange(true)
-    try {
-      await remove()
-    } finally {
+    await remove()
+  }
+
+  /**
+   * Holds the page's pending flag until the outcome is known.
+   *
+   * A confirmed or already-unavailable answer keeps it raised: the record is
+   * settled, the list has not caught up yet, and the page must not treat that
+   * window as idle. Every other outcome releases it, because those rows are
+   * still the user's to retry or to check.
+   */
+  useEffect(() => {
+    if (state.status === 'removed' || state.status === 'unavailable') {
+      return
+    }
+
+    if (state.status !== 'removing') {
       onPendingChange(false)
     }
-  }
+  }, [state, onPendingChange])
 
   /**
    * Report the record gone exactly once, whichever path established it.
