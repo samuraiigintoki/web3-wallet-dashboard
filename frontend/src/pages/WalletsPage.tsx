@@ -2,12 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 
-import {
-  describeApiError,
-  type Pagination,
-  type Wallet,
-  type WalletList,
-} from '../api/index.ts'
+import { describeApiError, type Pagination, type Wallet } from '../api/index.ts'
 import type { DataSession } from '../auth/session.ts'
 import { useAuth } from '../auth/useAuth.ts'
 import type { IdentityRef } from '../data/identityKeys.ts'
@@ -149,13 +144,25 @@ export function WalletsPage() {
   }, [dataSession, refreshLists])
 
   /**
-   * The same read, for one row, after the fresh page is in the cache.
+   * The same read, for one row, answered from the server.
    *
    * The editor cannot see what a read produced on its own: the draft belongs to
-   * the component and the rows belong to the query. Returning the row that the
-   * server sent is what lets the editor show the stored label next to the
-   * uncertain draft, which is the whole point of a read-only reconciliation. It
-   * resolves to null when the refreshed page no longer holds that wallet.
+   * the component and the rows belong to the query. Returning the row this read
+   * was answered with is what lets the editor show the stored label next to the
+   * uncertain draft, which is the whole point of a read-only reconciliation.
+   *
+   * It is deliberately a fetch and not a look at the cache. A cache read cannot
+   * tell a value the server just sent from a value it sent before, and the case
+   * that matters is exactly the one where the two differ: a check whose request
+   * is cancelled by another refresh leaves the query reverted to success over
+   * the old page, and reporting that as the answer would present stale data as
+   * fresh. `fetchQuery` follows the same key and the same query function, so the
+   * cache still ends up holding the read, but the value returned here is only
+   * ever one a completed request produced. A cancelled or failed read rejects,
+   * and the editor says so instead of guessing.
+   *
+   * It resolves to null when the answer does not hold that wallet, which means
+   * the refresh is not the caller's to show any more.
    */
   const readBackWallet = useCallback(
     async (walletId: number): Promise<Wallet | null> => {
@@ -168,18 +175,9 @@ export function WalletsPage() {
         generation: dataSession.generation,
       })
 
-      const key = walletListQuery(dataSession, page).queryKey
+      const refreshed = await queryClient.fetchQuery(walletListQuery(dataSession, page))
 
-      // An invalidate resolves even when the refetch failed, and the cache then
-      // still holds the old page. Reporting that as the server's answer would
-      // dress a failed read up as a fresh one, so the failure is raised instead.
-      if (queryClient.getQueryState(key)?.status === 'error') {
-        throw new Error('the wallet list could not be read')
-      }
-
-      const refreshed = queryClient.getQueryData(key) as WalletList | undefined
-
-      return refreshed?.wallets.find((wallet) => wallet.id === walletId) ?? null
+      return refreshed.wallets.find((wallet) => wallet.id === walletId) ?? null
     },
     [dataSession, page, queryClient],
   )

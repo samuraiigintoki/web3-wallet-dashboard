@@ -225,7 +225,14 @@ describe('wallet label update call', () => {
   })
 
   it('keeps the request id on a success that names another wallet', async () => {
-    stubFetch(() => jsonResponse(UPDATED, { headers: { 'X-Request-ID': 'req-wrong-target-1' } }))
+    // A well-formed success for a wallet the request did not ask for, so the
+    // refusal under test is the target comparison and not the envelope check.
+    stubFetch(() =>
+      jsonResponse(
+        { data: { ...UPDATED, id: 12 } },
+        { headers: { 'X-Request-ID': 'req-wrong-target-1' } },
+      ),
+    )
     const { client } = createClient()
 
     await expect(client.updateWalletLabel(999, { label: 'x' })).rejects.toSatisfy(

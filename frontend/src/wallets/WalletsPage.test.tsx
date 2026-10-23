@@ -1,10 +1,12 @@
 import { screen, waitFor } from '@testing-library/react'
+import { act } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   errorResponse,
   jsonResponse,
   pendingResponse,
+  plainTextResponse,
   stubFetch,
   type FetchCall,
 } from '../test/http.ts'
@@ -405,6 +407,101 @@ describe('wallets page', () => {
     expect((screen.getAllByLabelText('Label')[1] as HTMLInputElement).value).toBe(
       'Draft nobody saved',
     )
+  })
+
+  it('never reports a cancelled check as the stored label', async () => {
+    const held = pendingResponse<Response>()
+    let listCalls = 0
+
+    apiFetch((_url, init) => {
+      if (init.method === 'PATCH') {
+        return plainTextResponse(502, 'Bad Gateway')
+      }
+
+      if (init.method === 'POST') {
+        return jsonResponse(
+          {
+            data: {
+              id: 9,
+              address: '0x00000000000000000000000000000000000000c3',
+              chainId: 11155111,
+              label: 'New signer',
+              createdAt: '2026-10-03T09:00:00Z',
+            },
+          },
+          { status: 201 },
+        )
+      }
+
+      listCalls += 1
+
+      if (listCalls === 1) {
+        return pageResponse([WALLET_A])
+      }
+
+      // The check is held, and the read that replaces it after the create
+      // carries the renamed value.
+      if (listCalls === 2) {
+        return held.promise
+      }
+
+      return pageResponse([{ ...WALLET_A, label: 'Renamed on the server' }])
+    })
+
+    const { user } = renderApp({ path: '/wallets', storage: memoryStorage('stored-token') })
+
+    await waitFor(() => {
+      expect(screen.getByText('Primary signer')).toBeDefined()
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Edit label' }))
+    await user.click(screen.getByRole('button', { name: 'Save label' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('may or may not have been saved')
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Check the list' }))
+    expect(screen.getByText('Reading the list.')).toBeDefined()
+
+    // Another write on the page refreshes the list, which cancels the check's
+    // request. The query then falls back to the page it held before.
+    await waitFor(() => {
+      expect(screen.getByLabelText('Chain').querySelectorAll('option').length).toBeGreaterThan(1)
+    })
+    await user.type(
+      screen.getByLabelText('Address'),
+      '0x00000000000000000000000000000000000000c3',
+    )
+    await user.selectOptions(screen.getByLabelText('Chain'), '11155111')
+    await user.type(screen.getAllByLabelText('Label')[0]!, 'New signer')
+    await user.click(screen.getByRole('button', { name: 'Save wallet' }))
+
+    await waitFor(() => {
+      expect(listCalls).toBeGreaterThanOrEqual(3)
+    })
+
+    // The cancelled request now answers with the page it was going to send.
+    held.resolve(pageResponse([WALLET_A]))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    // The check reaches a terminal state rather than staying on "Reading".
+    await waitFor(() => {
+      expect(screen.queryByText('Reading the list.')).toBeNull()
+    })
+
+    // Cached success is not a read. Whatever the check reports, it is never the
+    // label the cancelled request was carrying; it either finished on a later
+    // read and reports that value, or says it did not finish.
+    expect(screen.queryByText(/"Primary signer"/)).toBeNull()
+    expect(screen.queryByText(/The list now shows this wallet labelled "Primary signer"/)).toBeNull()
+
+    const readback = screen.queryByText(/The list now shows this wallet labelled/)
+    if (readback !== null) {
+      expect(readback.textContent).toContain('Renamed on the server')
+    }
   })
 
   it('retires a selection whose row a refresh dropped', async () => {

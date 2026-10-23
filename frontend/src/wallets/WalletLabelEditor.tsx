@@ -66,6 +66,25 @@ export function WalletLabelEditor({
   })
 
   /**
+   * Which read this editor is currently willing to hear from.
+   *
+   * Every thing that makes an older read irrelevant moves this on: a new read,
+   * a new submission, and the editor closing. A completion carries the number it
+   * started with and is dropped unless it still matches. Without this, a read
+   * held open across a second save lands its answer under the second attempt's
+   * draft, which is a value the user has already replaced.
+   */
+  const readSequence = useRef(0)
+
+  useEffect(
+    () => () => {
+      // The editor is gone, so nothing it started may write into it.
+      readSequence.current += 1
+    },
+    [],
+  )
+
+  /**
    * What the last manual read of the list showed for this row.
    *
    * Kept beside the draft rather than in place of it: the draft is the user's
@@ -147,6 +166,10 @@ export function WalletLabelEditor({
       reset()
     }
 
+    // A read still on the wire belongs to the attempt that started it. Moving the
+    // sequence on retires its handlers as well as its message, so it cannot
+    // report its answer under this attempt once it arrives.
+    readSequence.current += 1
     setReadBack({ status: 'idle' })
 
     const nextError = validateLabel(label)
@@ -163,16 +186,32 @@ export function WalletLabelEditor({
   }
 
   const handleReadBack = (): void => {
+    readSequence.current += 1
+    const sequence = readSequence.current
+
+    /** True while this read is still the one this editor is waiting for. */
+    const isCurrent = (): boolean => readSequence.current === sequence
+
     setReadBack({ status: 'reading' })
 
     onReadBack(wallet.id).then(
       (row) => {
+        if (!isCurrent()) {
+          return
+        }
+
         // A null row means the refreshed page no longer holds this wallet. The
         // page retires the selection at that point and this editor unmounts, so
         // there is no message to show here and nothing to keep alive for it.
         setReadBack(row === null ? { status: 'idle' } : { status: 'found', label: row.label })
       },
       () => {
+        if (!isCurrent()) {
+          return
+        }
+
+        // A read that failed or was cancelled never became an answer. Saying so
+        // is the only honest report; the cached page is not one.
         setReadBack({ status: 'unreadable' })
       },
     )

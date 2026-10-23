@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { act } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient, User, Wallet } from '../api/index.ts'
@@ -118,6 +119,16 @@ function stubApi(handlers: Handlers = {}) {
       return patchCalls
     },
   }
+}
+
+/**
+ * Lets a released promise settle and React render, so a later "this is not on
+ * screen" means the answer was discarded and not merely not processed yet.
+ */
+async function settle(): Promise<void> {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
 }
 
 function realStorage(initial: string): TokenStorage {
@@ -590,6 +601,107 @@ describe('wallet label editor', () => {
       expect(screen.getByText(/no saved wallets yet/)).toBeDefined()
     })
     expect(editorIsOpen()).toBe(false)
+  })
+
+  it('drops a read that arrives after a newer save attempt', async () => {
+    const held = pendingResponse<Response>()
+    let listCalls = 0
+    stubApi({
+      patch: (_body, call) =>
+        call === 1 ? plainTextResponse(502, 'Bad Gateway') : plainTextResponse(504, 'Gateway Timeout'),
+      list: () => {
+        listCalls += 1
+        if (listCalls === 1) {
+          return listResponse([WALLET_1])
+        }
+        // The check holds; any read after it is answered normally.
+        return listCalls === 2 ? held.promise : listResponse([WALLET_1])
+      },
+    })
+    const { user } = renderApp({ path: '/wallets', storage: realStorage('token-a') })
+
+    await openEditor(user)
+    await user.clear(labelInput())
+    await user.type(labelInput(), 'First rename')
+    await user.click(saveButton())
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('may or may not have been saved')
+    })
+
+    // The check is on the wire and stays there.
+    await user.click(within(editorForm()).getByRole('button', { name: 'Check the list' }))
+    expect(screen.getByText('Reading the list.')).toBeDefined()
+
+    // A second, deliberate save while the first read is still open. This is the
+    // user's new answer and the only one the editor should report on.
+    await user.clear(labelInput())
+    await user.type(labelInput(), 'Second rename')
+    await user.click(saveButton())
+
+    await waitFor(() => {
+      expect(labelInput().value).toBe('Second rename')
+    })
+
+    // The old read now answers, with the server value the first attempt was
+    // about. Reporting it here would describe a value the user already replaced.
+    held.resolve(listResponse([{ ...WALLET_1, label: 'First rename applied' }]))
+    await settle()
+
+    expect(screen.getByText(/may or may not have been saved/)).toBeDefined()
+    expect(screen.queryByText(/The list now shows this wallet labelled/)).toBeNull()
+    expect(screen.queryByText(/First rename applied/)).toBeNull()
+    expect(labelInput().value).toBe('Second rename')
+  })
+
+  it('drops a failed read that arrives after a newer save attempt', async () => {
+    const refreshHold = pendingResponse<Response>()
+    const readHold = pendingResponse<Response>()
+    let listCalls = 0
+    stubApi({
+      patch: (_body, call) =>
+        call === 1 ? plainTextResponse(502, 'Bad Gateway') : plainTextResponse(504, 'Gateway Timeout'),
+      list: () => {
+        listCalls += 1
+        if (listCalls === 1) {
+          return listResponse([WALLET_1])
+        }
+        return listCalls === 2 ? refreshHold.promise : readHold.promise
+      },
+    })
+    const { user } = renderApp({ path: '/wallets', storage: realStorage('token-a') })
+
+    await openEditor(user)
+    await user.click(saveButton())
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('may or may not have been saved')
+    })
+
+    await user.click(within(editorForm()).getByRole('button', { name: 'Check the list' }))
+
+    // Let the check reach its own read, which is held too.
+    refreshHold.resolve(listResponse([WALLET_1]))
+    await waitFor(() => {
+      expect(listCalls).toBe(3)
+    })
+
+    await user.clear(labelInput())
+    await user.type(labelInput(), 'Second rename')
+    await user.click(saveButton())
+
+    await waitFor(() => {
+      expect(labelInput().value).toBe('Second rename')
+    })
+
+    // The retired read fails. Its failure belongs to the attempt that started
+    // it, so it is not reported under the newer one.
+    readHold.resolve(errorResponse(500, 'INTERNAL_ERROR', { message: 'boom' }))
+    await settle()
+
+    expect(screen.queryByText('The list could not be read. Try again.')).toBeNull()
+    expect(labelInput().value).toBe('Second rename')
+    expect(screen.getByText(/may or may not have been saved/)).toBeDefined()
   })
 
   it('does not present a failed read as the stored value', async () => {
