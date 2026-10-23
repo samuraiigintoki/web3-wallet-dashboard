@@ -2,22 +2,28 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 
-import { describeApiError, type Pagination, type Wallet } from '../api/index.ts'
+import {
+  describeApiError,
+  type Pagination,
+  type Wallet,
+  type WalletList,
+} from '../api/index.ts'
 import type { DataSession } from '../auth/session.ts'
 import { useAuth } from '../auth/useAuth.ts'
 import type { IdentityRef } from '../data/identityKeys.ts'
 import { MAX_PAGE, parsePageParam } from '../wallets/page.ts'
 import { refreshWalletLists, walletListQuery } from '../wallets/walletQueries.ts'
+import { ConfirmRemoveWallet } from '../wallets/ConfirmRemoveWallet.tsx'
 import { WalletCreateForm } from '../wallets/WalletCreateForm.tsx'
 import { WalletLabelEditor } from '../wallets/WalletLabelEditor.tsx'
 
 /**
  * The saved wallets of the signed-in account.
  *
- * One read and two writes: the rows come from the API, the owner comes from the
- * bearer, and every state on screen says what actually happened. A saved row can
- * be created and its label corrected; nothing else about it is editable, and no
- * figure on this screen comes from anywhere but the API.
+ * One read and three writes: the rows come from the API, the owner comes from
+ * the bearer, and every state on screen says what actually happened. A saved row
+ * can be created, have its label corrected and be removed; nothing else about it
+ * is editable, and no figure on this screen comes from anywhere but the API.
  */
 export function WalletsPage() {
   const { dataSession } = useAuth()
@@ -97,6 +103,16 @@ export function WalletsPage() {
    */
   const [editingId, setEditingId] = useState<number | null>(null)
 
+  /**
+   * The row whose removal confirmation is open, or null.
+   *
+   * Held beside the editor rather than inside the confirmation so that exactly
+   * one row operation can exist: while either is open, the other's actions are
+   * disabled. That is what stops a destructive confirmation from being opened
+   * over an unsaved label draft, which would discard it without asking.
+   */
+  const [removingId, setRemovingId] = useState<number | null>(null)
+
   /** Why the last label save closed, for the line above the table. */
   const [notice, setNotice] = useState<string | null>(null)
 
@@ -105,6 +121,30 @@ export function WalletsPage() {
    * user lands where they were rather than at the top of the document.
    */
   const [returnFocusTo, setReturnFocusTo] = useState<number | null>(null)
+
+  /**
+   * Which of the row's actions gets that focus.
+   *
+   * A row has two now, and handing focus to both would let the last one mounted
+   * win a race the user cannot see. The action the user actually used is the
+   * one that gets the caret back.
+   */
+  const [returnFocusAction, setReturnFocusAction] = useState<'edit' | 'remove'>('edit')
+
+  /**
+   * True while a confirmation's delete is on the wire.
+   *
+   * The page's own navigation is disabled for that window: paging away unmounts
+   * the row, which would abort a destructive request whose answer the user is
+   * still owed.
+   */
+  const [removalPending, setRemovalPending] = useState(false)
+
+  /** The status line, which takes focus once a removed row is gone. */
+  const noticeRef = useRef<HTMLParagraphElement>(null)
+
+  /** The row whose confirmation was last opened, so cancelling can focus it. */
+  const openedRemovalFor = useRef<number | null>(null)
 
   /**
    * A confirmed label change.
@@ -118,6 +158,7 @@ export function WalletsPage() {
     (identity: IdentityRef, wallet: Wallet): void => {
       refreshLists(identity)
       setEditingId(null)
+      setReturnFocusAction('edit')
       setReturnFocusTo(wallet.id)
       setNotice(`Saved label for ${wallet.address}.`)
     },
@@ -126,6 +167,16 @@ export function WalletsPage() {
 
   const closeEditor = useCallback((): void => {
     setEditingId(null)
+  }, [])
+
+  const closeRemoval = useCallback((): void => {
+    // Cancelling is a pure close, so the caret goes back to the control that
+    // opened the confirmation.
+    setRemovingId(null)
+    setRemovalPending(false)
+    setReturnFocusAction('remove')
+    setReturnFocusTo(openedRemovalFor.current)
+    openedRemovalFor.current = null
   }, [])
 
   /**
@@ -252,6 +303,108 @@ export function WalletsPage() {
   )
 
   /**
+   * The refresh after a record is gone, and the page repair it may need.
+   *
+   * Retirement first, exactly as after a save: a list request that left before
+   * the removal is superseded work. The pages are then read again, and only the
+   * fresh server rows decide the page, because only the server knows the totals.
+   * That is also why nothing is subtracted locally and no row is removed ahead
+   * of the answer.
+   *
+   * A removal can empty the current page. When it does, the URL moves to the
+   * last page the fresh metadata reports, with a floor of page 1: removing the
+   * only record on page 2 of 2 lands on page 1, and removing the account's only
+   * record lands on page 1, where the true empty state is shown. A page that
+   * still holds rows is left exactly where the user put it, and an ordinary
+   * visit to a past-end page keeps C1's behaviour because this path only runs
+   * after a removal.
+   *
+   * Every wait is followed by the same ownership question the readback asks. A
+   * refresh that arrives after the session ended, or after the user navigated,
+   * changes nothing: no cache write of its own making, no navigation.
+   */
+  const settleRemoval = useCallback(
+    async (
+      identity: IdentityRef,
+      ownerPage: number,
+      address: string,
+      how: 'removed' | 'unavailable',
+    ): Promise<void> => {
+      /** True while this identity and this page are still the ones on screen. */
+      const viewIsCurrent = (): boolean => {
+        const live = liveView.current
+        return (
+          live.session !== null &&
+          live.session.userId === identity.userId &&
+          live.session.generation === identity.generation &&
+          live.page === ownerPage
+        )
+      }
+
+      setRemovingId(null)
+      setRemovalPending(false)
+      setReturnFocusTo(null)
+
+      if (!viewIsCurrent()) {
+        // The page this confirmation belonged to is gone. Saying the record was
+        // removed is that page's news, and it is nobody else's to receive.
+        return
+      }
+
+      setNotice(
+        how === 'removed'
+          ? `Removed the saved record for ${address}.`
+          : `The saved record for ${address} is no longer available to your account.`,
+      )
+
+      await refreshWalletLists(queryClient, identity)
+
+      if (!viewIsCurrent() || dataSession === null) {
+        return
+      }
+
+      let fresh: WalletList
+      try {
+        fresh = await queryClient.fetchQuery(walletListQuery(dataSession, ownerPage))
+      } catch {
+        // The removal is confirmed and stays confirmed. This is the list's
+        // failure to report, with the list's own Retry, and never a reason to
+        // send another DELETE.
+        if (viewIsCurrent()) {
+          setNotice(
+            `Removed the saved record for ${address}. The list could not be refreshed, so it may still show it.`,
+          )
+          noticeRef.current?.focus()
+        }
+        return
+      }
+
+      if (!viewIsCurrent()) {
+        return
+      }
+
+      if (fresh.wallets.length > 0) {
+        noticeRef.current?.focus()
+        return
+      }
+
+      const lastPage = Math.max(1, fresh.pagination.totalPages)
+
+      if (lastPage === ownerPage) {
+        // The page the user is on is still where the rows are, so it stays.
+        noticeRef.current?.focus()
+        return
+      }
+
+      const next = new URLSearchParams(searchParams)
+      next.set('page', String(lastPage))
+      setSearchParams(next)
+      noticeRef.current?.focus()
+    },
+    [dataSession, liveView, queryClient, searchParams, setSearchParams],
+  )
+
+  /**
    * A draft belongs to the session that typed it, not to the account. A
    * credential replacement for the same user is a different session, so the
    * editor closes on the same boundary the create form clears its own fields
@@ -268,6 +421,8 @@ export function WalletsPage() {
     }
 
     setEditingId(null)
+    setRemovingId(null)
+    setRemovalPending(false)
     setNotice(null)
   }, [identityUser, identityGeneration])
 
@@ -291,6 +446,15 @@ export function WalletsPage() {
     !visibleWallets.some((wallet) => wallet.id === editingId)
   ) {
     setEditingId(null)
+  }
+
+  if (
+    removingId !== null &&
+    visibleWallets !== undefined &&
+    !visibleWallets.some((wallet) => wallet.id === removingId)
+  ) {
+    setRemovingId(null)
+    setRemovalPending(false)
   }
 
   if (dataSession === null) {
@@ -331,7 +495,10 @@ export function WalletsPage() {
       {error === null && isPending && <p role="status">Loading wallets.</p>}
 
       {notice !== null && (
-        <p className="notice" role="status">
+        // Focusable so a confirmed removal can hand focus here: the row and its
+        // buttons are gone by then, and leaving the caret nowhere would drop a
+        // keyboard user at the top of the document.
+        <p className="notice" role="status" ref={noticeRef} tabIndex={-1}>
           {notice}
         </p>
       )}
@@ -343,13 +510,31 @@ export function WalletsPage() {
           pagination={data.pagination}
           page={page}
           onPage={goToPage}
+          navigationLocked={removalPending}
           editingId={editingId}
+          removingId={removingId}
           returnFocusTo={returnFocusTo}
+          returnFocusAction={returnFocusAction}
           onEdit={(wallet) => {
             setNotice(null)
             setEditingId(wallet.id)
           }}
           onCancel={closeEditor}
+          onRemove={(wallet) => {
+            setNotice(null)
+            openedRemovalFor.current = wallet.id
+            setRemovingId(wallet.id)
+          }}
+          onCancelRemoval={closeRemoval}
+          onRemovalPendingChange={setRemovalPending}
+          onGone={(identity, wallet, how) => {
+            void settleRemoval(
+              identity,
+              parsePageParam(searchParams.get('page')),
+              wallet.address,
+              how,
+            )
+          }}
           onUpdated={handleUpdated}
           onReadBack={readBackWallet}
           onFocusReturned={() => {
@@ -368,12 +553,26 @@ type WalletResultsProps = {
   /** The page that was asked for, which the URL owns. */
   page: number
   onPage: (page: number) => void
+  /** True while a delete is pending, which stops the page moving under it. */
+  navigationLocked: boolean
   /** The row with an open editor, or null. At most one at a time. */
   editingId: number | null
-  /** The row whose `Edit label` should receive focus, once. */
+  /** The row with an open removal confirmation, or null. */
+  removingId: number | null
+  /** The row whose action should receive focus, once. */
   returnFocusTo: number | null
+  /** Which action that is. */
+  returnFocusAction: 'edit' | 'remove'
   onEdit: (wallet: Wallet) => void
   onCancel: () => void
+  onRemove: (wallet: Wallet) => void
+  onCancelRemoval: () => void
+  onRemovalPendingChange: (pending: boolean) => void
+  onGone: (
+    identity: IdentityRef,
+    wallet: Wallet,
+    how: 'removed' | 'unavailable',
+  ) => void
   onUpdated: (identity: IdentityRef, wallet: Wallet) => void
   /** Reads the list again and returns the refreshed row, for the editor. */
   onReadBack: (walletId: number) => Promise<Wallet | null>
@@ -386,10 +585,17 @@ function WalletResults({
   pagination,
   page,
   onPage,
+  navigationLocked,
   editingId,
+  removingId,
   returnFocusTo,
+  returnFocusAction,
   onEdit,
   onCancel,
+  onRemove,
+  onCancelRemoval,
+  onGone,
+  onRemovalPendingChange,
   onUpdated,
   onReadBack,
   onFocusReturned,
@@ -400,6 +606,7 @@ function WalletResults({
         pagination={pagination}
         page={page}
         onPage={onPage}
+        navigationLocked={navigationLocked}
       />
     )
   }
@@ -436,15 +643,37 @@ function WalletResults({
                     onCancel={onCancel}
                     onReadBack={onReadBack}
                   />
+                ) : removingId === wallet.id ? (
+                  <ConfirmRemoveWallet
+                    // Keyed by id for the same reason: a retarget remounts, so
+                    // a held answer cannot land in another row's confirmation.
+                    key={wallet.id}
+                    dataSession={dataSession}
+                    wallet={wallet}
+                    onCancel={onCancelRemoval}
+                    onGone={onGone}
+                    onPendingChange={onRemovalPendingChange}
+                  />
                 ) : (
                   <>
                     {wallet.label === '' ? 'No label' : wallet.label}
                     <EditLabelButton
                       wallet={wallet}
-                      disabled={editingId !== null}
-                      returnFocus={returnFocusTo === wallet.id}
+                      disabled={editingId !== null || removingId !== null}
+                      returnFocus={
+                        returnFocusTo === wallet.id && returnFocusAction === 'edit'
+                      }
                       onFocusReturned={onFocusReturned}
                       onEdit={onEdit}
+                    />
+                    <RemoveWalletButton
+                      wallet={wallet}
+                      disabled={editingId !== null || removingId !== null}
+                      returnFocus={
+                        returnFocusTo === wallet.id && returnFocusAction === 'remove'
+                      }
+                      onFocusReturned={onFocusReturned}
+                      onRemove={onRemove}
                     />
                   </>
                 )}
@@ -457,7 +686,12 @@ function WalletResults({
         </tbody>
       </table>
 
-      <PageControls pagination={pagination} page={page} onPage={onPage} />
+      <PageControls
+        pagination={pagination}
+        page={page}
+        onPage={onPage}
+        navigationLocked={navigationLocked}
+      />
     </>
   )
 }
@@ -509,10 +743,61 @@ function EditLabelButton({
   )
 }
 
+type RemoveWalletButtonProps = {
+  wallet: Wallet
+  /**
+   * Another row operation is open or in flight, so this one cannot start a
+   * destructive confirmation over it.
+   */
+  disabled: boolean
+  returnFocus: boolean
+  onFocusReturned: () => void
+  onRemove: (wallet: Wallet) => void
+}
+
+/**
+ * `Remove` for one row.
+ *
+ * Disabled while any row operation is open, which is what keeps a confirmation
+ * from closing over an unsaved label draft, and while a delete is in flight, so
+ * the confirmation cannot be retargeted out from under its own answer.
+ */
+function RemoveWalletButton({
+  wallet,
+  disabled,
+  returnFocus,
+  onFocusReturned,
+  onRemove,
+}: RemoveWalletButtonProps) {
+  const buttonRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (returnFocus) {
+      buttonRef.current?.focus()
+      onFocusReturned()
+    }
+  }, [returnFocus, onFocusReturned])
+
+  return (
+    <button
+      type="button"
+      className="row-action"
+      ref={buttonRef}
+      disabled={disabled}
+      onClick={() => {
+        onRemove(wallet)
+      }}
+    >
+      Remove
+    </button>
+  )
+}
+
 type EmptyWalletsProps = {
   pagination: Pagination
   page: number
   onPage: (page: number) => void
+  navigationLocked: boolean
 }
 
 /**
@@ -524,7 +809,12 @@ type EmptyWalletsProps = {
  * pages. The count is never invented, and it is never shown as zero when it is
  * not.
  */
-function EmptyWallets({ pagination, page, onPage }: EmptyWalletsProps) {
+function EmptyWallets({
+  pagination,
+  page,
+  onPage,
+  navigationLocked,
+}: EmptyWalletsProps) {
   if (pagination.totalItems === 0) {
     return (
       <p role="status">
@@ -547,7 +837,12 @@ function EmptyWallets({ pagination, page, onPage }: EmptyWalletsProps) {
           Back to page 1
         </button>
       </div>
-      <PageControls pagination={pagination} page={page} onPage={onPage} />
+      <PageControls
+        pagination={pagination}
+        page={page}
+        onPage={onPage}
+        navigationLocked={navigationLocked}
+      />
     </>
   )
 }
@@ -556,6 +851,8 @@ type PageControlsProps = {
   pagination: Pagination
   page: number
   onPage: (page: number) => void
+  /** True while a delete is pending: the page must not move under it. */
+  navigationLocked: boolean
 }
 
 /**
@@ -563,7 +860,12 @@ type PageControlsProps = {
  * last page is the server's `totalPages`, so the caller cannot walk past the end
  * of its own data or past the ceiling the API enforces.
  */
-function PageControls({ pagination, page, onPage }: PageControlsProps) {
+function PageControls({
+  pagination,
+  page,
+  onPage,
+  navigationLocked,
+}: PageControlsProps) {
   if (pagination.totalPages === 0) {
     return null
   }
@@ -573,11 +875,19 @@ function PageControls({ pagination, page, onPage }: PageControlsProps) {
   return (
     <nav aria-label="Wallet pages">
       <div className="status__actions">
-        <button type="button" onClick={() => onPage(page - 1)} disabled={page <= 1}>
+        <button
+          type="button"
+          onClick={() => onPage(page - 1)}
+          disabled={page <= 1 || navigationLocked}
+        >
           Previous
         </button>
         <span>{`Page ${String(page)} of ${String(pagination.totalPages)}`}</span>
-        <button type="button" onClick={() => onPage(page + 1)} disabled={atLastPage}>
+        <button
+          type="button"
+          onClick={() => onPage(page + 1)}
+          disabled={atLastPage || navigationLocked}
+        >
           Next
         </button>
       </div>

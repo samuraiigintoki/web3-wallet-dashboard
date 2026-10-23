@@ -40,10 +40,10 @@ export type CallInit = {
 
 export type RequestOptions<T> = {
   /**
-   * Three methods, and no more. `PUT`, `DELETE` and the rest arrive with the
-   * calls that need them rather than as a loosened type no caller exercises.
+   * Four methods, and no more. `PUT` and the rest arrive with the calls that
+   * need them rather than as a loosened type no caller exercises.
    */
-  method: 'GET' | 'POST' | 'PATCH'
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE'
   /** Relative to API_BASE. Must start with a single slash. */
   path: string
   /** Serialised as JSON. Contains exactly the typed fields and nothing else. */
@@ -57,6 +57,16 @@ export type RequestOptions<T> = {
 export type ApiResult<T> = {
   /** null when the response was 204 or had an empty body. */
   data: T | null
+  /**
+   * The status the server answered with.
+   *
+   * `data: null` alone cannot tell `204 No Content` from an empty `200` or
+   * `202`, and for a delete those are different answers: only `204` is the
+   * contract's confirmation. The status is reported on every response so a
+   * caller that needs to tell them apart can, without a second fetch path and
+   * without any other caller changing.
+   */
+  status: number
   /** Present only on list responses. */
   pagination: Pagination | null
   requestId?: string
@@ -258,7 +268,7 @@ export function createRequest(dependencies: RequestDependencies): RequestFn {
     }
 
     if (response.status === 204 || text === '') {
-      return { data: null, pagination: null, requestId }
+      return { data: null, status: response.status, pagination: null, requestId }
     }
 
     const payload = tryParseJson(text)
@@ -278,7 +288,7 @@ export function createRequest(dependencies: RequestDependencies): RequestFn {
       pagination = payload.pagination
     }
 
-    return { data: payload.data, pagination, requestId }
+    return { data: payload.data, status: response.status, pagination, requestId }
   }
 }
 
