@@ -988,6 +988,8 @@ describe('wallet label editor draft', () => {
         listWallets: vi.fn(),
         createWallet: vi.fn(),
         updateWalletLabel: vi.fn() as unknown as ApiClient['updateWalletLabel'],
+        deleteWallet: vi.fn() as unknown as ApiClient['deleteWallet'],
+        getWallet: vi.fn() as unknown as ApiClient['getWallet'],
       },
     }
   }

@@ -56,6 +56,16 @@ export type ApiClient = {
     body: UpdateWalletRequest,
     init?: CallInit,
   ) => Promise<Wallet>
+  /**
+   * Removes one saved record. Resolves only when the server confirmed it with
+   * `204 No Content`; every other answer is an ApiError.
+   */
+  deleteWallet: (id: number, init?: CallInit) => Promise<void>
+  /**
+   * Reads one saved record by id, for reconciling an outcome this client could
+   * not confirm. A foreign id is the same typed `404` a missing one is.
+   */
+  getWallet: (id: number, init?: CallInit) => Promise<Wallet>
 }
 
 /** A body is required where the contract says one is returned. */
@@ -151,6 +161,24 @@ function unusableId(id: number): ApiError {
     code: 'UNEXPECTED_RESPONSE',
     status: 0,
     message: `the wallet id ${String(id)} is not one this client can address`,
+  })
+}
+
+/**
+ * A 2xx that is not the `204` the delete contract promises.
+ *
+ * An empty body is not a confirmation on its own: only `204 No Content` is the
+ * documented answer for a removed record, so an empty `200` or `202` is a
+ * response this client cannot read as a removal. It keeps its real status, so
+ * the caller can treat it as the unknown outcome it is rather than as a
+ * success.
+ */
+function unconfirmedRemoval(status: number, requestId: string | undefined): ApiError {
+  return new ApiError({
+    code: 'UNEXPECTED_RESPONSE',
+    status,
+    message: `the server answered ${String(status)} where the delete contract says 204`,
+    requestId,
   })
 }
 
@@ -301,6 +329,49 @@ export function createApiClient(dependencies: RequestDependencies): ApiClient {
 
       const wallet = requireData(result)
 
+      if (wallet.id !== id) {
+        throw wrongTarget(id, wallet.id, result.requestId)
+      }
+
+      return wallet
+    },
+
+    async deleteWallet(id, init) {
+      // Owner-scoped by the bearer, exactly like every other wallet call. No
+      // body: the route takes the id from the path and nothing else, and the
+      // handler answers an unexpected body the way it answers any malformed
+      // request.
+      const result = await request({
+        method: 'DELETE',
+        path: `/wallets/${addressableId(id)}`,
+        auth: true,
+        // Only reached when the server sends a body, which the contract says a
+        // `204` does not. A wallet here is still not a confirmation, and it is
+        // refused below with its real status.
+        guard: isWallet,
+        signal: init?.signal,
+      })
+
+      if (result.status !== 204 || result.data !== null) {
+        throw unconfirmedRemoval(result.status, result.requestId)
+      }
+    },
+
+    async getWallet(id, init) {
+      const result = await request({
+        method: 'GET',
+        path: `/wallets/${addressableId(id)}`,
+        auth: true,
+        // All five fields, `createdAt` included: a row missing one is a
+        // contract violation, not an absence.
+        guard: isWallet,
+        signal: init?.signal,
+      })
+
+      const wallet = requireData(result)
+
+      // The same target check the update applies. A read that describes another
+      // record says nothing about the one being reconciled.
       if (wallet.id !== id) {
         throw wrongTarget(id, wallet.id, result.requestId)
       }

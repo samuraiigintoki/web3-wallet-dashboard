@@ -287,6 +287,232 @@ describe('wallets page', () => {
     expect(screen.getByText('ada@example.com')).toBeDefined()
   })
 
+  /**
+   * A two-page account where one row is removed, with the pages the server
+   * reports before and after.
+   *
+   * The route answers the list by the page it was asked for and the DELETE with
+   * a 204, so the repair is decided from server metadata and never from
+   * arithmetic on what the client had.
+   */
+  function removalRoute(options: {
+    pageTwoRowsAfter: unknown[]
+    totalItemsAfter: number
+    totalPagesAfter: number
+    removeResponse?: () => Response | Promise<Response>
+  }) {
+    const requests: { method: string; url: string }[] = []
+    let removed = false
+
+    const fetchStub = apiFetch((url, init) => {
+      requests.push({ method: init.method ?? 'GET', url })
+
+      if (init.method === 'DELETE') {
+        removed = true
+        return options.removeResponse?.() ?? new Response(null, { status: 204 })
+      }
+
+      const wantsPageTwo = url.includes('page=2')
+      const totalItems = removed ? options.totalItemsAfter : 21
+      const totalPages = removed ? options.totalPagesAfter : 2
+
+      const rows = wantsPageTwo
+        ? removed
+          ? options.pageTwoRowsAfter
+          : [WALLET_B]
+        : [WALLET_A]
+
+      return pageResponse(rows, {
+        page: wantsPageTwo ? 2 : 1,
+        pageSize: PAGE_SIZE,
+        totalItems,
+        totalPages,
+      })
+    })
+
+    return {
+      fetchStub,
+      requests,
+      deleteCalls: () => requests.filter((request) => request.method === 'DELETE'),
+    }
+  }
+
+  it('keeps the page after an ordinary removal', async () => {
+    const route = removalRoute({
+      // Page 2 still holds rows after the removal, so the page the user is on
+      // remains valid and must not be moved out from under them.
+      pageTwoRowsAfter: [WALLET_B],
+      totalItemsAfter: 21,
+      totalPagesAfter: 2,
+    })
+    const { user } = renderApp({ path: '/wallets?page=2', storage: memoryStorage('stored-token') })
+
+    await waitFor(() => {
+      expect(screen.getByText('Cold storage')).toBeDefined()
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Remove' }))
+    await user.click(screen.getByRole('button', { name: 'Remove wallet' }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Removed the saved record for/)).toBeDefined()
+    })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    // The page in the URL is the one the user was on, and the row is gone only
+    // because the server's own page no longer holds it.
+    expect(currentPath()).toBe('/wallets?page=2')
+    expect(route.deleteCalls()).toHaveLength(1)
+  })
+
+  it('moves to the last valid page when the removal empties the current one', async () => {
+    const route = removalRoute({
+      // The removed row was the only one on page 2, and page 1 is all that is
+      // left, so the current page is past the end after the removal.
+      pageTwoRowsAfter: [],
+      totalItemsAfter: 20,
+      totalPagesAfter: 1,
+    })
+    const { user } = renderApp({ path: '/wallets?page=2', storage: memoryStorage('stored-token') })
+
+    await waitFor(() => {
+      expect(screen.getByText('Cold storage')).toBeDefined()
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Remove' }))
+    await user.click(screen.getByRole('button', { name: 'Remove wallet' }))
+
+    // The URL moves, from the fresh metadata, to the last page the server says
+    // exists.
+    await waitFor(() => {
+      expect(currentPath()).toBe('/wallets?page=1')
+    })
+    await waitFor(() => {
+      expect(screen.getByText('Primary signer')).toBeDefined()
+    })
+    expect(route.deleteCalls()).toHaveLength(1)
+  })
+
+  it('shows the true empty state after removing the only record', async () => {
+    const fetchStub = apiFetch((_url, init) => {
+      if (init.method === 'DELETE') {
+        return new Response(null, { status: 204 })
+      }
+
+      const removed = fetchStub.calls.some((call) => call.init.method === 'DELETE')
+
+      return pageResponse(removed ? [] : [WALLET_A], {
+        page: 1,
+        pageSize: PAGE_SIZE,
+        totalItems: removed ? 0 : 1,
+        totalPages: removed ? 0 : 1,
+      })
+    })
+    const { user } = renderApp({ path: '/wallets', storage: memoryStorage('stored-token') })
+
+    await waitFor(() => {
+      expect(screen.getByText('Primary signer')).toBeDefined()
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Remove' }))
+    await user.click(screen.getByRole('button', { name: 'Remove wallet' }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/no saved wallets yet/)).toBeDefined()
+    })
+    expect(currentPath()).toBe('/wallets')
+    expect(screen.getByText(/Removed the saved record for/)).toBeDefined()
+  })
+
+  it('keeps a confirmed removal when the refresh fails, and sends no second delete', async () => {
+    let listsAfterRemoval = 0
+    const fetchStub = apiFetch((_url, init) => {
+      if (init.method === 'DELETE') {
+        return new Response(null, { status: 204 })
+      }
+
+      const removed = fetchStub.calls.some((call) => call.init.method === 'DELETE')
+
+      if (!removed) {
+        return pageResponse([WALLET_A, WALLET_B])
+      }
+
+      listsAfterRemoval += 1
+      return errorResponse(503, 'SERVICE_UNAVAILABLE')
+    })
+    const { user } = renderApp({ path: '/wallets', storage: memoryStorage('stored-token') })
+
+    await waitFor(() => {
+      expect(screen.getByText('Primary signer')).toBeDefined()
+    })
+
+    await user.click(screen.getAllByRole('button', { name: 'Remove' })[0]!)
+    await user.click(screen.getByRole('button', { name: 'Remove wallet' }))
+
+    // The confirmation stands. The refresh is the list's failure to report,
+    // with the list's own Retry.
+    await waitFor(() => {
+      expect(screen.getByText(/The list could not be refreshed/)).toBeDefined()
+    })
+    expect(screen.getByText(/Removed the saved record for/)).toBeDefined()
+
+    const deletesBefore = fetchStub.calls.filter((call) => call.init.method === 'DELETE').length
+    expect(deletesBefore).toBe(1)
+
+    // Retrying the list is a read. It is never another delete.
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+    await waitFor(() => {
+      expect(listsAfterRemoval).toBeGreaterThan(1)
+    })
+    expect(
+      fetchStub.calls.filter((call) => call.init.method === 'DELETE'),
+    ).toHaveLength(1)
+  })
+
+  it('retires a confirmation whose row the next page does not hold', async () => {
+    const pageTwo = pendingResponse<Response>()
+    const fetchStub = apiFetch((url) => {
+      if (url.includes('page=2')) {
+        return pageTwo.promise
+      }
+
+      return pageResponse([WALLET_A], {
+        page: 1,
+        pageSize: PAGE_SIZE,
+        totalItems: 2,
+        totalPages: 2,
+      })
+    })
+    const { user } = renderApp({ path: '/wallets', storage: memoryStorage('stored-token') })
+
+    await waitFor(() => {
+      expect(screen.getByText('Primary signer')).toBeDefined()
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Remove' }))
+    expect(screen.getByRole('group', { name: /^Remove wallet/ })).toBeDefined()
+
+    await user.click(button('Next'))
+    pageTwo.resolve(
+      pageResponse([WALLET_B], { page: 2, pageSize: PAGE_SIZE, totalItems: 2, totalPages: 2 }),
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Cold storage')).toBeDefined()
+    })
+
+    // The row's confirmation belonged to a page that is gone. It is dropped, so
+    // the new page's actions are usable rather than disabled by a selection
+    // nobody can see or cancel.
+    expect(screen.queryByRole('group', { name: /^Remove wallet/ })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Remove' }).hasAttribute('disabled')).toBe(false)
+    expect(screen.getByRole('button', { name: 'Edit label' }).hasAttribute('disabled')).toBe(false)
+    expect(currentPath()).toBe('/wallets?page=2')
+    expect(walletCalls(fetchStub.calls).length).toBeGreaterThanOrEqual(2)
+  })
+
   it('ends the session when the API rejects the credential this tab sent', async () => {
     const storage = memoryStorage('stored-token')
     apiFetch(() => errorResponse(401, 'UNAUTHENTICATED'))

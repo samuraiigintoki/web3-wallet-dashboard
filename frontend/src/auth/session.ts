@@ -28,7 +28,7 @@ export type Session =
  */
 export type DataClient = Pick<
   ApiClient,
-  'listWallets' | 'createWallet' | 'updateWalletLabel'
+  'listWallets' | 'createWallet' | 'updateWalletLabel' | 'deleteWallet' | 'getWallet'
 >
 
 /**

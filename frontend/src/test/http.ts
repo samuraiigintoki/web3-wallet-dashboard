@@ -107,6 +107,11 @@ export function errorResponse(
 }
 
 /** What the Go mux sends for an unmatched path or a method mismatch. */
+/** A status with no body at all, which is what DELETE's `204` looks like. */
+export function emptyResponse(status: number): Response {
+  return new Response(null, { status })
+}
+
 export function plainTextResponse(status: number, text: string): Response {
   return new Response(text, {
     status,

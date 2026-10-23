@@ -44,7 +44,13 @@ function dataSessionFor(identity: { userId: number; generation: number }) {
   return {
     userId: identity.userId,
     generation: identity.generation,
-    client: { listWallets: vi.fn(), createWallet: vi.fn(), updateWalletLabel: vi.fn() },
+    client: {
+      listWallets: vi.fn(),
+      createWallet: vi.fn(),
+      updateWalletLabel: vi.fn(),
+      deleteWallet: vi.fn(),
+      getWallet: vi.fn(),
+    },
   }
 }
 
