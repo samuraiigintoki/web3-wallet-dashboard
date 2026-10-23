@@ -66,6 +66,31 @@ export function useAccountBalance({
   const [nonce, setNonce] = useState(0)
 
   /**
+   * How many times the gate has opened.
+   *
+   * The gate is the app's permission to ask: a listed chain, a connected account
+   * and a catalog that has answered. When it closes and later reopens for the
+   * same account and chain, that is a new permission, not the old one resumed,
+   * and the figure from before the closure describes a moment the app has since
+   * lost sight of. Counting the openings puts the closure into the stamp, so a
+   * result from the previous opening can never match again.
+   *
+   * The transition is noticed during render rather than in an effect, because
+   * the stamp is built during render and one frame of the old stamp is one frame
+   * of the old figure.
+   */
+  const [opening, setOpening] = useState(0)
+  const [gateWasOpen, setGateWasOpen] = useState(enabled)
+
+  if (gateWasOpen !== enabled) {
+    setGateWasOpen(enabled)
+
+    if (enabled) {
+      setOpening((current) => current + 1)
+    }
+  }
+
+  /**
    * The last finished read, with the stamp it belongs to.
    *
    * Only completed reads are stored. `loading` is derived below from the absence
@@ -80,7 +105,7 @@ export function useAccountBalance({
 
   const stamp =
     enabled && account !== null && chainId !== null
-      ? `${account}:${String(chainId)}:${String(nonce)}`
+      ? `${account}:${String(chainId)}:${String(nonce)}:${String(opening)}`
       : null
 
   const attemptRef = useRef(0)
@@ -97,6 +122,10 @@ export function useAccountBalance({
 
   useEffect(() => {
     if (stamp === null || account === null || chainId === null || provider === null) {
+      // A closed gate retires whatever is in flight. Its answer belongs to an
+      // opening that is over, and storing it would only make it harder to see
+      // that it must never be shown again.
+      attemptRef.current += 1
       return
     }
 

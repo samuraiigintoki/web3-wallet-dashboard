@@ -29,6 +29,16 @@ describe('balance quantities', () => {
     expect(parseQuantity('0x0010')).toBe(16n)
   })
 
+  it('refuses an over-long quantity even when the excess digits are leading zeroes', () => {
+    // Sixty-five zeroes then a one: 66 digits, past the 32-byte width, but its
+    // value is 1. The limit is on the digits sent, so this is malformed.
+    expect(parseQuantity(`0x${'0'.repeat(65)}1`)).toBeNull()
+    expect(parseQuantity(`0x${'0'.repeat(62)}1`)).toBe(1n)
+    expect(parseQuantity(`0x${'0'.repeat(64)}`)).toBe(0n)
+    expect(parseQuantity(`0x${'0'.repeat(65)}`)).toBeNull()
+    expect(parseQuantity(`0x1${'0'.repeat(64)}`)).toBeNull()
+  })
+
   it('refuses anything that is not a quantity', () => {
     for (const value of [
       undefined,

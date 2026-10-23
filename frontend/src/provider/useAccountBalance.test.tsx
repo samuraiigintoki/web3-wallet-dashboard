@@ -186,6 +186,121 @@ describe('when the read may not happen', () => {
   })
 })
 
+describe('a gate that closes and reopens', () => {
+  it('hides the old figure until the new read answers', async () => {
+    const second = deferred<string>()
+    let reads = 0
+
+    installFakeProvider({
+      answer: () => {
+        reads += 1
+        // The first read answers at once; the read after reopening is held.
+        return reads === 1 ? ONE_ETHER : second.promise
+      },
+    })
+
+    const { result, rerender } = render()
+
+    await waitFor(() => {
+      expect(result.current.state).toEqual({ status: 'loaded', wei: '1000000000000000000' })
+    })
+
+    // The catalog stops confirming the chain, then confirms it again. Same
+    // account, same chain, same component: a new permission to ask.
+    rerender({ enabled: false })
+    expect(result.current.state).toEqual({ status: 'idle' })
+
+    rerender({ enabled: true })
+
+    // The old figure must not reappear while the new read is outstanding.
+    expect(result.current.state).toEqual({ status: 'loading' })
+
+    await waitFor(() => {
+      expect(reads).toBe(2)
+    })
+
+    expect(result.current.state).toEqual({ status: 'loading' })
+
+    second.resolve(ZERO)
+
+    await waitFor(() => {
+      expect(result.current.state).toEqual({ status: 'loaded', wei: '0' })
+    })
+  })
+
+  it('drops a read that finishes while the gate is closed', async () => {
+    const first = deferred<string>()
+    const second = deferred<string>()
+    let reads = 0
+
+    installFakeProvider({
+      answer: () => {
+        reads += 1
+        return reads === 1 ? first.promise : second.promise
+      },
+    })
+
+    const { result, rerender } = render()
+
+    await waitFor(() => {
+      expect(result.current.state).toEqual({ status: 'loading' })
+    })
+
+    rerender({ enabled: false })
+    expect(result.current.state).toEqual({ status: 'idle' })
+
+    // The answer to the closed gate's read arrives now.
+    first.resolve(ONE_ETHER)
+    await Promise.resolve()
+    expect(result.current.state).toEqual({ status: 'idle' })
+
+    // Reopening starts a new read, and the figure from before the closure does
+    // not come back while that read is out.
+    rerender({ enabled: true })
+    await waitFor(() => {
+      expect(reads).toBe(2)
+    })
+
+    expect(result.current.state).toEqual({ status: 'loading' })
+
+    second.resolve(ZERO)
+
+    await waitFor(() => {
+      expect(result.current.state).toEqual({ status: 'loaded', wei: '0' })
+    })
+  })
+
+  it('still lets a retry inside one opening replace the figure it had', async () => {
+    const held = deferred<string>()
+    let reads = 0
+
+    installFakeProvider({
+      answer: () => {
+        reads += 1
+        return reads === 1 ? ONE_ETHER : held.promise
+      },
+    })
+
+    const { result } = render()
+
+    await waitFor(() => {
+      expect(result.current.state.status).toBe('loaded')
+    })
+
+    act(() => {
+      result.current.retry()
+    })
+
+    expect(result.current.state).toEqual({ status: 'loading' })
+
+    held.resolve(ZERO)
+
+    await waitFor(() => {
+      expect(result.current.state).toEqual({ status: 'loaded', wei: '0' })
+    })
+  })
+})
+
 describe('answers that arrive too late', () => {
   it('never shows an older account balance after an account change', async () => {
     const first = deferred<string>()

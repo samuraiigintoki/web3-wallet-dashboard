@@ -37,14 +37,16 @@ export function parseQuantity(value: unknown): bigint | null {
     return null
   }
 
-  const digits = value.slice(2).replace(/^0+/, '')
+  const digits = value.slice(2)
 
+  // The limit is on the digits the provider sent, not on their value. A quantity
+  // padded past the width is malformed even when the padding is zeroes and the
+  // value would fit, so this check comes before anything is normalised away.
   if (digits.length > MAX_HEX_DIGITS) {
     return null
   }
 
-  // An all-zero quantity reduces to the empty string, which `BigInt` refuses.
-  return BigInt(`0x${digits === '' ? '0' : digits}`)
+  return BigInt(`0x${digits}`)
 }
 
 /** The exact decimal form of a quantity, for display next to the unit. */
