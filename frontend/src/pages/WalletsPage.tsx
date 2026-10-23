@@ -140,6 +140,12 @@ export function WalletsPage() {
    * mounted with no session at all while a held logout answer is outstanding.
    * Deciding from the captured value is what revives a retired identity's
    * request.
+   *
+   * Teardown retires it too, and that is not the same event as a render with no
+   * session. A guard redirect removes this page without ever presenting it a
+   * null session, so a continuation waiting for "no session" would wait
+   * forever and then read for an owner nobody is watching. `null` here means
+   * this page is no longer presented for anyone, whatever the session says.
    */
   const liveView = useRef<{ session: DataSession | null; page: number }>({
     session: dataSession,
@@ -148,6 +154,10 @@ export function WalletsPage() {
 
   useEffect(() => {
     liveView.current = { session: dataSession, page }
+
+    return () => {
+      liveView.current = { session: null, page }
+    }
   }, [dataSession, page])
 
   /**

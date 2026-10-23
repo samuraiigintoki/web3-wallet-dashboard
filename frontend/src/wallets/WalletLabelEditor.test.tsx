@@ -16,6 +16,7 @@ import {
   plainTextResponse,
   stubFetch,
 } from '../test/http.ts'
+import { isProtectedKey } from '../data/identityKeys.ts'
 import { createQueryClient } from '../data/queryClient.ts'
 import { currentPath, renderApp } from '../test/renderApp.tsx'
 import { PAGE_SIZE } from './page.ts'
@@ -739,24 +740,36 @@ describe('wallet label editor', () => {
     return { api, queryClient, ...rendered }
   }
 
-  /** The protected queries this account owns, if any are still in the cache. */
-  function ownerQueries(queryClient: QueryClient): number {
-    return queryClient.getQueryCache().findAll({ queryKey: ['identity', USER_A.id] }).length
+  /**
+   * Protected cache entries, for one account or for everyone.
+   *
+   * An entry here is a protected query the guard should have dropped: it holds
+   * another session's rows, and a request that puts one back is what this whole
+   * fence exists to stop.
+   */
+  function protectedQueries(queryClient: QueryClient, userId?: number): number {
+    return queryClient.getQueryCache().findAll({
+      predicate: (query) =>
+        isProtectedKey(query.queryKey) &&
+        (userId === undefined || query.queryKey[1] === userId),
+    }).length
   }
 
-  /** Every key in the cache, for "nothing new appeared" comparisons. */
-  function cacheKeys(queryClient: QueryClient): string {
-    return JSON.stringify(queryClient.getQueryCache().getAll().map((query) => query.queryKey))
-  }
-
-  it('revives nothing for a check whose credential another tab removed', async () => {
-    const { api, queryClient } = await startHeldCheck((call, init) =>
-      call === 1 ? listResponse([WALLET_1]) : hangingFetch('', init),
-    )
+  it('starts nothing for a check whose credential another tab removed', async () => {
+    const requests: string[] = []
+    const { api, queryClient } = await startHeldCheck((call, init) => {
+      requests.push(new Headers(init.headers).get('authorization') ?? '')
+      return call === 1 ? listResponse([WALLET_1]) : hangingFetch('', init)
+    })
 
     await waitFor(() => {
       expect(api.listCalls).toBe(2)
     })
+
+    // Both counts are taken before the retirement. Taken afterwards they would
+    // absorb the very request this test exists to catch and call it stable.
+    const callsBefore = api.listCalls
+    const oldRequestsBefore = requests.filter((header) => header === 'Bearer token-a').length
 
     act(() => {
       otherTabRemoves()
@@ -767,18 +780,19 @@ describe('wallet label editor', () => {
     })
     await settle()
 
-    const before = api.listCalls
-    const keysBefore = cacheKeys(queryClient)
-    await settle()
+    // No further request carries the retired credential, and none carries any
+    // other: there is nobody for the page to read for.
+    expect(api.listCalls).toBe(callsBefore)
+    expect(requests.filter((header) => header === 'Bearer token-a')).toHaveLength(
+      oldRequestsBefore,
+    )
 
-    // The retired identity's read must not come back to life: no request, and
-    // no entry put back into a cache its retirement already cleared.
-    expect(api.listCalls).toBe(before)
-    expect(cacheKeys(queryClient)).toBe(keysBefore)
+    // Anonymous means no protected entry at all, for this account or any other.
+    expect(protectedQueries(queryClient)).toBe(0)
     expect(currentPath()).toBe('/login')
   })
 
-  it('revives nothing under a credential another account replaced', async () => {
+  it('starts nothing under a credential another account replaced', async () => {
     const requests: string[] = []
     const { api, queryClient } = await startHeldCheck(
       (call, init) => {
@@ -792,6 +806,8 @@ describe('wallet label editor', () => {
       expect(api.listCalls).toBe(2)
     })
 
+    const oldRequestsBefore = requests.filter((header) => header === 'Bearer token-a').length
+
     act(() => {
       otherTabStores('token-b')
     })
@@ -801,15 +817,17 @@ describe('wallet label editor', () => {
     })
     await settle()
 
-    const before = api.listCalls
-    const oldBefore = requests.filter((header) => header === 'Bearer token-a').length
-    await settle()
+    // The retired credential is not used again, and nothing of its owner stays
+    // in the cache.
+    expect(requests.filter((header) => header === 'Bearer token-a')).toHaveLength(
+      oldRequestsBefore,
+    )
+    expect(protectedQueries(queryClient, USER_A.id)).toBe(0)
 
-    // Nothing starts for the retired identity, and nothing already started is
-    // re-run under it either.
-    expect(api.listCalls).toBe(before)
-    expect(requests.filter((header) => header === 'Bearer token-a')).toHaveLength(oldBefore)
-    expect(ownerQueries(queryClient)).toBe(0)
+    // The identity that replaced it is allowed to read, and does.
+    await waitFor(() => {
+      expect(protectedQueries(queryClient, USER_B.id)).toBeGreaterThan(0)
+    })
   })
 
   it('does not present a failed read as the stored value', async () => {

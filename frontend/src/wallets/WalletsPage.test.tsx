@@ -511,6 +511,66 @@ describe('wallets page', () => {
     return walletCalls(calls).filter((call) => (call.init.method ?? 'GET') === 'GET')
   }
 
+  it('starts nothing for a check whose page was unmounted', async () => {
+    const queryClient = createQueryClient()
+    let listCalls = 0
+
+    const fetchStub = apiFetch((url, init) => {
+      if (init.method === 'PATCH') {
+        return plainTextResponse(502, 'Bad Gateway')
+      }
+
+      listCalls += 1
+
+      // The check's read only settles when it is aborted, which is what a real
+      // cancelled fetch does.
+      return listCalls === 1 ? pageResponse([WALLET_A]) : hangingFetch(url, init)
+    })
+
+    const { user, unmount } = renderApp({
+      path: '/wallets',
+      storage: memoryStorage('stored-token'),
+      queryClient,
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('Primary signer')).toBeDefined()
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Edit label' }))
+    await user.click(screen.getByRole('button', { name: 'Save label' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('may or may not have been saved')
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Check the list' }))
+
+    await waitFor(() => {
+      expect(listCalls).toBe(2)
+    })
+
+    // Counted before the teardown, so a request made by the continuation shows
+    // up as an addition instead of being folded into the baseline.
+    const getsBefore = walletGets(fetchStub.calls).length
+
+    // The route can go away without this page ever rendering a null session:
+    // a guard redirect is an unmount, not a state this page sees.
+    unmount()
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    expect(walletGets(fetchStub.calls)).toHaveLength(getsBefore)
+    expect(
+      queryClient
+        .getQueryCache()
+        .getAll()
+        .filter((query) => query.queryKey[0] === 'identity'),
+    ).toHaveLength(0)
+  })
+
   it('revives no cached work for a check whose session ended while it waited', async () => {
     const heldLogout = pendingResponse<Response>()
     const queryClient = createQueryClient()
