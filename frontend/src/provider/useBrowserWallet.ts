@@ -108,6 +108,39 @@ export function useBrowserWallet(scope: unknown = globalThis): {
   }, [])
 
   /**
+   * The newest chain the wallet has announced, with a sequence number.
+   *
+   * `chainChanged` is the provider telling this page that the chain moved right
+   * now, which makes it newer than any `eth_chainId` answer already in flight.
+   * Keeping it here, next to a counter, lets a read that started before the
+   * event tell that its own answer is the older fact.
+   */
+  const chainEventRef = useRef<{ chainId: number; seq: number } | null>(null)
+  const chainEventSeqRef = useRef(0)
+
+  /**
+   * Reads the chain, and prefers an announcement that arrived while doing it.
+   *
+   * `since` is the event sequence at the moment the attempt being served began.
+   * If the wallet announced a chain after that, the announcement wins: it is a
+   * statement about now, while the answer this call is holding was decided
+   * before it. Without this, a chain read that straddles an event would settle
+   * the screen on the chain the wallet has already left.
+   */
+  const readChain = useCallback(
+    async (live: InjectedProvider, since: number): Promise<number | null> => {
+      const value = parseChainId(await live.request({ method: 'eth_chainId' }))
+
+      if (chainEventSeqRef.current !== since && chainEventRef.current !== null) {
+        return chainEventRef.current.chainId
+      }
+
+      return value
+    },
+    [],
+  )
+
+  /**
    * The quiet read at load.
    *
    * `eth_accounts` is the permission-preserving half of the pair: it returns an
@@ -125,6 +158,10 @@ export function useBrowserWallet(scope: unknown = globalThis): {
     const live = provider
     const attempt = attemptRef.current + 1
     attemptRef.current = attempt
+
+    // A chain announced after this point is newer than anything this read
+    // returns, so the read has to know where it started.
+    const chainSince = chainEventSeqRef.current
 
     void (async () => {
       let accounts: string[] | null
@@ -149,7 +186,7 @@ export function useBrowserWallet(scope: unknown = globalThis): {
       let chainId: number | null
 
       try {
-        chainId = parseChainId(await live.request({ method: 'eth_chainId' }))
+        chainId = await readChain(live, chainSince)
       } catch (error) {
         apply(attempt, { status: 'error', message: describeProviderFailure(error) })
         return
@@ -169,7 +206,7 @@ export function useBrowserWallet(scope: unknown = globalThis): {
       mountedRef.current = false
       retire()
     }
-  }, [apply, provider, retire])
+  }, [apply, provider, readChain, retire])
 
   /**
    * An account change, which may also carry a chain change with it.
@@ -189,6 +226,7 @@ export function useBrowserWallet(scope: unknown = globalThis): {
       const attempt = attemptRef.current + 1
       attemptRef.current = attempt
 
+      const chainSince = chainEventSeqRef.current
       const accounts = parseAccountList(payload)
 
       if (accounts === null) {
@@ -210,7 +248,7 @@ export function useBrowserWallet(scope: unknown = globalThis): {
         let chainId: number | null
 
         try {
-          chainId = parseChainId(await live.request({ method: 'eth_chainId' }))
+          chainId = await readChain(live, chainSince)
         } catch (error) {
           apply(attempt, { status: 'error', message: describeProviderFailure(error) })
           return
@@ -224,7 +262,7 @@ export function useBrowserWallet(scope: unknown = globalThis): {
         apply(attempt, { status: 'connected', account: accounts[0]!, chainId })
       })()
     },
-    [apply],
+    [apply, readChain],
   )
 
   /**
@@ -233,20 +271,29 @@ export function useBrowserWallet(scope: unknown = globalThis): {
    * The account is kept, because a chain change is not an account change, and
    * the event carries only the new chain id. When nothing is connected the event
    * is not a connection: the state stays disconnected.
+   *
+   * An event that arrives while a read or a connect is in flight is recorded and
+   * the work is left running. Retiring that work instead would strand the screen
+   * in `checking` or `connecting` with no answer left to settle it and no button
+   * to press, which is a worse failure than a momentarily old chain id. The
+   * in-flight attempt picks the announcement up through `readChain`, so what it
+   * settles is the chain the wallet is on now.
    */
   const handleChainChanged = useCallback(
     (payload: unknown): void => {
-      const attempt = attemptRef.current + 1
-      attemptRef.current = attempt
-
       const chainId = parseChainId(payload)
 
       if (chainId === null) {
-        apply(attempt, { status: 'error', message: UNREADABLE_CHAIN })
+        const next = attemptRef.current + 1
+        attemptRef.current = next
+        apply(next, { status: 'error', message: UNREADABLE_CHAIN })
         return
       }
 
-      apply(attempt, (current) =>
+      chainEventSeqRef.current += 1
+      chainEventRef.current = { chainId, seq: chainEventSeqRef.current }
+
+      apply(attemptRef.current, (current) =>
         current.status === 'connected' ? { ...current, chainId } : current,
       )
     },
@@ -325,6 +372,10 @@ export function useBrowserWallet(scope: unknown = globalThis): {
     const attempt = attemptRef.current + 1
     attemptRef.current = attempt
 
+    // Where the chain stood when the prompt opened. A switch during the prompt
+    // is newer than the chain read that follows it.
+    const chainSince = chainEventSeqRef.current
+
     apply(attempt, { status: 'connecting' })
 
     try {
@@ -363,7 +414,7 @@ export function useBrowserWallet(scope: unknown = globalThis): {
       let chainId: number | null
 
       try {
-        chainId = parseChainId(await live.request({ method: 'eth_chainId' }))
+        chainId = await readChain(live, chainSince)
       } catch (error) {
         apply(attempt, { status: 'error', message: describeProviderFailure(error) })
         return
@@ -378,7 +429,7 @@ export function useBrowserWallet(scope: unknown = globalThis): {
     } finally {
       connectingRef.current = false
     }
-  }, [apply])
+  }, [apply, readChain])
 
   return { state, connect }
 }

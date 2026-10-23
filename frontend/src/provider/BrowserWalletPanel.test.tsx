@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { User } from '../api/index.ts'
-import { installFakeProvider, removeFakeProvider } from '../test/fakeProvider.ts'
+import { deferred, installFakeProvider, removeFakeProvider } from '../test/fakeProvider.ts'
 import { errorResponse, jsonResponse, stubFetch, type FetchStub } from '../test/http.ts'
 import { memoryStorage, renderApp } from '../test/renderApp.tsx'
 import { createTokenStorage, SESSION_TOKEN_KEY } from '../auth/storage.ts'
@@ -225,6 +225,33 @@ describe('browser wallet panel', () => {
     })
 
     expect(within(panel()).queryByText(OTHER)).toBeNull()
+  })
+
+  it('comes back with a usable control when the chain moves during the load', async () => {
+    const accounts = deferred<string[]>()
+    const provider = installFakeProvider({
+      answer: ({ method }) => (method === 'eth_accounts' ? accounts.promise : '0x1'),
+    })
+    apiFetch()
+
+    renderApp({ path: '/', storage: memoryStorage('stored-token') })
+
+    // The load is still out, and the wallet announces a chain it has moved to.
+    await waitFor(() => {
+      expect(status()).toContain('Checking this browser for a wallet.')
+    })
+
+    provider.emit('chainChanged', '0x89')
+
+    accounts.resolve([])
+
+    // The screen settles on an answer, and the control a user needs is there.
+    await waitFor(() => {
+      expect(status()).toContain('Not connected to a browser wallet.')
+    })
+
+    expect(button('Connect wallet')).not.toBeNull()
+    expect(status()).not.toContain('Checking')
   })
 
   it('leaves the app session and its credential alone', async () => {

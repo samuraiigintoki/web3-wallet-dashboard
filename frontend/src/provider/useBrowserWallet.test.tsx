@@ -364,6 +364,145 @@ describe('what the provider reports while connected', () => {
   })
 })
 
+describe('a chain change during work that is still running', () => {
+  it('recovers the initial read instead of leaving the screen checking', async () => {
+    const accounts = deferred<string[]>()
+    const provider = installFakeProvider({
+      answer: ({ method }) => {
+        if (method === 'eth_accounts') {
+          return accounts.promise
+        }
+        if (method === 'eth_chainId') {
+          return '0x1'
+        }
+        throw new Error('unexpected method')
+      },
+    })
+
+    const { result } = renderHook(() => useBrowserWallet())
+
+    // The read is out and nothing has answered yet.
+    expect(result.current.state).toEqual({ status: 'checking' })
+
+    act(() => {
+      provider.emit('chainChanged', '0x89')
+    })
+
+    // The event alone is not a connection: there is still no account.
+    expect(result.current.state).toEqual({ status: 'checking' })
+
+    accounts.resolve([ACCOUNT])
+
+    // The read settles, and it settles on the chain the wallet announced after
+    // it started rather than the one its own read returned.
+    await waitFor(() => {
+      expect(result.current.state).toEqual({ status: 'connected', account: ACCOUNT, chainId: 137 })
+    })
+  })
+
+  it('recovers the initial read when the wallet announces a chain and no account', async () => {
+    const accounts = deferred<string[]>()
+    const provider = installFakeProvider({
+      answer: ({ method }) => (method === 'eth_accounts' ? accounts.promise : '0x1'),
+    })
+
+    const { result } = renderHook(() => useBrowserWallet())
+
+    act(() => {
+      provider.emit('chainChanged', '0x89')
+    })
+
+    accounts.resolve([])
+
+    await waitFor(() => {
+      expect(result.current.state).toEqual({ status: 'disconnected', notice: null })
+    })
+  })
+
+  it('recovers a connect in flight instead of leaving the screen connecting', async () => {
+    const grant = deferred<string[]>()
+    const provider = installFakeProvider({
+      answer: ({ method }) => {
+        if (method === 'eth_requestAccounts') {
+          return grant.promise
+        }
+        if (method === 'eth_accounts') {
+          return []
+        }
+        if (method === 'eth_chainId') {
+          return '0x1'
+        }
+        throw new Error('unexpected method')
+      },
+    })
+
+    const { result } = renderHook(() => useBrowserWallet())
+
+    await waitFor(() => {
+      expect(result.current.state.status).toBe('disconnected')
+    })
+
+    let connecting: Promise<void> = Promise.resolve()
+
+    act(() => {
+      connecting = result.current.connect()
+    })
+
+    await waitFor(() => {
+      expect(result.current.state).toEqual({ status: 'connecting' })
+    })
+
+    act(() => {
+      provider.emit('chainChanged', '0x89')
+    })
+
+    // Still connecting: the event is not a consent, and the prompt is still open.
+    expect(result.current.state).toEqual({ status: 'connecting' })
+
+    grant.resolve([ACCOUNT])
+
+    await act(async () => {
+      await connecting
+    })
+
+    expect(result.current.state).toEqual({ status: 'connected', account: ACCOUNT, chainId: 137 })
+    // One prompt, because the recovery did not ask the wallet again.
+    expect(provider.requested.filter((method) => method === 'eth_requestAccounts')).toHaveLength(1)
+  })
+
+  it('prefers an announcement that arrives after the chain read started', async () => {
+    const chain = deferred<string>()
+    const provider = installFakeProvider({
+      answer: ({ method }) => {
+        if (method === 'eth_accounts') {
+          return [ACCOUNT]
+        }
+        if (method === 'eth_chainId') {
+          return chain.promise
+        }
+        throw new Error('unexpected method')
+      },
+    })
+
+    const { result } = renderHook(() => useBrowserWallet())
+
+    await waitFor(() => {
+      expect(provider.requested).toContain('eth_chainId')
+    })
+
+    act(() => {
+      provider.emit('chainChanged', '0x89')
+    })
+
+    // The older read answers last, and with the chain the wallet has left.
+    chain.resolve('0x1')
+
+    await waitFor(() => {
+      expect(result.current.state).toEqual({ status: 'connected', account: ACCOUNT, chainId: 137 })
+    })
+  })
+})
+
 describe('listener lifetime', () => {
   it('removes every listener it added on teardown', async () => {
     const provider = installFakeProvider()
