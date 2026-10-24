@@ -9,9 +9,11 @@
 import { ApiError } from './errors.ts'
 import {
   isCollectionPagination,
+  isContractEventList,
   isContractList,
   isLoginResult,
   isMessageResult,
+  isTrackedContract,
   isUser,
   isWallet,
   isWalletList,
@@ -23,9 +25,11 @@ import {
   type RequestDependencies,
 } from './request.ts'
 import type {
+  ContractEventList,
   ContractList,
   CreateWalletRequest,
   UpdateWalletRequest,
+  ListContractEventsParams,
   ListContractsParams,
   ListWalletsParams,
   LoginRequest,
@@ -33,6 +37,7 @@ import type {
   MessageResult,
   Pagination,
   RegisterRequest,
+  TrackedContract,
   User,
   Wallet,
   WalletList,
@@ -55,6 +60,25 @@ export type ApiClient = {
    * enables or removes a record.
    */
   listContracts: (params: ListContractsParams, init?: CallInit) => Promise<ContractList>
+  /**
+   * One tracked contract by id, for the context above an event list.
+   *
+   * The owner comes from the bearer, so a contract belonging to someone else is
+   * the same `404` a missing one is, and the caller cannot tell them apart.
+   */
+  getContract: (id: number, init?: CallInit) => Promise<TrackedContract>
+  /**
+   * One page of the indexed events the server stored for a tracked contract.
+   *
+   * Owner-scoped by the same association the other contract routes use, so a
+   * foreign id is a `404` rather than an empty page. Read-only: this client
+   * cannot start a scan, re-index, or ask for anything live.
+   */
+  listContractEvents: (
+    id: number,
+    params: ListContractEventsParams,
+    init?: CallInit,
+  ) => Promise<ContractEventList>
   /** Saves one wallet for the caller. The owner comes from the bearer. */
   createWallet: (body: CreateWalletRequest, init?: CallInit) => Promise<Wallet>
   /**
@@ -318,6 +342,41 @@ export function createApiClient(dependencies: RequestDependencies): ApiClient {
 
       return {
         contracts: requireData(result),
+        pagination: requirePagination(result, params),
+      }
+    },
+
+    async getContract(id, init) {
+      const result = await request({
+        method: 'GET',
+        path: `/contracts/${addressableId(id)}`,
+        auth: true,
+        guard: isTrackedContract,
+        signal: init?.signal,
+      })
+
+      return requireData(result)
+    },
+
+    async listContractEvents(id, params, init) {
+      // The same two query parameters as every other list: no filter, no sort,
+      // no page size the caller chooses. The order is the server's, and so are
+      // the totals.
+      const query = new URLSearchParams({
+        page: String(params.page),
+        pageSize: String(params.pageSize),
+      })
+
+      const result = await request({
+        method: 'GET',
+        path: `/contracts/${addressableId(id)}/events?${query.toString()}`,
+        auth: true,
+        guard: isContractEventList,
+        signal: init?.signal,
+      })
+
+      return {
+        events: requireData(result),
         pagination: requirePagination(result, params),
       }
     },

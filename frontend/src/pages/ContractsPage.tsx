@@ -1,12 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
 import { useCallback } from 'react'
-import { useSearchParams } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 
 import { describeApiError, type Pagination, type TrackedContract } from '../api/index.ts'
 import { useAuth } from '../auth/useAuth.ts'
 import { contractListQuery } from '../contracts/contractQueries.ts'
 import { indexingDescription, indexingLabel } from '../contracts/indexing.ts'
-import { MAX_PAGE, parsePageParam } from '../data/page.ts'
+import { PageControls } from '../data/PageControls.tsx'
+import { parsePageParam } from '../data/page.ts'
 
 /**
  * The tracked contracts of the signed-in account.
@@ -105,6 +106,7 @@ function ContractResults({ contracts, pagination, page, onPage }: ContractResult
             <th scope="col">Enabled</th>
             <th scope="col">Start block</th>
             <th scope="col">Indexing</th>
+            <th scope="col">Events</th>
           </tr>
         </thead>
         <tbody>
@@ -124,12 +126,23 @@ function ContractResults({ contracts, pagination, page, onPage }: ContractResult
                 <span className="hint">{indexingLabel(contract.indexingStatus)}. </span>
                 {indexingDescription(contract.indexingStatus)}
               </td>
+              <td>
+                <Link to={`/contracts/${String(contract.id)}/events`}>
+                  View events
+                  <span className="hint"> for {contract.label === '' ? contract.address : contract.label}</span>
+                </Link>
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
 
-      <PageControls pagination={pagination} page={page} onPage={onPage} />
+      <PageControls
+        pagination={pagination}
+        page={page}
+        onPage={onPage}
+        label="Contract pages"
+      />
     </>
   )
 }
@@ -168,42 +181,12 @@ function EmptyContracts({ pagination, page, onPage }: EmptyContractsProps) {
           Back to page 1
         </button>
       </div>
-      <PageControls pagination={pagination} page={page} onPage={onPage} />
+      <PageControls
+        pagination={pagination}
+        page={page}
+        onPage={onPage}
+        label="Contract pages"
+      />
     </>
-  )
-}
-
-type PageControlsProps = {
-  pagination: Pagination
-  page: number
-  onPage: (page: number) => void
-}
-
-/**
- * Previous and Next only, bounded by what the server reported.
- *
- * There is no page-size control in this slice, and the last page is the server's
- * `totalPages`, so the caller cannot walk past the end of its own data or past
- * the ceiling the API enforces.
- */
-function PageControls({ pagination, page, onPage }: PageControlsProps) {
-  if (pagination.totalPages === 0) {
-    return null
-  }
-
-  const atLastPage = page >= pagination.totalPages || page >= MAX_PAGE
-
-  return (
-    <nav aria-label="Contract pages">
-      <div className="status__actions">
-        <button type="button" onClick={() => onPage(page - 1)} disabled={page <= 1}>
-          Previous
-        </button>
-        <span>{`Page ${String(page)} of ${String(pagination.totalPages)}`}</span>
-        <button type="button" onClick={() => onPage(page + 1)} disabled={atLastPage}>
-          Next
-        </button>
-      </div>
-    </nav>
   )
 }

@@ -8,6 +8,8 @@
 
 import type {
   Chain,
+  ContractEvent,
+  EventName,
   LoginResult,
   MessageResult,
   Pagination,
@@ -141,6 +143,111 @@ export function isTrackedContract(value: unknown): value is TrackedContract {
     typeof value.indexingStatus === 'string' &&
     INDEXING_STATUSES.includes(value.indexingStatus)
   )
+}
+
+/**
+ * The four event names, as a runtime set beside the type.
+ *
+ * The name decides which payload shape a row must carry, so an unknown name is
+ * not a row with an unexpected label: it is a row whose meaning this client
+ * cannot establish.
+ */
+const EVENT_NAMES: readonly EventName[] = [
+  'SubmitTransaction',
+  'ConfirmTransaction',
+  'RevokeConfirmation',
+  'ExecuteTransaction',
+]
+
+/** A canonical 0x address: forty hex digits behind a 0x. */
+const ADDRESS = /^0x[0-9a-fA-F]{40}$/
+
+/** Decimal digits only: the wire form of a uint256, with no sign and no point. */
+const DECIMAL = /^[0-9]+$/
+
+/** 0x-prefixed hex bytes, even length. The empty payload is `0x`. */
+const HEX_BYTES = /^0x(?:[0-9a-fA-F]{2})*$/
+
+/** A 32-byte hash in hex. */
+const HASH = /^0x[0-9a-fA-F]{64}$/
+
+/**
+ * The payload of a `SubmitTransaction` row, checked field by field.
+ *
+ * The handler already re-validates a stored payload through the same helpers the
+ * writer used, so a well-behaved server cannot send a bad one. This checks it
+ * again because the client is the last place that knows what it is drawing: a
+ * `valueWei` that is not decimal digits would render as if it were a number, and
+ * a `data` that is not hex would render as if it were calldata.
+ */
+function isSubmitTransactionPayload(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    Object.keys(value).length === 3 &&
+    typeof value.to === 'string' &&
+    ADDRESS.test(value.to) &&
+    typeof value.valueWei === 'string' &&
+    DECIMAL.test(value.valueWei) &&
+    typeof value.data === 'string' &&
+    HEX_BYTES.test(value.data)
+  )
+}
+
+/** The three owner events carry an empty object, because their facts are in their own fields. */
+function isEmptyPayload(value: unknown): boolean {
+  return isRecord(value) && Object.keys(value).length === 0
+}
+
+/**
+ * One indexed event, all ten fields, with the payload checked against the name.
+ *
+ * `multisigTxIndex` is a string and not a number on purpose: it is the decimal
+ * text of a uint256, and a value above 2^53 would silently round if it were
+ * accepted as one.
+ */
+export function isContractEvent(value: unknown): value is ContractEvent {
+  if (!isRecord(value)) {
+    return false
+  }
+
+  if (
+    !isSafeInteger(value.contractId) ||
+    value.contractId <= 0 ||
+    typeof value.eventName !== 'string' ||
+    !(EVENT_NAMES as readonly string[]).includes(value.eventName) ||
+    !isSafeInteger(value.blockNumber) ||
+    typeof value.blockHash !== 'string' ||
+    !HASH.test(value.blockHash) ||
+    typeof value.transactionHash !== 'string' ||
+    !HASH.test(value.transactionHash) ||
+    !isSafeInteger(value.transactionIndex) ||
+    !isSafeInteger(value.logIndex) ||
+    typeof value.actorAddress !== 'string' ||
+    !ADDRESS.test(value.actorAddress) ||
+    typeof value.multisigTxIndex !== 'string' ||
+    !DECIMAL.test(value.multisigTxIndex)
+  ) {
+    return false
+  }
+
+  return value.eventName === 'SubmitTransaction'
+    ? isSubmitTransactionPayload(value.payload)
+    : isEmptyPayload(value.payload)
+}
+
+/**
+ * The whole page of events, or nothing.
+ *
+ * One unusable row fails the response rather than being filtered out: a page
+ * with a row quietly dropped would read as a complete page, and the total beside
+ * it would disagree with the rows under it.
+ */
+export function isContractEventList(value: unknown): value is ContractEvent[] {
+  if (!Array.isArray(value)) {
+    return false
+  }
+
+  return value.every((entry: unknown) => isContractEvent(entry))
 }
 
 /**

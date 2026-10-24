@@ -27,9 +27,13 @@ export {
 } from './request.ts'
 export type {
   Chain,
+  ContractEvent,
+  ContractEventList,
   ContractList,
   CreateWalletRequest,
+  EventName,
   IndexingStatus,
+  ListContractEventsParams,
   ListContractsParams,
   ListWalletsParams,
   LoginRequest,
@@ -37,10 +41,18 @@ export type {
   MessageResult,
   Pagination,
   RegisterRequest,
+  SubmitTransactionPayload,
   TrackedContract,
   UpdateWalletRequest,
   User,
   Wallet,
   WalletList,
 } from './types.ts'
-export { isChain, isChainList, isContractList, isTrackedContract } from './guards.ts'
+export {
+  isChain,
+  isChainList,
+  isContractEvent,
+  isContractEventList,
+  isContractList,
+  isTrackedContract,
+} from './guards.ts'

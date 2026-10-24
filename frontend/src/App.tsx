@@ -8,6 +8,7 @@ import { OverviewPage } from './pages/OverviewPage.tsx'
 import { RegisterPage } from './pages/RegisterPage.tsx'
 import { ShellLayout } from './pages/ShellLayout.tsx'
 import { WalletsPage } from './pages/WalletsPage.tsx'
+import { ContractEventsPage } from './pages/ContractEventsPage.tsx'
 import { ContractsPage } from './pages/ContractsPage.tsx'
 import { NotFoundPage } from './pages/placeholders.tsx'
 import { GuestOnly } from './routes/GuestOnly.tsx'
@@ -38,6 +39,7 @@ export function AppRoutes({ queryClient }: { queryClient?: QueryClient } = {}) {
             <Route index element={<OverviewPage />} />
             <Route path="wallets" element={<WalletsPage />} />
             <Route path="contracts" element={<ContractsPage />} />
+            <Route path="contracts/:id/events" element={<ContractEventsPage />} />
           </Route>
         </Route>
 

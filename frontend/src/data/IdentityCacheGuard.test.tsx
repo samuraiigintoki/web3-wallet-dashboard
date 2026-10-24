@@ -51,6 +51,8 @@ function dataSessionFor(identity: { userId: number; generation: number }) {
       deleteWallet: vi.fn(),
       getWallet: vi.fn(),
       listContracts: vi.fn(),
+      getContract: vi.fn(),
+      listContractEvents: vi.fn(),
     },
   }
 }
