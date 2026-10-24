@@ -274,9 +274,29 @@ export function decodeProposal(value: unknown): Proposal | null {
  * proxy, or not a multisig at all, and sending it a selector this app inferred
  * from a different source would be a write to something nobody verified.
  */
+/**
+ * Why an event names no action this app can take.
+ *
+ * The code is the same for every action and the sentence is not: a refusal reads
+ * "Confirming is only available..." on one button and "Revoking is only
+ * available..." on the other. Returning the reason and not only its prose lets
+ * each action word the same rule for itself, without a second copy of the rule.
+ */
+export type EligibilityRefusal =
+  /** The row is not a submission, so it names no proposal to act on. */
+  | 'not-submission'
+  /** The tracked contract is not the deployment this app knows how to write to. */
+  | 'other-contract'
+  /** The contract is not on the chain this app writes to. */
+  | 'other-chain'
+  /** The row's index is not one an ABI word could hold. */
+  | 'unreadable-index'
+  /** The row's payload is not the submission payload this app reads. */
+  | 'unreadable-payload'
+
 export type Eligibility =
   | { eligible: true; index: bigint; event: ContractEvent; payload: SubmitTransactionPayload }
-  | { eligible: false; reason: string }
+  | { eligible: false; refusal: EligibilityRefusal; reason: string }
 
 export function checkEligibility(
   event: ContractEvent,
@@ -284,12 +304,17 @@ export function checkEligibility(
   contractChainId: number,
 ): Eligibility {
   if (event.eventName !== 'SubmitTransaction') {
-    return { eligible: false, reason: 'Only a submitted proposal can be confirmed.' }
+    return {
+      eligible: false,
+      refusal: 'not-submission',
+      reason: 'Only a submitted proposal can be confirmed.',
+    }
   }
 
   if (contractAddress.toLowerCase() !== MULTISIG_ADDRESS.toLowerCase()) {
     return {
       eligible: false,
+      refusal: 'other-contract',
       reason: 'Confirming is only available on the verified Sepolia multisig contract.',
     }
   }
@@ -297,6 +322,7 @@ export function checkEligibility(
   if (contractChainId !== SEPOLIA_CHAIN_ID) {
     return {
       eligible: false,
+      refusal: 'other-chain',
       reason: `Confirming is only available on chain ${String(SEPOLIA_CHAIN_ID)}.`,
     }
   }
@@ -304,7 +330,11 @@ export function checkEligibility(
   const index = parseProposalIndex(event.multisigTxIndex)
 
   if (index === null) {
-    return { eligible: false, reason: 'This event does not name a proposal this app can read.' }
+    return {
+      eligible: false,
+      refusal: 'unreadable-index',
+      reason: 'This event does not name a proposal this app can read.',
+    }
   }
 
   const payload = event.payload as SubmitTransactionPayload
@@ -314,7 +344,11 @@ export function checkEligibility(
     typeof payload.valueWei !== 'string' ||
     typeof payload.data !== 'string'
   ) {
-    return { eligible: false, reason: 'This event does not carry the proposal this app can read.' }
+    return {
+      eligible: false,
+      refusal: 'unreadable-payload',
+      reason: 'This event does not carry the proposal this app can read.',
+    }
   }
 
   return { eligible: true, index, event, payload }

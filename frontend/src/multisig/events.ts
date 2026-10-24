@@ -65,12 +65,47 @@ export function findConfirmation(
   actor: string,
   events: readonly ContractEvent[],
 ): ContractEvent | null {
+  return findOwnEvent('ConfirmTransaction', hash, index, actor, events)
+}
+
+/**
+ * The `RevokeConfirmation` row for one revocation, or null.
+ *
+ * Same three-part match as a confirmation, for the same reason: two owners can
+ * revoke on the same proposal within one block, and an index-only match could
+ * show another owner's revocation as this one. The event name is part of the
+ * match, so a confirmation by this account on this index is never read as its
+ * revocation.
+ */
+export function findRevocation(
+  hash: string,
+  index: string,
+  actor: string,
+  events: readonly ContractEvent[],
+): ContractEvent | null {
+  return findOwnEvent('RevokeConfirmation', hash, index, actor, events)
+}
+
+/**
+ * One owner event by hash, index and actor.
+ *
+ * Shared by confirmation and revocation because the matching rule is identical
+ * and only the event name differs; writing it twice would be a chance for the two
+ * to disagree about which of the three parts is required.
+ */
+function findOwnEvent(
+  name: 'ConfirmTransaction' | 'RevokeConfirmation',
+  hash: string,
+  index: string,
+  actor: string,
+  events: readonly ContractEvent[],
+): ContractEvent | null {
   const wantedHash = hash.toLowerCase()
   const wantedActor = actor.toLowerCase()
 
   for (const event of events) {
     if (
-      event.eventName === 'ConfirmTransaction' &&
+      event.eventName === name &&
       event.transactionHash.toLowerCase() === wantedHash &&
       event.multisigTxIndex === index &&
       event.actorAddress.toLowerCase() === wantedActor

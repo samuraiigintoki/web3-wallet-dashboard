@@ -1079,7 +1079,7 @@ describe('confirming from the contract view', () => {
     })
   }
 
-  it('offers confirmation on the indexed submission row, and on no other row', async () => {
+  it('offers the two own-confirmation actions on the submission row, and on no other row', async () => {
     apiFetch({ chains: () => jsonResponse({ data: [SEPOLIA_ENTRY] }) })
     wallet()
 
@@ -1089,10 +1089,10 @@ describe('confirming from the contract view', () => {
       expect(button('Confirm proposal').disabled).toBe(false)
     })
 
-    // One submission row, so one confirm action: the confirmation event is not a
-    // proposal, and nothing on the page offers to revoke or execute.
+    // One submission row, so one of each: the confirmation event is not a
+    // proposal, and nothing on the page offers to execute.
     expect(screen.getAllByRole('button', { name: 'Confirm proposal' })).toHaveLength(1)
-    expect(screen.queryByRole('button', { name: /Revoke/ })).toBeNull()
+    expect(screen.getAllByRole('button', { name: 'Revoke my confirmation' })).toHaveLength(1)
     expect(screen.queryByRole('button', { name: /Execute/ })).toBeNull()
   })
 
@@ -1135,11 +1135,14 @@ describe('confirming from the contract view', () => {
     renderApp({ path: '/contracts/7/events', storage: memoryStorage('stored-token') })
 
     await waitFor(() => {
-      expect(screen.getByText(/Confirming is only available on the verified Sepolia/)).toBeDefined()
+      expect(
+        screen.getByText(/Confirming and revoking are only available on the verified Sepolia/),
+      ).toBeDefined()
     })
 
     expect(screen.queryByRole('button', { name: 'Confirm proposal' })).toBeNull()
-    // And nothing was read from a contract this app cannot confirm on.
+    expect(screen.queryByRole('button', { name: 'Revoke my confirmation' })).toBeNull()
+    // And nothing was read from a contract this app cannot act on.
     expect(provider.requested).not.toContain('eth_call')
   })
 
@@ -1216,5 +1219,140 @@ describe('confirming from the contract view', () => {
     expect(SUBMIT_EVENT.actorAddress).toBe(OWNER)
     expect(provider.requested).not.toContain('eth_sendTransaction')
     expect(api.eventCalls).toBe(1)
+  })
+})
+
+describe('revoking from the contract view', () => {
+  const ACCOUNT = '0x1e1D0e1D0e1D0e1D0e1D0e1D0e1D0e1D0e1D0e1D'
+  const REVOKE_HASH = `0x${'fa'.repeat(32)}`
+  const SEPOLIA_ENTRY = {
+    chainId: CONTRACT.chainId,
+    name: 'Sepolia',
+    symbol: 'ETH',
+    isTestnet: true,
+  }
+
+  const IS_OWNER = '0x2f54bf6e'
+  const TRANSACTION_COUNT = '0x2e7700f0'
+  const TRANSACTIONS = '0x9ace38c2'
+  const IS_CONFIRMED = '0x80f59a65'
+
+  function word(value: bigint): string {
+    return value.toString(16).padStart(64, '0')
+  }
+
+  const PROPOSAL = [
+    '0x',
+    SUBMIT_EVENT.payload.to.replace(/^0x/, '').padStart(64, '0'),
+    word(1_000_000_000_000_000_000n),
+    word(128n),
+    word(0n),
+    word(4n),
+    'deadbeef'.padEnd(64, '0'),
+  ].join('')
+
+  /** A wallet whose account has confirmed the indexed proposal. */
+  function wallet(options: { confirmed?: boolean } = {}): FakeProvider {
+    return installFakeProvider({
+      answer: ({ method, params }) => {
+        if (method === 'eth_accounts') {
+          return [ACCOUNT]
+        }
+
+        if (method === 'eth_chainId') {
+          return `0x${CONTRACT.chainId.toString(16)}`
+        }
+
+        if (method === 'eth_sendTransaction') {
+          return REVOKE_HASH
+        }
+
+        if (method === 'eth_call') {
+          const data = (params as [{ data: string }])[0].data
+
+          if (data.startsWith(IS_OWNER)) {
+            return `0x${word(1n)}`
+          }
+
+          if (data.startsWith(TRANSACTION_COUNT)) {
+            return `0x${word(1n)}`
+          }
+
+          if (data.startsWith(TRANSACTIONS)) {
+            return PROPOSAL
+          }
+
+          if (data.startsWith(IS_CONFIRMED)) {
+            return `0x${word(options.confirmed === false ? 0n : 1n)}`
+          }
+        }
+
+        throw new Error(`unexpected method ${method}`)
+      },
+    })
+  }
+
+  it('revokes one confirmation from the row, with no value and nothing else touched', async () => {
+    const api = apiFetch({ chains: () => jsonResponse({ data: [SEPOLIA_ENTRY] }) })
+    const provider = wallet()
+
+    const { user } = renderApp({
+      path: '/contracts/7/events',
+      storage: memoryStorage('stored-token'),
+    })
+
+    await waitFor(() => {
+      expect(button('Revoke my confirmation').disabled).toBe(false)
+    })
+
+    await user.click(button('Revoke my confirmation'))
+    await user.click(button('Open wallet and revoke'))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Sent\./).textContent).toContain(REVOKE_HASH)
+    })
+
+    const sent = provider.calls.filter((call) => call.method === 'eth_sendTransaction')
+
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.params).toEqual([
+      {
+        from: ACCOUNT,
+        to: CONTRACT.address,
+        value: '0x0',
+        data: `0x20ea8d86${word(0n)}`,
+      },
+    ])
+
+    // A revocation is not a read of the stored page: the list is untouched.
+    expect(api.eventCalls).toBe(1)
+  })
+
+  it('offers the two own-confirmation actions and refuses the one that does not apply', async () => {
+    // The account has not confirmed, so the confirmation is the applicable action
+    // and the revocation refuses without opening the wallet.
+    apiFetch({ chains: () => jsonResponse({ data: [SEPOLIA_ENTRY] }) })
+    const provider = wallet({ confirmed: false })
+
+    const { user } = renderApp({
+      path: '/contracts/7/events',
+      storage: memoryStorage('stored-token'),
+    })
+
+    await waitFor(() => {
+      expect(button('Revoke my confirmation').disabled).toBe(false)
+    })
+
+    await user.click(button('Revoke my confirmation'))
+
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'This account has not confirmed this proposal, so there is no confirmation to revoke.',
+    )
+    expect(screen.queryByRole('button', { name: 'Open wallet and revoke' })).toBeNull()
+    expect(provider.requested).not.toContain('eth_sendTransaction')
+
+    // The other action is still offered: it reads the same contract and would find
+    // nothing to confirm only if the contract said so.
+    expect(button('Confirm proposal').disabled).toBe(false)
   })
 })
