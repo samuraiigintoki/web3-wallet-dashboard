@@ -17,7 +17,7 @@ import {
 } from '../test/http.ts'
 import { createQueryClient } from '../data/queryClient.ts'
 import { currentPath, renderApp } from '../test/renderApp.tsx'
-import { PAGE_SIZE } from './page.ts'
+import { PAGE_SIZE } from '../data/page.ts'
 
 const USER_A: User = { id: 5, email: 'ada@example.com', createdAt: '2026-10-06T12:00:00Z' }
 const USER_B: User = { id: 9, email: 'bob@example.com', createdAt: '2026-10-06T12:00:00Z' }

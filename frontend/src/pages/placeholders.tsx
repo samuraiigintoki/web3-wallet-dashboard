@@ -7,17 +7,9 @@
  *
  * Wallets left this file in Week 8 and now lives in WalletsPage.tsx. Overview
  * left it in Week 9, when the browser-wallet area gave it a reason to exist as
- * OverviewPage.tsx.
+ * OverviewPage.tsx. Contracts left it in Week 10, when the tracked-contract list
+ * gave it one as ContractsPage.tsx.
  */
-
-export function ContractsPage() {
-  return (
-    <main className="page">
-      <h1>Contracts</h1>
-      <p>Tracked contracts and their indexed events are not built yet.</p>
-    </main>
-  )
-}
 
 export function NotFoundPage() {
   return (

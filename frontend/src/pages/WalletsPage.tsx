@@ -11,7 +11,7 @@ import {
 import type { DataSession } from '../auth/session.ts'
 import { useAuth } from '../auth/useAuth.ts'
 import type { IdentityRef } from '../data/identityKeys.ts'
-import { MAX_PAGE, parsePageParam } from '../wallets/page.ts'
+import { MAX_PAGE, parsePageParam } from '../data/page.ts'
 import { refreshWalletLists, walletListQuery } from '../wallets/walletQueries.ts'
 import { ConfirmRemoveWallet } from '../wallets/ConfirmRemoveWallet.tsx'
 import { WalletCreateForm } from '../wallets/WalletCreateForm.tsx'

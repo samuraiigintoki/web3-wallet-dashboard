@@ -7,7 +7,7 @@ import { otherTabStores } from '../test/crossTab.ts'
 import { createTokenStorage, SESSION_TOKEN_KEY } from '../auth/storage.ts'
 import { isProtectedKey } from './identityKeys.ts'
 import { currentPath, renderApp } from '../test/renderApp.tsx'
-import { PAGE_SIZE } from '../wallets/page.ts'
+import { PAGE_SIZE } from './page.ts'
 
 const TOKEN_A = 'token-a'
 const TOKEN_B = 'token-b'

@@ -1,5 +1,5 @@
 /**
- * The four calls this block wires, as thin functions over the request helper.
+ * The calls this block wires, as thin functions over the request helper.
  *
  * A factory rather than a module singleton, so tests inject the token source,
  * the unauthorized callback, fetch and the timeout instead of patching
@@ -9,6 +9,7 @@
 import { ApiError } from './errors.ts'
 import {
   isCollectionPagination,
+  isContractList,
   isLoginResult,
   isMessageResult,
   isUser,
@@ -22,8 +23,10 @@ import {
   type RequestDependencies,
 } from './request.ts'
 import type {
+  ContractList,
   CreateWalletRequest,
   UpdateWalletRequest,
+  ListContractsParams,
   ListWalletsParams,
   LoginRequest,
   LoginResult,
@@ -45,6 +48,13 @@ export type ApiClient = {
   getMe: (init?: CallInit) => Promise<User>
   /** The caller's own wallets, one page. The owner comes from the bearer. */
   listWallets: (params: ListWalletsParams, init?: CallInit) => Promise<WalletList>
+  /**
+   * The caller's own tracked contracts, one page. Owner-scoped exactly like the
+   * wallet list: the handler takes the owner from the bearer, so no user id is
+   * sent and none can be. Read-only: nothing in this slice creates, updates,
+   * enables or removes a record.
+   */
+  listContracts: (params: ListContractsParams, init?: CallInit) => Promise<ContractList>
   /** Saves one wallet for the caller. The owner comes from the bearer. */
   createWallet: (body: CreateWalletRequest, init?: CallInit) => Promise<Wallet>
   /**
@@ -112,7 +122,7 @@ function unusablePagination(
  */
 function requirePagination(
   result: ApiResult<unknown>,
-  requested: ListWalletsParams,
+  requested: { page: number; pageSize: number },
 ): Pagination {
   const pagination = result.pagination
 
@@ -284,6 +294,30 @@ export function createApiClient(dependencies: RequestDependencies): ApiClient {
 
       return {
         wallets: requireData(result),
+        pagination: requirePagination(result, params),
+      }
+    },
+
+    async listContracts(params, init) {
+      // Owner-scoped by construction, the same way the wallet list is: the
+      // handler resolves the owner from the bearer. Two query parameters and
+      // nothing else, so no filter can narrow the list to someone else's rows
+      // or widen it past the page the screen asked for.
+      const query = new URLSearchParams({
+        page: String(params.page),
+        pageSize: String(params.pageSize),
+      })
+
+      const result = await request({
+        method: 'GET',
+        path: `/contracts?${query.toString()}`,
+        auth: true,
+        guard: isContractList,
+        signal: init?.signal,
+      })
+
+      return {
+        contracts: requireData(result),
         pagination: requirePagination(result, params),
       }
     },

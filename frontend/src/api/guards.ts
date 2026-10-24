@@ -11,6 +11,7 @@ import type {
   LoginResult,
   MessageResult,
   Pagination,
+  TrackedContract,
   User,
   Wallet,
 } from './types.ts'
@@ -106,6 +107,55 @@ export function isWalletList(value: unknown): value is Wallet[] {
   }
 
   return value.every((entry: unknown) => isWallet(entry))
+}
+
+/**
+ * The three indexing availability values the API can send, and nothing else.
+ *
+ * A fixed set rather than a string. `indexingStatus` is rendered as one of three
+ * fixed phrases, and a value outside this set is a response this client does not
+ * understand: echoing it would put server vocabulary, and eventually indexer
+ * vocabulary, straight onto the screen.
+ */
+const INDEXING_STATUSES: readonly string[] = ['pending', 'disabled', 'unsupported']
+
+/**
+ * One tracked contract, all eight fields.
+ *
+ * `enabled`, `startBlock` and `createdAt` are checked even though this slice
+ * shows them in one place: a row missing one is not a record this client can
+ * render, and accepting it would mean rendering an empty cell as if the server
+ * had said nothing there. `startBlock` is a safe integer, because a block height
+ * beyond 2^53 is not one this screen can display or compare honestly.
+ */
+export function isTrackedContract(value: unknown): value is TrackedContract {
+  return (
+    isRecord(value) &&
+    isSafeInteger(value.id) &&
+    typeof value.address === 'string' &&
+    isSafeInteger(value.chainId) &&
+    typeof value.label === 'string' &&
+    typeof value.enabled === 'boolean' &&
+    isSafeInteger(value.startBlock) &&
+    typeof value.createdAt === 'string' &&
+    typeof value.indexingStatus === 'string' &&
+    INDEXING_STATUSES.includes(value.indexingStatus)
+  )
+}
+
+/**
+ * The whole page of tracked contracts, or nothing.
+ *
+ * One unusable row fails the response instead of being filtered out, for the
+ * same reason the wallet list does: a dropped row would leave `totalItems`
+ * disagreeing with what is on screen, and a short page would read as the truth.
+ */
+export function isContractList(value: unknown): value is TrackedContract[] {
+  if (!Array.isArray(value)) {
+    return false
+  }
+
+  return value.every((entry: unknown) => isTrackedContract(entry))
 }
 
 /**
