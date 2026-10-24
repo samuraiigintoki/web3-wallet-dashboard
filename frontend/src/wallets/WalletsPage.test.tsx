@@ -789,12 +789,20 @@ describe('wallets page', () => {
     })
 
     expect(walletGets(fetchStub.calls)).toHaveLength(getsBefore)
-    expect(
-      queryClient
-        .getQueryCache()
-        .getAll()
-        .filter((query) => query.queryKey[0] === 'identity'),
-    ).toHaveLength(0)
+
+    // The client collects an unobserved query on its own zero-delay timer
+    // (`gcTime: 0`), so the entry can outlive the tick above by one macrotask:
+    // which timer fires first is not something to bet a green build on. The
+    // assertion waits for the collection instead of racing it, and an entry
+    // that actually survived still fails it.
+    await waitFor(() => {
+      expect(
+        queryClient
+          .getQueryCache()
+          .getAll()
+          .filter((query) => query.queryKey[0] === 'identity'),
+      ).toHaveLength(0)
+    })
   })
 
   it('revives no cached work for a check whose session ended while it waited', async () => {
