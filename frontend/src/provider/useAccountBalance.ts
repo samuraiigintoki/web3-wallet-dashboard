@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { describeProviderFailure, readInjectedProvider } from './injected.ts'
 import { formatWei, parseQuantity } from './balance.ts'
+import { useGateOpening } from './gatedRead.ts'
 
 /**
  * The native balance of the account the browser wallet reports, or an honest
@@ -69,26 +70,11 @@ export function useAccountBalance({
    * How many times the gate has opened.
    *
    * The gate is the app's permission to ask: a listed chain, a connected account
-   * and a catalog that has answered. When it closes and later reopens for the
-   * same account and chain, that is a new permission, not the old one resumed,
-   * and the figure from before the closure describes a moment the app has since
-   * lost sight of. Counting the openings puts the closure into the stamp, so a
-   * result from the previous opening can never match again.
-   *
-   * The transition is noticed during render rather than in an effect, because
-   * the stamp is built during render and one frame of the old stamp is one frame
-   * of the old figure.
+   * and a catalog that has answered. Counting the openings puts a closure into
+   * the stamp, so a result from the previous opening can never match again. The
+   * rule itself is in `gatedRead.ts`, shared with every other gated read.
    */
-  const [opening, setOpening] = useState(0)
-  const [gateWasOpen, setGateWasOpen] = useState(enabled)
-
-  if (gateWasOpen !== enabled) {
-    setGateWasOpen(enabled)
-
-    if (enabled) {
-      setOpening((current) => current + 1)
-    }
-  }
+  const opening = useGateOpening(enabled)
 
   /**
    * The last finished read, with the stamp it belongs to.
