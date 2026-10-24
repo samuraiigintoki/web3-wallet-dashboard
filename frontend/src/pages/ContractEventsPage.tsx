@@ -5,6 +5,7 @@ import { MULTISIG_ADDRESS, SEPOLIA_CHAIN_ID } from '../provider/multisig.ts'
 import { useBrowserWallet, type BrowserWalletState } from '../provider/useBrowserWallet.ts'
 import { chainCatalogQuery } from '../wallets/chainQueries.ts'
 import { ConfirmTransaction } from '../multisig/ConfirmTransaction.tsx'
+import { ExecuteTransaction } from '../multisig/ExecuteTransaction.tsx'
 import { RevokeTransaction } from '../multisig/RevokeTransaction.tsx'
 import type { RefreshedPage } from '../multisig/events.ts'
 import type { CatalogFact } from '../multisig/useSubmitTransaction.ts'
@@ -182,7 +183,7 @@ export function ContractEventsPage() {
 
           {!confirmable && (
             <p className="hint">
-              {`Confirming and revoking are only available on the verified Sepolia multisig contract (${MULTISIG_ADDRESS}, chain ${String(
+              {`Confirming, revoking and executing are only available on the verified Sepolia multisig contract (${MULTISIG_ADDRESS}, chain ${String(
                 SEPOLIA_CHAIN_ID,
               )}). This tracked contract is not it, so no action is offered on these events.`}
             </p>
@@ -354,11 +355,11 @@ function EventResults({
                 {showConfirm && event.eventName === 'SubmitTransaction' && (
                   <>
                     {/*
-                      Two actions, one proposal. Each reads the contract before it
-                      offers anything, and the verdicts are opposites: an account
-                      that has confirmed is offered the revocation, and one that has
-                      not is offered the confirmation. Neither is offered for the
-                      other's state, so the pair can never both reach a review.
+                      Three actions, one proposal. Each reads the contract before it
+                      offers anything, and each judges differently: confirming
+                      refuses an account that has confirmed, revoking refuses one
+                      that has not, and executing refuses until the confirmations
+                      meet the threshold. No action is offered for another's state.
                     */}
                     <ConfirmTransaction
                       contract={contract}
@@ -367,6 +368,17 @@ function EventResults({
                       onRefreshEvents={onRefreshEvents}
                     />
                     <RevokeTransaction
+                      contract={contract}
+                      event={event}
+                      wallet={wallet}
+                      onRefreshEvents={onRefreshEvents}
+                    />
+                    {/*
+                      Execution is the third and the last. It reads its own
+                      evidence at one block, and it is the only action here that
+                      calls something other than this contract.
+                    */}
+                    <ExecuteTransaction
                       contract={contract}
                       event={event}
                       wallet={wallet}

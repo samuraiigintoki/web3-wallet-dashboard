@@ -2,8 +2,7 @@ import { useMemo } from 'react'
 
 import type { SubmitTransactionPayload } from '../api/index.ts'
 import type { BrowserWalletState } from '../provider/useBrowserWallet.ts'
-import type { PreflightOutcome, PreflightReads } from './confirm.ts'
-import { evaluateRevokePreflight, revokeGate } from './revoke.ts'
+import { revokeGate, runRevocation } from './revoke.ts'
 import { useMultisigAction, type MultisigActionPhase } from './useMultisigAction.ts'
 
 /**
@@ -63,17 +62,8 @@ export function useRevokeTransaction({
     payload,
     wallet,
     gate,
-    decide: decideRevocation,
+    run: runRevocation,
     declined: DECLINED,
     scope,
   })
-}
-
-/** The verdict, held at module scope so the hook sees a stable function. */
-function decideRevocation(
-  reads: PreflightReads,
-  index: bigint,
-  payload: SubmitTransactionPayload,
-): PreflightOutcome {
-  return evaluateRevokePreflight(reads, index, payload)
 }

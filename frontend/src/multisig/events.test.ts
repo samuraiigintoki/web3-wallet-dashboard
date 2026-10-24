@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
 import type { ContractEvent } from '../api/index.ts'
-import { findConfirmation, findRevocation, findSubmittedTransaction } from './events.ts'
+import {
+  findConfirmation,
+  findExecution,
+  findRevocation,
+  findSubmittedTransaction,
+} from './events.ts'
 
 /**
  * Matching a submitted hash against a page of stored events.
@@ -176,5 +181,43 @@ describe('finding one revocation in a page', () => {
 
   it('returns null for an empty page', () => {
     expect(findRevocation(HASH, '0', ACTOR, [])).toBeNull()
+  })
+})
+
+describe('finding one execution in a page', () => {
+  const OTHER_ACTOR = '0x1e1D0e1D0e1D0e1D0e1D0e1D0e1D0e1D0e1D0e1D'
+
+  function execution(overrides: EventOverrides = {}): ContractEvent {
+    return event({ eventName: 'ExecuteTransaction', ...overrides })
+  }
+
+  it('needs the hash, the index and the actor to agree', () => {
+    expect(findExecution(HASH, '0', ACTOR, [execution()])?.eventName).toBe('ExecuteTransaction')
+    expect(findExecution(HASH, '0', OTHER_ACTOR, [execution()])).toBeNull()
+    expect(findExecution(OTHER_HASH, '0', ACTOR, [execution()])).toBeNull()
+    expect(findExecution(HASH, '1', ACTOR, [execution()])).toBeNull()
+  })
+
+  it('does not read a confirmation or a revocation as an execution', () => {
+    const page = [
+      event({ eventName: 'ConfirmTransaction' }),
+      event({ eventName: 'RevokeConfirmation' }),
+      event(),
+    ]
+
+    expect(findExecution(HASH, '0', ACTOR, page)).toBeNull()
+  })
+
+  it('finds the execution among the events of the same transaction', () => {
+    const page = [
+      event({ eventName: 'ConfirmTransaction', logIndex: 1 }),
+      execution({ logIndex: 2 }),
+    ]
+
+    expect(findExecution(HASH, '0', ACTOR, page)?.logIndex).toBe(2)
+  })
+
+  it('returns null for an empty page', () => {
+    expect(findExecution(HASH, '0', ACTOR, [])).toBeNull()
   })
 })

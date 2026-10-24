@@ -1136,7 +1136,7 @@ describe('confirming from the contract view', () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText(/Confirming and revoking are only available on the verified Sepolia/),
+        screen.getByText(/Confirming, revoking and executing are only available on the verified Sepolia/),
       ).toBeDefined()
     })
 
@@ -1354,5 +1354,157 @@ describe('revoking from the contract view', () => {
     // The other action is still offered: it reads the same contract and would find
     // nothing to confirm only if the contract said so.
     expect(button('Confirm proposal').disabled).toBe(false)
+  })
+})
+
+describe('executing from the contract view', () => {
+  const ACCOUNT = '0x1e1D0e1D0e1D0e1D0e1D0e1D0e1D0e1D0e1D0e1D'
+  const EXECUTE_HASH = `0x${'ea'.repeat(32)}`
+  const BLOCK = '0x5d13ca'
+  const SEPOLIA_ENTRY = {
+    chainId: CONTRACT.chainId,
+    name: 'Sepolia',
+    symbol: 'ETH',
+    isTestnet: true,
+  }
+
+  const IS_OWNER = '0x2f54bf6e'
+  const TRANSACTION_COUNT = '0x2e7700f0'
+  const TRANSACTIONS = '0x9ace38c2'
+  const IS_CONFIRMED = '0x80f59a65'
+  const GET_OWNERS = '0xa0e67e2b'
+  const THRESHOLD = '0x42cde4e8'
+
+  function word(value: bigint): string {
+    return value.toString(16).padStart(64, '0')
+  }
+
+  const PROPOSAL = [
+    '0x',
+    SUBMIT_EVENT.payload.to.replace(/^0x/, '').padStart(64, '0'),
+    word(1_000_000_000_000_000_000n),
+    word(128n),
+    word(0n),
+    word(4n),
+    'deadbeef'.padEnd(64, '0'),
+  ].join('')
+
+  /** One owner, threshold one, as the live deployment reports. */
+  const ONE_OWNER = [
+    '0x',
+    word(32n),
+    word(1n),
+    ACCOUNT.replace(/^0x/, '').padStart(64, '0'),
+  ].join('')
+
+  function wallet(): FakeProvider {
+    return installFakeProvider({
+      answer: ({ method, params }) => {
+        if (method === 'eth_accounts') {
+          return [ACCOUNT]
+        }
+
+        if (method === 'eth_chainId') {
+          return `0x${CONTRACT.chainId.toString(16)}`
+        }
+
+        if (method === 'eth_blockNumber') {
+          return BLOCK
+        }
+
+        if (method === 'eth_sendTransaction') {
+          return EXECUTE_HASH
+        }
+
+        if (method === 'eth_call') {
+          const data = (params as [{ data: string }])[0].data
+
+          if (data.startsWith(IS_OWNER) || data.startsWith(IS_CONFIRMED)) {
+            return `0x${word(1n)}`
+          }
+
+          if (data.startsWith(TRANSACTION_COUNT)) {
+            return `0x${word(1n)}`
+          }
+
+          if (data.startsWith(TRANSACTIONS)) {
+            return PROPOSAL
+          }
+
+          if (data.startsWith(GET_OWNERS)) {
+            return ONE_OWNER
+          }
+
+          if (data.startsWith(THRESHOLD)) {
+            return `0x${word(1n)}`
+          }
+        }
+
+        throw new Error(`unexpected method ${method}`)
+      },
+    })
+  }
+
+  it('executes one proposal from the row, after an acknowledgement, with no value', async () => {
+    const api = apiFetch({ chains: () => jsonResponse({ data: [SEPOLIA_ENTRY] }) })
+    const provider = wallet()
+
+    const { user } = renderApp({
+      path: '/contracts/7/events',
+      storage: memoryStorage('stored-token'),
+    })
+
+    await waitFor(() => {
+      expect(button('Check execution').disabled).toBe(false)
+    })
+
+    await user.click(button('Check execution'))
+
+    // The review restates the evidence and the risk before anything can be sent.
+    const facts = screen.getByText('Threshold').closest('dl')!.textContent ?? ''
+
+    expect(facts).toContain('1 of 1 owners')
+    expect(screen.getByRole('note').textContent).toContain('does not decode calldata')
+
+    // The wallet cannot be opened without the acknowledgement.
+    expect(button('Open wallet and execute').disabled).toBe(true)
+
+    await user.click(screen.getByRole('checkbox'))
+    await user.click(button('Open wallet and execute'))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Sent\./).textContent).toContain(EXECUTE_HASH)
+    })
+
+    const sent = provider.calls.filter((call) => call.method === 'eth_sendTransaction')
+
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.params).toEqual([
+      {
+        from: ACCOUNT,
+        to: CONTRACT.address,
+        value: '0x0',
+        data: `0xee22610b${word(0n)}`,
+      },
+    ])
+
+    // Executing is not a read of the stored page: the list is untouched.
+    expect(api.eventCalls).toBe(1)
+  })
+
+  it('offers the three own-proposal actions and nothing that revokes another owner', async () => {
+    apiFetch({ chains: () => jsonResponse({ data: [SEPOLIA_ENTRY] }) })
+    wallet()
+
+    renderApp({ path: '/contracts/7/events', storage: memoryStorage('stored-token') })
+
+    await waitFor(() => {
+      expect(button('Check execution').disabled).toBe(false)
+    })
+
+    expect(screen.getAllByRole('button', { name: 'Confirm proposal' })).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: 'Revoke my confirmation' })).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: 'Check execution' })).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: /another owner/ })).toBeNull()
   })
 })
