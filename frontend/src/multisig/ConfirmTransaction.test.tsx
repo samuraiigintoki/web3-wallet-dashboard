@@ -564,6 +564,47 @@ describe('confirming one indexed proposal', () => {
     expect(sends(fake)).toHaveLength(0)
   })
 
+  it('drops a preflight answer that lands after the wallet moved away and back', async () => {
+    const count = deferred<unknown>()
+
+    const { fake, user } = await renderRow({
+      count: () => count.promise,
+    })
+
+    await waitFor(() => {
+      expect(confirmButton().disabled).toBe(false)
+    })
+
+    await user.click(confirmButton())
+
+    await screen.findByText('Reading the proposal from the contract.')
+
+    // Away from the account that asked, and back to it: the review this answer
+    // would produce was requested for a wallet state the user has since left, and
+    // returning to the same account does not make it current again.
+    fake.emit('accountsChanged', [OWNER])
+
+    await waitFor(() => {
+      expect(screen.getByTestId('wallet').textContent).toBe(`${OWNER}:${SEPOLIA_CHAIN_ID}`)
+    })
+
+    fake.emit('accountsChanged', [OTHER])
+
+    await waitFor(() => {
+      expect(screen.getByTestId('wallet').textContent).toBe(`${OTHER}:${SEPOLIA_CHAIN_ID}`)
+    })
+
+    count.resolve(`0x${word(3n)}`)
+
+    await waitFor(() => {
+      expect(screen.queryByText('Reading the proposal from the contract.')).toBeNull()
+    })
+
+    expect(screen.queryByRole('button', { name: 'Open wallet and confirm' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Confirm proposal' })).toBeDefined()
+    expect(sends(fake)).toHaveLength(0)
+  })
+
   it('reports a declined confirmation without claiming nothing was sent', async () => {
     const { fake, user } = await renderRow({}, {
       send: () => {

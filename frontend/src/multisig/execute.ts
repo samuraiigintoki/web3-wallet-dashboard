@@ -36,6 +36,13 @@ import {
   decodeUint256,
   summaryIsPlausible,
 } from '../provider/multisig.ts'
+import {
+  blockTag,
+  CONFIGURATION_ABI,
+  decodeBlockNumber,
+  encodeConfiguration,
+  MAX_ANCHORED_OWNERS,
+} from './anchored.ts'
 import type { BrowserWalletState } from '../provider/useBrowserWallet.ts'
 import {
   checkEligibility,
@@ -48,6 +55,12 @@ import {
   type Preflight,
 } from './confirm.ts'
 import { walletGate, type MultisigGate } from './gate.ts'
+
+/**
+ * Re-exported from `anchored.ts`, where execution and status share them, so the
+ * C7 tests and callers keep one import site.
+ */
+export { CONFIGURATION_ABI, decodeBlockNumber }
 import {
   MALFORMED_ANSWER,
   type ActionOutcome,
@@ -67,36 +80,13 @@ export const EXECUTE_ABI = [
   },
 ] as const satisfies Abi
 
-/** `getOwners()` and `threshold()`, the two configuration reads execution needs. */
-export const CONFIGURATION_ABI = [
-  {
-    type: 'function',
-    name: 'getOwners',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'address[]' }],
-  },
-  {
-    type: 'function',
-    name: 'threshold',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-] as const satisfies Abi
-
 /**
- * The most owners this app will preflight an execution for.
+ * The cap execution has used since C7, now the shared one in `anchored.ts`.
  *
- * The contract has no maximum owner count, and execution needs one
- * `isConfirmed` read per owner at the anchored block. A list longer than this is
- * refused with a sentence rather than turned into an unbounded burst of reads
- * against a wallet that has to answer every one of them.
+ * Status reads one confirmation per owner for the same reason execution does, so
+ * the number is one constant rather than two that could drift apart.
  */
-export const MAX_EXECUTION_OWNERS = 32
-
-/** One 32-byte word as hexadecimal, the only block tag form read here. */
-const BLOCK_QUANTITY = /^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/
+export const MAX_EXECUTION_OWNERS = MAX_ANCHORED_OWNERS
 
 /**
  * The calldata for one execution.
@@ -111,28 +101,6 @@ export function encodeExecuteTransaction(index: bigint): string {
     functionName: 'executeTransaction',
     args: [index],
   }).toLowerCase()
-}
-
-/** The two configuration reads, encoded from their ABI. */
-function encodeConfiguration(name: 'getOwners' | 'threshold'): string {
-  return encodeFunctionData({ abi: CONFIGURATION_ABI, functionName: name }).toLowerCase()
-}
-
-/**
- * A block number as the node reports one, or null.
- *
- * `eth_blockNumber` answers with a hex quantity: a `0x`, then either `0` or a
- * digit that is not a leading zero, then hex digits. A decimal string, a padded
- * word, a negative number or an empty payload is refused, because the value is
- * used as the block tag for every read that follows: an anchor this app
- * misunderstood would anchor the whole preflight somewhere else.
- */
-export function decodeBlockNumber(value: unknown): bigint | null {
-  if (typeof value !== 'string' || !BLOCK_QUANTITY.test(value)) {
-    return null
-  }
-
-  return BigInt(value)
 }
 
 /**
@@ -332,7 +300,7 @@ export async function runExecution(
     }
   }
 
-  const tag = `0x${block.toString(16)}`
+  const tag = blockTag(block)
 
   const ownerRaw = await context.call(context.encode('isOwner', [context.account]), tag)
   if (!context.live()) {
