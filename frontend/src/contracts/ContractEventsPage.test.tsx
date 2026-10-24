@@ -8,6 +8,11 @@ import {
   stubFetch,
   type FetchCall,
 } from '../test/http.ts'
+import {
+  installFakeProvider,
+  removeFakeProvider,
+  type FakeProvider,
+} from '../test/fakeProvider.ts'
 import { currentPath, memoryStorage, renderApp } from '../test/renderApp.tsx'
 import { createQueryClient } from '../data/queryClient.ts'
 import { PAGE_SIZE } from '../data/page.ts'
@@ -85,6 +90,7 @@ function eventsResponse(
 function apiFetch(options: {
   contract?: () => Response | Promise<Response>
   events?: (url: string, init: RequestInit, call: number) => Response | Promise<Response>
+  chains?: () => Response | Promise<Response>
 }) {
   let eventCalls = 0
 
@@ -94,7 +100,7 @@ function apiFetch(options: {
     }
 
     if (url.includes('/chains')) {
-      return jsonResponse({ data: [] })
+      return options.chains?.() ?? jsonResponse({ data: [] })
     }
 
     if (url.includes('/auth/logout')) {
@@ -142,6 +148,7 @@ function mainText(): string {
 
 beforeEach(() => {
   vi.unstubAllGlobals()
+  removeFakeProvider()
 })
 
 describe('event view', () => {
@@ -534,7 +541,7 @@ describe('identity and writes', () => {
     expect(document.body.textContent).not.toContain('SubmitTransaction')
   })
 
-  it('makes no write request and no browser-wallet call', async () => {
+  it('makes no write request, and asks the wallet only who and where it is', async () => {
     const api = apiFetch({
       events: (url) => {
         const page = Number(new URL(`https://api.test${url}`).searchParams.get('page'))
@@ -547,31 +554,162 @@ describe('identity and writes', () => {
         })
       },
     })
-    const provider = { request: vi.fn() }
-    Object.defineProperty(window, 'ethereum', {
-      value: provider,
-      configurable: true,
-      writable: true,
+    // A wallet that is present but has not connected this site.
+    const provider = installFakeProvider()
+
+    const { user } = renderApp({ path: '/contracts/7/events', storage: memoryStorage('stored-token') })
+
+    await waitFor(() => {
+      expect(screen.getByText('SubmitTransaction')).toBeDefined()
     })
 
-    try {
-      const { user } = renderApp({ path: '/contracts/7/events', storage: memoryStorage('stored-token') })
+    await user.click(button('Next'))
 
-      await waitFor(() => {
-        expect(screen.getByText('SubmitTransaction')).toBeDefined()
-      })
+    await waitFor(() => {
+      expect(api.eventCalls).toBe(2)
+    })
 
-      await user.click(button('Next'))
+    expect(api.stub.calls.every((call) => (call.init.method ?? 'GET') === 'GET')).toBe(true)
 
-      await waitFor(() => {
-        expect(api.eventCalls).toBe(2)
-      })
+    // The submit form on this screen reads the account and the chain so it can
+    // say whether sending is available. It does not prompt, and it dispatches
+    // nothing: no `eth_sendTransaction`, and no request for access.
+    expect(
+      provider.requested.every(
+        (method) => method === 'eth_accounts' || method === 'eth_chainId',
+      ),
+    ).toBe(true)
+    expect(provider.requested).not.toContain('eth_sendTransaction')
+    expect(provider.requested).not.toContain('eth_requestAccounts')
+  })
+})
 
-      expect(api.stub.calls.every((call) => (call.init.method ?? 'GET') === 'GET')).toBe(true)
-      expect(provider.request).not.toHaveBeenCalled()
-    } finally {
-      Reflect.deleteProperty(window, 'ethereum')
-    }
+describe('submitting from the contract view', () => {
+  const ACCOUNT = '0x1e1D0e1D0e1D0e1D0e1D0e1D0e1D0e1D0e1D0e1D'
+  const DESTINATION = '0x14912965632cd9ab70c046e8d23e9b8dfa9f2746'
+  const SENT_HASH = `0x${'cd'.repeat(32)}`
+  const SEPOLIA_ENTRY = {
+    chainId: CONTRACT.chainId,
+    name: 'Sepolia',
+    symbol: 'ETH',
+    isTestnet: true,
+  }
+
+  function wallet(): FakeProvider {
+    return installFakeProvider({
+      answer: ({ method }) => {
+        if (method === 'eth_accounts') {
+          return [ACCOUNT]
+        }
+
+        if (method === 'eth_chainId') {
+          return `0x${CONTRACT.chainId.toString(16)}`
+        }
+
+        if (method === 'eth_sendTransaction') {
+          return SENT_HASH
+        }
+
+        throw new Error(`unexpected method ${method}`)
+      },
+    })
+  }
+
+  it('offers the form on the contract page, and says why it cannot send without a wallet', async () => {
+    apiFetch({})
+
+    renderApp({ path: '/contracts/7/events', storage: memoryStorage('stored-token') })
+
+    expect(
+      await screen.findByRole('heading', { name: 'Submit a transaction' }),
+    ).toBeDefined()
+
+    expect(screen.getByText(/Sending is not available/).textContent).toContain(
+      'No connected account.',
+    )
+    expect(button('Review submission').disabled).toBe(true)
+  })
+
+  it('submits one proposal to the tracked contract and does not touch the event list', async () => {
+    const api = apiFetch({ chains: () => jsonResponse({ data: [SEPOLIA_ENTRY] }) })
+    const provider = wallet()
+
+    const { user } = renderApp({
+      path: '/contracts/7/events',
+      storage: memoryStorage('stored-token'),
+    })
+
+    await waitFor(() => {
+      expect(button('Review submission').disabled).toBe(false)
+    })
+
+    await user.type(screen.getByLabelText('Destination address'), DESTINATION)
+    await user.type(screen.getByLabelText('Value in wei'), '1000000000000000000')
+    await user.type(screen.getByLabelText('Calldata'), '0xdeadbeef')
+    await user.click(button('Review submission'))
+
+    // The contract the page is about, restated in the confirmation.
+    expect(screen.getByText('Destination').closest('dl')!.textContent).toContain(
+      CONTRACT.address,
+    )
+
+    await user.click(button('Open wallet and submit'))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Submitted\./).textContent).toContain(SENT_HASH)
+    })
+
+    const sent = provider.calls.filter((call) => call.method === 'eth_sendTransaction')
+
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.params).toEqual([
+      {
+        from: ACCOUNT,
+        to: CONTRACT.address,
+        value: '0x0',
+        data: expect.stringContaining('0xc6427474'),
+      },
+    ])
+
+    // Submitting is not indexing: the stored list is not read again, and nothing
+    // is polled for afterwards.
+    expect(api.eventCalls).toBe(1)
+    expect(api.stub.calls.every((call) => (call.init.method ?? 'GET') === 'GET')).toBe(true)
+  })
+
+  it('does not treat an indexing status as a permission it needs', async () => {
+    // The record says this deployment does not index the contract chain at all.
+    // That is a fact about the indexer, not about whether this wallet can submit
+    // a transaction to the contract.
+    apiFetch({
+      contract: () =>
+        jsonResponse({ data: { ...CONTRACT, indexingStatus: 'unsupported' } }),
+      chains: () => jsonResponse({ data: [SEPOLIA_ENTRY] }),
+    })
+    wallet()
+
+    renderApp({ path: '/contracts/7/events', storage: memoryStorage('stored-token') })
+
+    await waitFor(() => {
+      expect(button('Review submission').disabled).toBe(false)
+    })
+
+    expect(screen.queryByText(/Sending is not available/)).toBeNull()
+  })
+
+  it('offers no sending when the catalog does not list the contract chain', async () => {
+    apiFetch({ chains: () => jsonResponse({ data: [] }) })
+    wallet()
+
+    renderApp({ path: '/contracts/7/events', storage: memoryStorage('stored-token') })
+
+    await waitFor(() => {
+      expect(screen.getByText(/Sending is not available/).textContent).toContain(
+        `does not list chain ${String(CONTRACT.chainId)}`,
+      )
+    })
+
+    expect(button('Review submission').disabled).toBe(true)
   })
 })
 

@@ -16,6 +16,7 @@ import {
 } from '../contracts/contractEventQueries.ts'
 import { PageControls } from '../data/PageControls.tsx'
 import { parsePageParam } from '../data/page.ts'
+import { SubmitTransactionForm } from '../multisig/SubmitTransactionForm.tsx'
 
 /**
  * A contract id from the URL, or null when it is not one.
@@ -45,6 +46,12 @@ function parseContractId(raw: string | undefined): number | null {
  * Everything on this screen is what the server stored. Nothing polls, nothing
  * reads the chain, and nothing here claims the list is complete or that the
  * connected browser wallet has anything to do with the contract.
+ *
+ * Below the events is the one write in the app: submitting a proposal to this
+ * contract through the browser wallet. It is on this screen because this is
+ * where the contract is identified and restated, and because a submission is not
+ * an event: the list above does not change when one is sent, and this screen does
+ * not pretend to watch for it.
  */
 export function ContractEventsPage() {
   const params = useParams()
@@ -103,6 +110,8 @@ export function ContractEventsPage() {
             error={events.error}
             onRetry={() => void events.refetch()}
           />
+
+          <SubmitTransactionForm contract={contract.data} />
         </>
       )}
 

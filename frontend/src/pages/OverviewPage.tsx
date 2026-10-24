@@ -16,7 +16,10 @@ export function OverviewPage() {
     <main className="page">
       <h1>Overview</h1>
       <p>
-        You are signed in. Contract and indexed event views are not built yet.
+        You are signed in. Your saved wallets, the contracts this account tracks
+        and their indexed events are on the Wallets and Contracts screens, and a
+        tracked contract&apos;s page is where a multisig proposal can be submitted
+        from this browser wallet.
       </p>
       <BrowserWalletPanel />
     </main>
