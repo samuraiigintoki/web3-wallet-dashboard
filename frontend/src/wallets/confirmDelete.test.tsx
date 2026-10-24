@@ -823,7 +823,14 @@ describe('removal lifetime', () => {
     // not repeated to find out.
     expect(api.readCalls).toBe(1)
     expect(api.removeCalls).toBe(1)
-    expect(queryClient.getQueryCache().getAll()).toHaveLength(0)
+
+    // Collected rather than removed by hand, so the entry goes on the client's
+    // own timer once nothing observes it (`gcTime: 0`). Waiting for the empty
+    // cache is what the assertion is about; a single tick after teardown only
+    // asks which timer happened to run first.
+    await waitFor(() => {
+      expect(queryClient.getQueryCache().getAll()).toHaveLength(0)
+    })
   })
 
   it('does not revive a check for a retired session', async () => {

@@ -469,11 +469,16 @@ describe('identity', () => {
     })
 
     held.resolve(pageResponse([CONTRACT_A]))
-    await Promise.resolve()
 
-    expect(
-      queryClient.getQueryCache().findAll().filter((query) => query.queryKey[0] === 'identity'),
-    ).toHaveLength(0)
+    // The sign-out removed the entry and the unmount left it unobserved, so the
+    // collector's timer and this assertion were in a race. Wait for the state
+    // the assertion is about.
+    await waitFor(() => {
+      expect(
+        queryClient.getQueryCache().findAll().filter((query) => query.queryKey[0] === 'identity'),
+      ).toHaveLength(0)
+    })
+
     expect(screen.queryByText('Project multisig')).toBeNull()
   })
 })
