@@ -22,7 +22,7 @@ The Go backend features:
 - Versioned SQL migrations (`backend/migrations/`, 0001 through 0008) embedded with `go:embed` and managed via `cmd/migrate`
 - Table-driven unit tests plus PostgreSQL integration tests, including a restartable scan, reorg and rescan flow, gated by a GitHub Actions CI workflow
 
-The React frontend in `frontend/` covers authentication, saved wallets, tracked contracts and their indexed events, browser-wallet reads, and one browser-wallet write: submitting a proposal to a tracked multisig contract. A submitted transaction can then be checked once, on request, for its receipt and for its indexed event. Confirming, revoking and executing proposals, and production deployment, are planned for upcoming blocks.
+The React frontend in `frontend/` covers authentication, saved wallets, tracked contracts and their indexed events, browser-wallet reads, and two browser-wallet writes: submitting a proposal to a tracked multisig contract, and confirming one existing indexed proposal on the verified Sepolia deployment. Either transaction can then be checked once, on request, for its receipt and for its indexed event. Revoking, executing and production deployment are planned for upcoming blocks.
 
 ## Architecture
 
@@ -47,7 +47,7 @@ Go backend                EVM JSON-RPC
                        PostgreSQL -> API -> dashboard
 ```
 
-The Go backend, the indexer and the indexed reads are implemented. The React dashboard covers signing in and out, saved wallets, tracked contracts and their indexed events, browser-wallet reads, and one browser-wallet write: submitting a multisig proposal from a tracked contract's page. After a submission the dashboard can read its receipt once, on request, and refresh the current page of indexed events. Confirming, revoking and executing proposals are not implemented, and nothing polls: no receipt is watched, no event list refreshes itself, and the hash lives in memory for that screen only.
+The Go backend, the indexer and the indexed reads are implemented. The React dashboard covers signing in and out, saved wallets, tracked contracts and their indexed events, browser-wallet reads, and two browser-wallet writes: submitting a multisig proposal from a tracked contract's page, and confirming one indexed proposal with `confirmTransaction(uint256)` on the verified Sepolia deployment. Confirmation is offered only after the contract itself has been read and agrees that this account is an owner, the proposal exists, is not executed, is not already confirmed by this account, and is still the proposal the indexed event describes. After a submission or a confirmation the dashboard can read its receipt once, on request, and refresh the current page of indexed events. Revoking and executing proposals are not implemented, and nothing polls: no receipt is watched, no event list refreshes itself, and the hash lives in memory for that screen only.
 
 The browser wallet will sign user transactions. The Go backend will not receive or store users' private keys.
 
@@ -55,14 +55,14 @@ The browser wallet will sign user transactions. The Go backend will not receive 
 
 Implemented in the Go backend: user registration and authentication, wallet and contract address management, filtering and pagination, EVM event indexing with PostgreSQL persistence and authenticated event reads, automated tests and CI, Docker-based local setup, and the architecture, API, database, and security documentation.
 
-Implemented in the React frontend: the login and register screens, a protected application shell that redirects signed-out visitors, a hand-written typed API client over the documented response envelopes, a session restored from browser storage on load, the wallet and tracked-contract screens, the indexed event view with pagination, browser-wallet reads of the account, chain, balance and multisig state, and one write: submitting a `submitTransaction(address,uint256,bytes)` proposal to a tracked contract through the injected wallet, after a confirmation that restates the contract, chain, destination, exact wei value and calldata, and a read-only check of that submission's receipt and indexed event.
+Implemented in the React frontend: the login and register screens, a protected application shell that redirects signed-out visitors, a hand-written typed API client over the documented response envelopes, a session restored from browser storage on load, the wallet and tracked-contract screens, the indexed event view with pagination, browser-wallet reads of the account, chain, balance and multisig state, and two writes: submitting a `submitTransaction(address,uint256,bytes)` proposal to a tracked contract through the injected wallet, after a confirmation that restates the contract, chain, destination, exact wei value and calldata, and confirming one indexed proposal with `confirmTransaction(uint256)` on the verified Sepolia contract after a preflight that reads the owner list, the proposal count, the proposal itself and this account's confirmation. Both carry a read-only check of the receipt and of the matching indexed event.
 
 Planned for later weeks:
 
-- Multisig transaction confirmation, revocation, and execution
+- Multisig confirmation revocation and execution
 - Transaction history, and receipt or index tracking without a user asking
 - Calldata decoding, and contract state reads beyond the multisig summary
-- Browser-wallet writes other than a single proposal submission
+- Browser-wallet writes other than a proposal submission and one confirmation
 - Indexed transaction and confirmation routes, and indexing progress reporting
 - Testnet deployment and contract verification
 
