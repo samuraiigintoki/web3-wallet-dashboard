@@ -10,6 +10,7 @@ import {
   SELECTOR_TRANSACTION_COUNT,
   SEPOLIA_CHAIN_ID,
   summaryIsPlausible,
+  ZERO_ADDRESS,
 } from './multisig.ts'
 
 const OWNER_A = '14912965632cd9ab70c046e8d23e9b8dfa9f2746'
@@ -24,7 +25,7 @@ function word(hex: string): string {
 function encodeAddressArray(addresses: string[]): string {
   const head = word('20')
   const length = word(addresses.length.toString(16))
-  const body = addresses.map((address) => word(`0${''}${address}`)).join('')
+  const body = addresses.map((address) => word(address.replace(/^0x/, ''))).join('')
 
   return `0x${head}${length}${body}`
 }
@@ -156,5 +157,31 @@ describe('summary plausibility', () => {
     expect(summaryIsPlausible([], 1n)).toBe(false)
     expect(summaryIsPlausible([`0x${OWNER_A}`], 0n)).toBe(false)
     expect(summaryIsPlausible([`0x${OWNER_A}`], 2n)).toBe(false)
+  })
+
+  it('refuses the zero address as an owner', () => {
+    // `MultiSigWallet__ZeroAddressOwner`: the constructor rejects it, so this
+    // deployment can never answer with it, however well-formed the encoding is.
+    expect(summaryIsPlausible([ZERO_ADDRESS], 1n)).toBe(false)
+    expect(summaryIsPlausible([`0x${OWNER_A}`, ZERO_ADDRESS.toLowerCase()], 1n)).toBe(false)
+  })
+
+  it('refuses duplicate owners', () => {
+    // `MultiSigWallet__DuplicateOwner`.
+    expect(summaryIsPlausible([`0x${OWNER_A}`, `0x${OWNER_A}`], 2n)).toBe(false)
+    // The same owner written in two cases is still one owner.
+    expect(summaryIsPlausible([`0x${OWNER_A}`, `0x${OWNER_A.toUpperCase()}`], 2n)).toBe(false)
+    // And the check must not be so eager that distinct owners are refused.
+    expect(summaryIsPlausible([`0x${OWNER_A}`, `0x${OWNER_B}`], 2n)).toBe(true)
+  })
+
+  it('decodes the zero address and duplicates, and leaves them to the gate', () => {
+    // The decoder is about layout. These payloads are well-formed, which is
+    // exactly why the invariant check has to exist after it.
+    expect(decodeAddressArray(encodeAddressArray([ZERO_ADDRESS]))).toEqual([ZERO_ADDRESS])
+    expect(decodeAddressArray(encodeAddressArray([OWNER_A, OWNER_A]))).toEqual([
+      `0x${OWNER_A}`,
+      `0x${OWNER_A}`,
+    ])
   })
 })

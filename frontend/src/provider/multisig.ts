@@ -82,6 +82,9 @@ export function decodeUint256(value: unknown): bigint | null {
  * Reads the dynamic `address[]` that `getOwners()` returns.
  *
  * The layout is an offset to the array, its length, then one word per address.
+ * This is the ABI shape only. Whether the addresses it returns are ones the
+ * contract can hold is `summaryIsPlausible`'s job.
+ *
  * Every one of those is checked against the payload length rather than trusted:
  * an offset that does not point at the length word, a length that runs past the
  * data, an address whose high twelve bytes are not zero, or a payload with
@@ -149,14 +152,48 @@ export function formatCount(value: bigint): string {
   return value.toString(10)
 }
 
+/** The address no owner can be, on this contract or any other. */
+export const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000'
+
 /**
  * Whether a decoded summary can be believed.
  *
- * The constructor enforces `0 < threshold <= owners.length` at deploy time, so a
- * contract that answers otherwise is not a configuration this app will draw. An
- * empty owner list is refused for the same reason: the constructor rejects it,
- * and a wallet with no owners cannot be the contract being read.
+ * `decodeAddressArray` above checks only that the payload is a well-formed ABI
+ * array. This checks the other half: that the configuration it describes is one
+ * the contract can actually be in. Everything here is a constructor invariant of
+ * `MultiSigWallet`, verified against the source at `f34634c`:
+ *
+ * - at least one owner (`MultiSigWallet__EmptyOwnersArray`),
+ * - no zero address among them (`MultiSigWallet__ZeroAddressOwner`),
+ * - no duplicates (`MultiSigWallet__DuplicateOwner`),
+ * - a non-zero threshold (`MultiSigWallet__ZeroThreshold`),
+ * - a threshold no higher than the owner count (`MultiSigWallet__ThresholdTooHigh`).
+ *
+ * These are lifetime invariants, not just deploy-time ones: `owners` is written
+ * only inside the constructor, since the contract has no add or remove owner
+ * function. So an answer that breaks one of them cannot be the state of this
+ * deployment, however well-formed its ABI encoding is, and drawing it would be
+ * presenting untrusted provider data as a plausible summary.
  */
 export function summaryIsPlausible(owners: readonly string[], threshold: bigint): boolean {
-  return owners.length > 0 && threshold > 0n && threshold <= BigInt(owners.length)
+  if (owners.length === 0 || threshold <= 0n || threshold > BigInt(owners.length)) {
+    return false
+  }
+
+  const seen = new Set<string>()
+
+  for (const owner of owners) {
+    // Compared in lower case: an address is a number, so `0xAB..` and `0xab..`
+    // are the same owner and a duplicate check that missed that would be no
+    // check at all.
+    const address = owner.toLowerCase()
+
+    if (address === ZERO_ADDRESS || seen.has(address)) {
+      return false
+    }
+
+    seen.add(address)
+  }
+
+  return true
 }

@@ -181,6 +181,54 @@ describe('what counts as unreadable', () => {
     })
   })
 
+  it('refuses a zero-address owner the contract could never have', async () => {
+    // Well-formed ABI, impossible configuration: the constructor rejects the
+    // zero address, so this answer is not the deployment's state.
+    const zeroOwners = `0x${word('20')}${word('1')}${word('0'.repeat(40))}`
+
+    installFakeProvider({
+      answer: ({ params }) => {
+        const call = params?.[0] as { data?: string } | undefined
+        return answering({ [SELECTOR_GET_OWNERS]: zeroOwners })(call?.data ?? '')
+      },
+    })
+
+    const { result } = render()
+
+    await waitFor(() => {
+      expect(result.current.state.status).toBe('error')
+    })
+
+    if (result.current.state.status !== 'error') {
+      throw new Error('unreachable')
+    }
+
+    expect(result.current.state.message).toBe('The contract answered with data this app cannot read.')
+  })
+
+  it('refuses duplicate owners the contract could never have', async () => {
+    const duplicateOwners = `0x${word('20')}${word('2')}${word('14912965632cd9ab70c046e8d23e9b8dfa9f2746')}${word('14912965632cd9ab70c046e8d23e9b8dfa9f2746')}`
+
+    installFakeProvider({
+      answer: ({ params }) => {
+        const call = params?.[0] as { data?: string } | undefined
+        return answering({ [SELECTOR_GET_OWNERS]: duplicateOwners })(call?.data ?? '')
+      },
+    })
+
+    const { result } = render()
+
+    await waitFor(() => {
+      expect(result.current.state.status).toBe('error')
+    })
+
+    if (result.current.state.status !== 'error') {
+      throw new Error('unreachable')
+    }
+
+    expect(result.current.state.message).toBe('The contract answered with data this app cannot read.')
+  })
+
   it('reports a revert as a failure, without the provider message', async () => {
     installFakeProvider({
       answer: () => {
