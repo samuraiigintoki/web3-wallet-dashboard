@@ -103,6 +103,50 @@ describe('contract context call', () => {
     })
   })
 
+  it('refuses a contract response that describes a different contract', async () => {
+    // Well formed, but it is contract 8 answering a request for contract 7. The
+    // shape checks pass, so without a correlation check this would become the
+    // context for the wrong URL, and the events read after it would be enabled
+    // by a successful read of somebody else's record.
+    stubFetch(() =>
+      jsonResponse({
+        data: {
+          id: 8,
+          address: '0x5b324f41e5889cf94cba8e909089683a1a97c318',
+          chainId: 11155111,
+          label: 'Another contract',
+          enabled: true,
+          startBlock: 5_800_000,
+          createdAt: '2026-10-01T10:00:00Z',
+          indexingStatus: 'pending',
+        },
+      }),
+    )
+    const { client: api } = client(() => TOKEN)
+
+    await expectUnexpectedResponse(() => api.getContract(7))
+  })
+
+  it('accepts the contract it asked for', async () => {
+    stubFetch(() =>
+      jsonResponse({
+        data: {
+          id: 7,
+          address: '0x5b324f41e5889cf94cba8e909089683a1a97c318',
+          chainId: 11155111,
+          label: 'Project multisig',
+          enabled: true,
+          startBlock: 5_800_000,
+          createdAt: '2026-10-01T10:00:00Z',
+          indexingStatus: 'pending',
+        },
+      }),
+    )
+    const { client: api } = client(() => TOKEN)
+
+    expect((await api.getContract(7)).id).toBe(7)
+  })
+
   it('refuses an id it cannot address rather than building a path from it', async () => {
     const fetchStub = stubFetch(() => jsonResponse({ data: {} }))
     const { client: api } = client(() => TOKEN)
@@ -171,6 +215,31 @@ describe('event list call', () => {
     const payload = event.payload as { valueWei: string; data: string }
     expect(payload.valueWei).toBe(hugeValue)
     expect(payload.data.length).toBe(longData.length)
+  })
+
+  it('refuses a page holding rows for a different contract', async () => {
+    // The first row belongs here and the second does not: one foreign row is
+    // enough, because drawing it would put another contract's event under this
+    // URL.
+    stubFetch(() =>
+      listPayload([SUBMIT_EVENT, { ...CONFIRM_EVENT, contractId: 8 }], {
+        pagination: { page: 1, pageSize: 20, totalItems: 2, totalPages: 1 },
+      }),
+    )
+    const { client: api } = client(() => TOKEN)
+
+    await expectUnexpectedResponse(() => api.listContractEvents(7, { page: 1, pageSize: 20 }))
+  })
+
+  it('refuses a page where every row belongs to a different contract', async () => {
+    stubFetch(() =>
+      listPayload([{ ...SUBMIT_EVENT, contractId: 8 }], {
+        pagination: { page: 1, pageSize: 20, totalItems: 1, totalPages: 1 },
+      }),
+    )
+    const { client: api } = client(() => TOKEN)
+
+    await expectUnexpectedResponse(() => api.listContractEvents(7, { page: 1, pageSize: 20 }))
   })
 
   it('honours the caller abort through the same helper as every other call', async () => {

@@ -116,6 +116,25 @@ function requireData<T>(result: ApiResult<T>): T {
   return result.data
 }
 
+/**
+ * A response that answers about something other than what was asked for.
+ *
+ * A structurally valid body is not automatically the answer to this request. A
+ * contract read that returns a different contract, or an event page whose rows
+ * belong to another contract, would be drawn under this URL as if it were this
+ * one: the shape checks pass, so nothing else would catch it. The correlation
+ * check is what keeps the screen's subject and the server's answer the same
+ * thing.
+ */
+function mismatchedResponse(message: string, requestId: string | undefined): ApiError {
+  return new ApiError({
+    code: 'UNEXPECTED_RESPONSE',
+    status: 0,
+    message,
+    requestId,
+  })
+}
+
 function unusablePagination(
   message: string,
   requestId: string | undefined,
@@ -355,7 +374,20 @@ export function createApiClient(dependencies: RequestDependencies): ApiClient {
         signal: init?.signal,
       })
 
-      return requireData(result)
+      const contract = requireData(result)
+
+      // The body must be the contract this client asked about. A row that is
+      // well formed but describes another contract would otherwise become the
+      // context for this URL, and the events read that follows would be enabled
+      // by a successful read of the wrong record.
+      if (contract.id !== id) {
+        throw mismatchedResponse(
+          `the server answered with contract ${String(contract.id)} for a request for contract ${String(id)}`,
+          result.requestId,
+        )
+      }
+
+      return contract
     },
 
     async listContractEvents(id, params, init) {
@@ -375,8 +407,23 @@ export function createApiClient(dependencies: RequestDependencies): ApiClient {
         signal: init?.signal,
       })
 
+      const events = requireData(result)
+
+      // Every row must belong to the contract in the path. One page for one
+      // contract is the whole premise of this call, so a page holding another
+      // contract's rows is a broken answer, not a page to render and trust: a
+      // single foreign row would put somebody else's event under this URL.
+      const foreign = events.find((event) => event.contractId !== id)
+
+      if (foreign !== undefined) {
+        throw mismatchedResponse(
+          `the server answered with events for contract ${String(foreign.contractId)} for a request about contract ${String(id)}`,
+          result.requestId,
+        )
+      }
+
       return {
-        events: requireData(result),
+        events,
         pagination: requirePagination(result, params),
       }
     },

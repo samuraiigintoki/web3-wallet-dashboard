@@ -436,6 +436,50 @@ describe('a contract this account cannot see', () => {
   })
 })
 
+describe('a mismatched answer', () => {
+  it('shows an error, and reads no events, when the contract answered is not the one asked for', async () => {
+    const api = apiFetch({
+      contract: () => jsonResponse({ data: { ...CONTRACT, id: 8, label: 'Another contract' } }),
+    })
+
+    renderApp({ path: '/contracts/7/events', storage: memoryStorage('stored-token') })
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('went wrong')
+    })
+
+    // Nothing of the other contract is drawn, and no events read was enabled by
+    // a successful read of the wrong record.
+    expect(mainText()).not.toContain('Another contract')
+    expect(screen.queryByText('SubmitTransaction')).toBeNull()
+    expect(api.eventCalls).toBe(0)
+  })
+
+  it('shows an error rather than rows when the page holds another contract events', async () => {
+    apiFetch({
+      events: () =>
+        eventsResponse([SUBMIT_EVENT, { ...CONFIRM_EVENT, contractId: 8 }], {
+          page: 1,
+          pageSize: PAGE_SIZE,
+          totalItems: 2,
+          totalPages: 1,
+        }),
+    })
+
+    renderApp({ path: '/contracts/7/events', storage: memoryStorage('stored-token') })
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('went wrong')
+    })
+
+    // Not one row of the mixed page is drawn, not even the row that belonged
+    // here: the answer is not usable, so none of it is presented.
+    expect(screen.queryByText('SubmitTransaction')).toBeNull()
+    expect(screen.queryByText('ConfirmTransaction')).toBeNull()
+    expect(screen.queryByRole('table')).toBeNull()
+  })
+})
+
 describe('identity and writes', () => {
   it('draws nothing and keeps no entry after a sign-out mid-read', async () => {
     const held = pendingResponse<Response>()
