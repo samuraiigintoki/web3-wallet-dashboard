@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 
 import type { BrowserWalletState } from '../provider/useBrowserWallet.ts'
-import { findSubmittedTransaction, type RefreshedPage } from './events.ts'
+import { findConfirmation, findSubmittedTransaction, type RefreshedPage } from './events.ts'
 import { useTransactionReceipt, type ReceiptState } from './useTransactionReceipt.ts'
 import type { SubmitTarget } from './useSubmitTransaction.ts'
 
@@ -19,11 +19,28 @@ type EventsCheck =
   | { kind: 'not-shown'; page: number }
   | { kind: 'failed' }
 
+/**
+ * What the checked transaction was for, which decides what its receipt means and
+ * which stored event would answer for it.
+ *
+ * A submission's success means the multisig accepted a proposal. A confirmation's
+ * success means one owner's confirmation was recorded, which is a smaller fact
+ * still: it says nothing about the threshold being reached. The two are worded
+ * apart rather than parameterised into one sentence, because merging them would be
+ * exactly the confusion this slice is built to avoid.
+ */
+export type ReceiptPurpose =
+  | { kind: 'submit' }
+  /** The index confirmed, and the account whose confirmation it was. */
+  | { kind: 'confirm'; index: string; actor: string }
+
 export type ReceiptCheckProps = {
   /** The hash the wallet returned, in memory for this screen only. */
   hash: string
   /** The tracked contract the transaction was addressed to. */
   contract: SubmitTarget
+  /** Whether this was a submission or a confirmation. */
+  purpose: ReceiptPurpose
   /** The browser wallet, for its state as well as its account and chain. */
   wallet: BrowserWalletState
   /**
@@ -49,7 +66,13 @@ export type ReceiptCheckProps = {
  * the regions are single stable elements, so an unrelated render does not repeat
  * what they already say.
  */
-export function ReceiptCheck({ hash, contract, wallet, onRefreshEvents }: ReceiptCheckProps) {
+export function ReceiptCheck({
+  hash,
+  contract,
+  purpose,
+  wallet,
+  onRefreshEvents,
+}: ReceiptCheckProps) {
   const receipt = useTransactionReceipt({ hash, contract, wallet })
 
   const [eventsCheck, setEventsCheck] = useState<EventsCheck>({ kind: 'idle' })
@@ -97,7 +120,12 @@ export function ReceiptCheck({ hash, contract, wallet, onRefreshEvents }: Receip
         return
       }
 
-      const match = findSubmittedTransaction(hash, page.events)
+      // The match depends on what was sent: a submission is found by its hash,
+      // a confirmation by its hash, its index and the account that made it.
+      const match =
+        purpose.kind === 'submit'
+          ? findSubmittedTransaction(hash, page.events)
+          : findConfirmation(hash, purpose.index, purpose.actor, page.events)
 
       setEventsCheck(
         match === null
@@ -107,7 +135,7 @@ export function ReceiptCheck({ hash, contract, wallet, onRefreshEvents }: Receip
     } finally {
       refreshingRef.current = false
     }
-  }, [hash, onRefreshEvents])
+  }, [hash, onRefreshEvents, purpose])
 
   const state = receipt.state
   const checking = state.kind === 'checking'
@@ -128,8 +156,8 @@ export function ReceiptCheck({ hash, contract, wallet, onRefreshEvents }: Receip
       {included !== null && (
         <p className="hint">
           {succeeded
-            ? 'A successful receipt means the multisig accepted this submission call. It does not mean the owners have confirmed or executed the proposal, that the event has been indexed, or that the block is final. Asking again later can give a different answer.'
-            : 'A reverted call did not submit the proposal, and the wallet may still have charged a fee for it. This app cannot tell you why it reverted, and asking again later can give a different answer.'}
+            ? successNote(purpose)
+            : revertNote(purpose)}
         </p>
       )}
 
@@ -140,17 +168,43 @@ export function ReceiptCheck({ hash, contract, wallet, onRefreshEvents }: Receip
       </div>
 
       {succeeded && (
-        <EventCheck eventsCheck={eventsCheck} onRefresh={() => void refresh()} />
+        <EventCheck
+          eventsCheck={eventsCheck}
+          purpose={purpose}
+          onRefresh={() => void refresh()}
+        />
       )}
     </section>
   )
 }
 
+/**
+ * What a success does not mean, per purpose.
+ *
+ * Both sentences end in the same admission, that a later check can differ, and
+ * both refuse the reading a user is most likely to want: that a receipt is a
+ * finished proposal.
+ */
+function successNote(purpose: ReceiptPurpose): string {
+  return purpose.kind === 'submit'
+    ? 'A successful receipt means the multisig accepted this submission call. It does not mean the owners have confirmed or executed the proposal, that the event has been indexed, or that the block is final. Asking again later can give a different answer.'
+    : 'A successful receipt means this account\'s confirmation was recorded by the contract. It does not mean the proposal reached its threshold or was executed, that the confirmation event has been indexed, or that the block is final. Asking again later can give a different answer.'
+}
+
+/** What a revert leaves behind, per purpose. */
+function revertNote(purpose: ReceiptPurpose): string {
+  return purpose.kind === 'submit'
+    ? 'A reverted call did not submit the proposal, and the wallet may still have charged a fee for it. This app cannot tell you why it reverted, and asking again later can give a different answer.'
+    : 'A reverted call did not record this confirmation, and the wallet may still have charged a fee for it. The proposal itself is unchanged by a failed confirmation, and this app cannot tell you why it reverted.'
+}
+
 function EventCheck({
   eventsCheck,
+  purpose,
   onRefresh,
 }: {
   eventsCheck: EventsCheck
+  purpose: ReceiptPurpose
   onRefresh: () => void
 }) {
   return (
@@ -158,7 +212,7 @@ function EventCheck({
       <h4>Indexed events</h4>
 
       <p aria-live="polite" aria-atomic="true">
-        <EventsSentence check={eventsCheck} />
+        <EventsSentence check={eventsCheck} purpose={purpose} />
       </p>
 
       <div className="status__actions">
@@ -224,7 +278,7 @@ function ReceiptSentence({ state, gateReason }: { state: ReceiptState; gateReaso
  * was read and lists the reasons the event could be absent, because the one thing
  * the screen must never imply is that the contract emitted nothing.
  */
-function EventsSentence({ check }: { check: EventsCheck }) {
+function EventsSentence({ check, purpose }: { check: EventsCheck; purpose: ReceiptPurpose }) {
   switch (check.kind) {
     case 'idle':
       return <>The indexed events have not been refreshed for this transaction.</>
@@ -233,9 +287,14 @@ function EventsSentence({ check }: { check: EventsCheck }) {
     case 'found':
       return (
         <>
-          {`The refreshed page shows the SubmitTransaction event for this transaction, in block ${String(
-            check.blockNumber,
-          )}. The index is a copy of what the indexer has stored, not a live view of the chain.`}
+          {purpose.kind === 'submit'
+            ? `The refreshed page shows the SubmitTransaction event for this transaction, in block ${String(
+                check.blockNumber,
+              )}.`
+            : `The refreshed page shows the ConfirmTransaction event for this proposal from this account, in block ${String(
+                check.blockNumber,
+              )}.`}{' '}
+          The index is a copy of what the indexer has stored, not a live view of the chain.
         </>
       )
     case 'not-shown':

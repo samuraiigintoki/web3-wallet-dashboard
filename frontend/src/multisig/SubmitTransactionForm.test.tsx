@@ -4,14 +4,19 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createQueryClient } from '../data/queryClient.ts'
+import type { BrowserWalletState } from '../provider/useBrowserWallet.ts'
 import { installFakeProvider, removeFakeProvider, type FakeProvider } from '../test/fakeProvider.ts'
-import { jsonResponse, stubFetch } from '../test/http.ts'
 import { SubmitTransactionForm } from './SubmitTransactionForm.tsx'
-import type { SubmitTarget } from './useSubmitTransaction.ts'
+import type { CatalogFact, SubmitTarget } from './useSubmitTransaction.ts'
 
 /**
- * The submit form as a user meets it, with a stubbed wallet and a stubbed chain
- * catalog.
+ * The submit form as a user meets it, with a stubbed wallet and a stated catalog
+ * fact.
+ *
+ * The wallet and the catalog are read by the page and passed in, so this harness
+ * states them directly. That is deliberate: what this file is about is what the
+ * form does with a given wallet state, and the page's own tests cover the reading
+ * of that state.
  *
  * What is being checked here is the order and the wording, because both are the
  * security property: the details appear before the button that opens the wallet,
@@ -30,21 +35,8 @@ const CONTRACT: SubmitTarget = {
   chainId: SEPOLIA,
 }
 
-const SEPOLIA_ENTRY = {
-  chainId: SEPOLIA,
-  name: 'Sepolia',
-  symbol: 'ETH',
-  isTestnet: true,
-}
-
-function catalogFetch(chains: unknown[] = [SEPOLIA_ENTRY]): void {
-  stubFetch((url: string) => {
-    if (url.includes('/chains')) {
-      return jsonResponse({ data: chains })
-    }
-
-    return jsonResponse({ data: [] })
-  })
+function connected(chainId = SEPOLIA): BrowserWalletState {
+  return { status: 'connected', account: ACCOUNT, chainId }
 }
 
 function wallet(
@@ -73,16 +65,27 @@ function wallet(
   })
 }
 
-function renderForm(onRefreshEvents = async () => ({ events: [], page: 1 })) {
+function renderForm(
+  options: {
+    wallet?: BrowserWalletState
+    catalog?: CatalogFact
+    onRefreshEvents?: () => Promise<{ events: never[]; page: number }>
+  } = {},
+) {
   const user = userEvent.setup()
-  const refresh = vi.fn(onRefreshEvents)
+  const refresh = vi.fn(options.onRefreshEvents ?? (async () => ({ events: [], page: 1 })))
 
   return {
     user,
     refresh,
     ...render(
       <QueryClientProvider client={createQueryClient()}>
-        <SubmitTransactionForm contract={CONTRACT} onRefreshEvents={refresh} />
+        <SubmitTransactionForm
+          contract={CONTRACT}
+          wallet={options.wallet ?? connected()}
+          catalog={options.catalog ?? 'listed'}
+          onRefreshEvents={refresh}
+        />
       </QueryClientProvider>,
     ),
   }
@@ -112,9 +115,6 @@ afterEach(() => {
 
 describe('the submit form', () => {
   it('offers the form and names the contract when the wallet is on the contract chain', async () => {
-    catalogFetch()
-    wallet()
-
     renderForm()
 
     expect(await screen.findByRole('heading', { name: 'Submit a transaction' })).toBeDefined()
@@ -126,9 +126,6 @@ describe('the submit form', () => {
   })
 
   it('announces the gate in one live region that says nothing again on an unrelated render', async () => {
-    catalogFetch()
-    wallet()
-
     const { user } = renderForm()
 
     await waitFor(() => {
@@ -151,10 +148,7 @@ describe('the submit form', () => {
   })
 
   it('refuses to review while the wallet is on another chain, and says which', async () => {
-    catalogFetch()
-    wallet({ chain: '0x1' })
-
-    renderForm()
+    renderForm({ wallet: connected(1) })
 
     await waitFor(() => {
       expect(screen.getByText(/Sending is not available/).textContent).toContain('chain 1')
@@ -164,10 +158,9 @@ describe('the submit form', () => {
   })
 
   it('refuses to review when the catalog does not list the chain, even with the wallet agreeing', async () => {
-    catalogFetch([])
     const fake = wallet()
 
-    renderForm()
+    renderForm({ catalog: 'unlisted' })
 
     await waitFor(() => {
       expect(screen.getByText(/Sending is not available/).textContent).toContain(
@@ -180,16 +173,7 @@ describe('the submit form', () => {
   })
 
   it('refuses when the catalog cannot be read', async () => {
-    stubFetch((url: string) => {
-      if (url.includes('/chains')) {
-        return jsonResponse({ data: 'not a list' })
-      }
-
-      return jsonResponse({ data: [] })
-    })
-    wallet()
-
-    renderForm()
+    renderForm({ catalog: 'failed' })
 
     await waitFor(() => {
       expect(screen.getByText(/Sending is not available/).textContent).toContain(
@@ -198,8 +182,27 @@ describe('the submit form', () => {
     })
   })
 
+  it('tells a wallet still being checked apart from one that is not connected', async () => {
+    const checking = renderForm({ wallet: { status: 'checking' } })
+
+    await waitFor(() => {
+      expect(screen.getByText(/Sending is not available/).textContent).toContain(
+        'Checking the browser wallet.',
+      )
+    })
+
+    checking.unmount()
+
+    renderForm({ wallet: { status: 'disconnected', notice: null } })
+
+    await waitFor(() => {
+      expect(screen.getByText(/Sending is not available/).textContent).toContain(
+        'No connected account.',
+      )
+    })
+  })
+
   it('shows every detail of the call before any wallet prompt, and nothing is sent yet', async () => {
-    catalogFetch()
     const fake = wallet()
     const { user } = renderForm()
 
@@ -224,7 +227,6 @@ describe('the submit form', () => {
   })
 
   it('sends once when the wallet is opened from the confirmation, and shows the hash', async () => {
-    catalogFetch()
     const fake = wallet()
     const { user } = renderForm()
 
@@ -256,7 +258,6 @@ describe('the submit form', () => {
   })
 
   it('offers a receipt check after a submission, and asks for the receipt only when pressed', async () => {
-    catalogFetch()
     const fake = wallet({
       receipt: () => ({
         transactionHash: HASH,
@@ -295,7 +296,6 @@ describe('the submit form', () => {
   })
 
   it('cancel returns to the form and sends nothing', async () => {
-    catalogFetch()
     const fake = wallet()
     const { user } = renderForm()
 
@@ -309,7 +309,6 @@ describe('the submit form', () => {
   })
 
   it('reports a rejection without repeating the wallet text, and does not claim nothing happened', async () => {
-    catalogFetch()
     wallet({
       send: () => {
         throw Object.assign(new Error('MetaMask Tx Signature: User denied transaction signature.'), {
@@ -331,7 +330,6 @@ describe('the submit form', () => {
   })
 
   it('reports each bad field and never reaches the confirmation', async () => {
-    catalogFetch()
     const fake = wallet()
     const { user } = renderForm()
 
@@ -345,7 +343,6 @@ describe('the submit form', () => {
   })
 
   it('submits an empty calldata field as no calldata', async () => {
-    catalogFetch()
     const fake = wallet()
     const { user } = renderForm()
 

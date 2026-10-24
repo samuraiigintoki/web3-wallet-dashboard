@@ -88,6 +88,7 @@ function renderCheck(
     <ReceiptCheck
       hash={HASH}
       contract={TARGET}
+      purpose={{ kind: 'submit' }}
       wallet={options.wallet ?? WALLET}
       onRefreshEvents={onRefreshEvents}
     />,
@@ -344,6 +345,7 @@ describe('accessible updates', () => {
       <ReceiptCheck
         hash={HASH}
         contract={TARGET}
+        purpose={{ kind: 'submit' }}
         wallet={WALLET}
         onRefreshEvents={async () => ({ events: [event()], page: 1 })}
       />,

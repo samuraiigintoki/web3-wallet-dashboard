@@ -1,8 +1,6 @@
-import { useQuery } from '@tanstack/react-query'
 import { useId, type FormEvent } from 'react'
 
-import { useBrowserWallet } from '../provider/useBrowserWallet.ts'
-import { chainCatalogQuery } from '../wallets/chainQueries.ts'
+import type { BrowserWalletState } from '../provider/useBrowserWallet.ts'
 import { FIELD_MESSAGES } from './encoding.ts'
 import type { RefreshedPage } from './events.ts'
 import { ReceiptCheck } from './ReceiptCheck.tsx'
@@ -22,9 +20,9 @@ import {
  * exist that opens the wallet. Nothing here signs on the user's behalf, retries,
  * or interprets the calldata.
  *
- * The wallet is read through the same hook the Overview screen uses, on this
- * screen, for this screen: a wallet connection belongs to this browser tab, and
- * one screen's view of it is not evidence about another's.
+ * The wallet is read once by the page and passed down here, so this form, the
+ * rows above it and any confirmation share one answer about which account and
+ * chain this tab is on. One read is one thing to be consistent with.
  *
  * After a submission the screen stops and waits. The receipt and the index are
  * two separate things a user can ask about, in their own time, and nothing here
@@ -32,9 +30,15 @@ import {
  */
 export function SubmitTransactionForm({
   contract,
+  wallet,
+  catalog,
   onRefreshEvents,
 }: {
   contract: SubmitTarget
+  /** The browser wallet as the page read it. */
+  wallet: BrowserWalletState
+  /** What the public chain catalog says about the wallet's chain. */
+  catalog: CatalogFact
   /**
    * Reads the current page of indexed events again for this contract, under the
    * signed-in identity. The page owns that query, so it owns the refresh: this
@@ -42,43 +46,13 @@ export function SubmitTransactionForm({
    */
   onRefreshEvents: () => Promise<RefreshedPage | null>
 }) {
-  const { state } = useBrowserWallet()
-
-  /**
-   * The public chain catalog, read only once a wallet is connected.
-   *
-   * The catalog is what makes a chain supported, and it comes from this app's
-   * API rather than from the provider: the provider says where the wallet is,
-   * and only the deployment can say which chains it knows how to talk about.
-   */
-  const catalog = useQuery({
-    ...chainCatalogQuery(),
-    enabled: state.status === 'connected',
-  })
-
+  const state = wallet
   const account = state.status === 'connected' ? state.account : null
-  const chainId = state.status === 'connected' ? state.chainId : null
-
-  const catalogFact: CatalogFact = (() => {
-    if (chainId === null) {
-      return 'loading'
-    }
-
-    if (catalog.isPending) {
-      return 'loading'
-    }
-
-    if (catalog.isError) {
-      return 'failed'
-    }
-
-    return catalog.data.some((chain) => chain.chainId === chainId) ? 'listed' : 'unlisted'
-  })()
 
   const submission = useSubmitTransaction({
     contract,
     wallet: state,
-    catalog: catalogFact,
+    catalog,
   })
 
   return (
@@ -149,6 +123,7 @@ export function SubmitTransactionForm({
             key={`${submission.phase.hash}:${contract.id}:${String(contract.chainId)}`}
             hash={submission.phase.hash}
             contract={contract}
+            purpose={{ kind: 'submit' }}
             wallet={state}
             onRefreshEvents={onRefreshEvents}
           />

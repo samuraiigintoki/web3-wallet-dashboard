@@ -1006,3 +1006,215 @@ describe('reaching the view from the contracts list', () => {
     })
   })
 })
+
+describe('confirming from the contract view', () => {
+  const ACCOUNT = '0x1e1D0e1D0e1D0e1D0e1D0e1D0e1D0e1D0e1D0e1D'
+  const OWNER = '0x14912965632cd9ab70c046e8d23e9b8dfa9f2746'
+  const CONFIRM_HASH = `0x${'ef'.repeat(32)}`
+  const SEPOLIA_ENTRY = {
+    chainId: CONTRACT.chainId,
+    name: 'Sepolia',
+    symbol: 'ETH',
+    isTestnet: true,
+  }
+
+  const IS_OWNER = '0x2f54bf6e'
+  const TRANSACTION_COUNT = '0x2e7700f0'
+  const TRANSACTIONS = '0x9ace38c2'
+  const IS_CONFIRMED = '0x80f59a65'
+
+  function word(value: bigint): string {
+    return value.toString(16).padStart(64, '0')
+  }
+
+  /** The proposal SUBMIT_EVENT describes, as `transactions(0)` answers it. */
+  const PROPOSAL = [
+    '0x',
+    SUBMIT_EVENT.payload.to.replace(/^0x/, '').padStart(64, '0'),
+    word(1_000_000_000_000_000_000n),
+    word(128n),
+    word(0n),
+    word(4n),
+    'deadbeef'.padEnd(64, '0'),
+  ].join('')
+
+  /** A wallet that answers the four preflight reads for the indexed proposal. */
+  function wallet(options: { owner?: boolean } = {}): FakeProvider {
+    return installFakeProvider({
+      answer: ({ method, params }) => {
+        if (method === 'eth_accounts') {
+          return [ACCOUNT]
+        }
+
+        if (method === 'eth_chainId') {
+          return `0x${CONTRACT.chainId.toString(16)}`
+        }
+
+        if (method === 'eth_sendTransaction') {
+          return CONFIRM_HASH
+        }
+
+        if (method === 'eth_call') {
+          const data = (params as [{ data: string }])[0].data
+
+          if (data.startsWith(IS_OWNER)) {
+            return `0x${word(options.owner === false ? 0n : 1n)}`
+          }
+
+          if (data.startsWith(TRANSACTION_COUNT)) {
+            return `0x${word(1n)}`
+          }
+
+          if (data.startsWith(TRANSACTIONS)) {
+            return PROPOSAL
+          }
+
+          if (data.startsWith(IS_CONFIRMED)) {
+            return `0x${word(0n)}`
+          }
+        }
+
+        throw new Error(`unexpected method ${method}`)
+      },
+    })
+  }
+
+  it('offers confirmation on the indexed submission row, and on no other row', async () => {
+    apiFetch({ chains: () => jsonResponse({ data: [SEPOLIA_ENTRY] }) })
+    wallet()
+
+    renderApp({ path: '/contracts/7/events', storage: memoryStorage('stored-token') })
+
+    await waitFor(() => {
+      expect(button('Confirm proposal').disabled).toBe(false)
+    })
+
+    // One submission row, so one confirm action: the confirmation event is not a
+    // proposal, and nothing on the page offers to revoke or execute.
+    expect(screen.getAllByRole('button', { name: 'Confirm proposal' })).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: /Revoke/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Execute/ })).toBeNull()
+  })
+
+  it('reads the wallet once for the page, however many rows it draws', async () => {
+    const many = Array.from({ length: 4 }, (_, index) => ({
+      ...SUBMIT_EVENT,
+      logIndex: index,
+      multisigTxIndex: String(index),
+      transactionHash: `0x${String(index).repeat(64)}`.slice(0, 66),
+    }))
+
+    apiFetch({
+      chains: () => jsonResponse({ data: [SEPOLIA_ENTRY] }),
+      events: () => eventsResponse(many),
+    })
+
+    const provider = wallet()
+
+    renderApp({ path: '/contracts/7/events', storage: memoryStorage('stored-token') })
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: 'Confirm proposal' }).length).toBe(4)
+    })
+
+    // One quiet read of who and where, and one subscription for all the rows.
+    expect(provider.requested.filter((method) => method === 'eth_accounts')).toHaveLength(1)
+    expect(provider.subscribed.filter((event) => event === 'accountsChanged')).toHaveLength(1)
+    expect(provider.requested).not.toContain('eth_requestAccounts')
+  })
+
+  it('says confirmation is unavailable for a contract that is not the verified deployment', async () => {
+    apiFetch({
+      chains: () => jsonResponse({ data: [SEPOLIA_ENTRY] }),
+      contract: () =>
+        jsonResponse({ data: { ...CONTRACT, address: '0x00000000000000000000000000000000000000ff' } }),
+    })
+
+    const provider = wallet()
+
+    renderApp({ path: '/contracts/7/events', storage: memoryStorage('stored-token') })
+
+    await waitFor(() => {
+      expect(screen.getByText(/Confirming is only available on the verified Sepolia/)).toBeDefined()
+    })
+
+    expect(screen.queryByRole('button', { name: 'Confirm proposal' })).toBeNull()
+    // And nothing was read from a contract this app cannot confirm on.
+    expect(provider.requested).not.toContain('eth_call')
+  })
+
+  it('confirms the row index once, and leaves the indexed list alone', async () => {
+    const api = apiFetch({ chains: () => jsonResponse({ data: [SEPOLIA_ENTRY] }) })
+    const provider = wallet()
+
+    const { user } = renderApp({
+      path: '/contracts/7/events',
+      storage: memoryStorage('stored-token'),
+    })
+
+    await waitFor(() => {
+      expect(button('Confirm proposal').disabled).toBe(false)
+    })
+
+    await user.click(button('Confirm proposal'))
+    await user.click(button('Open wallet and confirm'))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Submitted\./).textContent).toContain(CONFIRM_HASH)
+    })
+
+    const sent = provider.calls.filter((call) => call.method === 'eth_sendTransaction')
+
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.params).toEqual([
+      {
+        from: ACCOUNT,
+        to: CONTRACT.address,
+        value: '0x0',
+        // confirmTransaction(0), the row's own index.
+        data: `0xc01a8c84${word(0n)}`,
+      },
+    ])
+
+    // A confirmation is not a submission and not an index read: the stored page
+    // is not read again until the user asks for it.
+    expect(api.eventCalls).toBe(1)
+  })
+
+  it('refuses an account the contract does not list as an owner, from the row', async () => {
+    apiFetch({ chains: () => jsonResponse({ data: [SEPOLIA_ENTRY] }) })
+    const provider = wallet({ owner: false })
+
+    const { user } = renderApp({
+      path: '/contracts/7/events',
+      storage: memoryStorage('stored-token'),
+    })
+
+    await waitFor(() => {
+      expect(button('Confirm proposal').disabled).toBe(false)
+    })
+
+    await user.click(button('Confirm proposal'))
+
+    expect((await screen.findByRole('alert')).textContent).toContain('not an owner')
+    expect(screen.queryByRole('button', { name: 'Open wallet and confirm' })).toBeNull()
+    expect(provider.requested).not.toContain('eth_sendTransaction')
+  })
+
+  it('keeps the owner address of the row out of the confirmation it sends', async () => {
+    const api = apiFetch({ chains: () => jsonResponse({ data: [SEPOLIA_ENTRY] }) })
+    const provider = wallet()
+
+    renderApp({ path: '/contracts/7/events', storage: memoryStorage('stored-token') })
+
+    await waitFor(() => {
+      expect(button('Confirm proposal').disabled).toBe(false)
+    })
+
+    // The row's actor is an owner who submitted the proposal; the confirmation is
+    // this wallet's own, and nothing about the row is reused as the sender.
+    expect(SUBMIT_EVENT.actorAddress).toBe(OWNER)
+    expect(provider.requested).not.toContain('eth_sendTransaction')
+    expect(api.eventCalls).toBe(1)
+  })
+})

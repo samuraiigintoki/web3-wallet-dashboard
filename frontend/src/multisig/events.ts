@@ -1,5 +1,6 @@
 /**
- * Finding one submission in a refreshed page of indexed events.
+ * Finding one submission, or one confirmation, in a refreshed page of indexed
+ * events.
  *
  * The indexer stores what it has scanned, and a page of it is what the server
  * last wrote. Matching a submitted hash against those rows is the only way this
@@ -38,6 +39,42 @@ export function findSubmittedTransaction(
 
   for (const event of events) {
     if (event.eventName === 'SubmitTransaction' && event.transactionHash.toLowerCase() === wanted) {
+      return event
+    }
+  }
+
+  return null
+}
+
+/**
+ * The `ConfirmTransaction` row for one confirmation, or null.
+ *
+ * All three parts of the match are needed and none of them alone is enough. The
+ * index says which proposal was confirmed, the actor says who confirmed it, and
+ * the hash says which transaction the receipt this screen just read belongs to.
+ * Two owners confirming the same proposal within one block produce two rows that
+ * agree on the index and on the event name, so an index-only match could show the
+ * wrong one as this confirmation.
+ *
+ * No match carries no verdict, exactly as with a submission: the event may be
+ * later than the scan, on another page, or absent from the stored index.
+ */
+export function findConfirmation(
+  hash: string,
+  index: string,
+  actor: string,
+  events: readonly ContractEvent[],
+): ContractEvent | null {
+  const wantedHash = hash.toLowerCase()
+  const wantedActor = actor.toLowerCase()
+
+  for (const event of events) {
+    if (
+      event.eventName === 'ConfirmTransaction' &&
+      event.transactionHash.toLowerCase() === wantedHash &&
+      event.multisigTxIndex === index &&
+      event.actorAddress.toLowerCase() === wantedActor
+    ) {
       return event
     }
   }
