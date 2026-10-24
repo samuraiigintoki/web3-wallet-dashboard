@@ -31,10 +31,13 @@ import {
   proposalMatchesEvent,
   type Eligibility,
   type EligibilityRefusal,
+  type Preflight,
   type PreflightOutcome,
   type PreflightReads,
 } from './confirm.ts'
 import { walletGate, type MultisigGate } from './gate.ts'
+import { readFourFacts } from './reads.ts'
+import type { ActionOutcome, ActionReadContext } from './useMultisigAction.ts'
 
 /** `revokeConfirmation(uint256)`, the one call this slice sends. */
 export const REVOKE_SELECTOR = '0x20ea8d86'
@@ -168,4 +171,21 @@ export function evaluateRevokePreflight(
       proposal: reads.proposal,
     },
   }
+}
+
+/** Revoking: the same four facts, judged in the opposite direction. */
+export async function runRevocation(
+  context: ActionReadContext,
+): Promise<ActionOutcome<Preflight> | null> {
+  const facts = await readFourFacts(context)
+
+  if (facts === null) {
+    return null
+  }
+
+  if (!facts.ok) {
+    return facts
+  }
+
+  return evaluateRevokePreflight(facts.reads, context.index, context.payload)
 }

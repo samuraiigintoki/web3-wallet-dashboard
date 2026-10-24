@@ -1,8 +1,11 @@
+import { useState } from 'react'
+
 import type { BrowserWalletState } from '../provider/useBrowserWallet.ts'
 import type { RefreshedPage } from './events.ts'
 import { ReceiptCheck, type ReceiptPurpose } from './ReceiptCheck.tsx'
 import type { MultisigActionPhase } from './useMultisigAction.ts'
 import type { MultisigGate } from './gate.ts'
+import type { Preflight } from './confirm.ts'
 import type { SubmitTarget } from './useSubmitTransaction.ts'
 
 /**
@@ -45,19 +48,40 @@ export type ActionWords = {
   unknownNote: string
   /** The receipt purpose this action checks after a hash exists. */
   receiptPurpose: (indexText: string, actor: string) => ReceiptPurpose
+  /**
+   * What the review must say about the risk of this particular action.
+   *
+   * Only execution has one, and only execution can have one: the other two
+   * actions call this contract, execution calls whatever this contract was told
+   * to call.
+   */
+  warning?: string
+  /**
+   * A deliberate step before the wallet opens.
+   *
+   * Present only where the action needs one, and it is not a formality: a box the
+   * user has to tick is the difference between reading the destination and
+   * pressing through a dialog.
+   */
+  acknowledgement?: { label: string; note: string }
 }
 
-export type ActionPanelProps = {
+/** One extra fact the review must restate, for actions that read more. */
+export type ReviewFact = { label: string; value: string; mono?: boolean }
+
+export type ActionPanelProps<P extends Preflight = Preflight> = {
   /** The tracked contract, as the server record has it. */
   contract: SubmitTarget
   /** The wallet, read by the page rather than by every row. */
   wallet: BrowserWalletState
   /** Where the action is. */
-  phase: MultisigActionPhase
+  phase: MultisigActionPhase<P>
   /** Whether it is offered at all. */
   gate: MultisigGate
   /** The sentences that make this action itself. */
   words: ActionWords
+  /** Further facts the review has to show, drawn from this action's preflight. */
+  facts?: (preflight: P) => readonly ReviewFact[]
   /** Reads the current page of indexed events again, under the signed-in identity. */
   onRefreshEvents: () => Promise<RefreshedPage | null>
   onCheck: () => void
@@ -66,19 +90,34 @@ export type ActionPanelProps = {
   onRetry: () => void
 }
 
-export function ActionPanel({
+export function ActionPanel<P extends Preflight = Preflight>({
   contract,
   wallet,
   phase,
   gate,
   words,
+  facts,
   onRefreshEvents,
   onCheck,
   onCancel,
   onSubmit,
   onRetry,
-}: ActionPanelProps) {
+}: ActionPanelProps<P>) {
   const account = wallet.status === 'connected' ? wallet.account : null
+
+  /**
+   * Whether the user has acknowledged what this action will do.
+   *
+   * Held here rather than in the hook because it is not a fact about the chain: it
+   * is a fact about this person having read the review. It is dropped whenever the
+   * panel leaves the review, so a second attempt has to be acknowledged again.
+   */
+  const [acknowledged, setAcknowledged] = useState(false)
+  const reviewing = phase.kind === 'ready' || phase.kind === 'sending'
+
+  if (!reviewing && acknowledged) {
+    setAcknowledged(false)
+  }
 
   return (
     <div className="confirm">
@@ -121,6 +160,9 @@ export function ActionPanel({
           contract={contract}
           account={account}
           words={words}
+          facts={facts}
+          acknowledged={acknowledged}
+          onAcknowledged={setAcknowledged}
           onCancel={onCancel}
           onSubmit={onSubmit}
         />
@@ -175,23 +217,31 @@ export function ActionPanel({
  * because the index is what the wallet will sign and a wrong one would act on a
  * different proposal with the same button.
  */
-function Review({
+function Review<P extends Preflight>({
   phase,
   contract,
   account,
   words,
+  facts,
+  acknowledged,
+  onAcknowledged,
   onCancel,
   onSubmit,
 }: {
-  phase: Extract<MultisigActionPhase, { kind: 'ready' | 'sending' }>
+  phase: Extract<MultisigActionPhase<P>, { kind: 'ready' | 'sending' }>
   contract: SubmitTarget
   account: string | null
   words: ActionWords
+  facts?: (preflight: P) => readonly ReviewFact[]
+  acknowledged: boolean
+  onAcknowledged: (value: boolean) => void
   onCancel: () => void
   onSubmit: () => void
 }) {
   const sending = phase.kind === 'sending'
   const { preflight } = phase
+  const extra = facts === undefined ? [] : facts(preflight)
+  const needsAcknowledgement = words.acknowledgement !== undefined
 
   return (
     <>
@@ -214,12 +264,43 @@ function Review({
         <dd className="mono">{preflight.proposal.data}</dd>
         <dt>This call</dt>
         <dd className="mono">{preflight.data}</dd>
+
+        {extra.map((fact) => (
+          <Fact key={fact.label} fact={fact} />
+        ))}
       </dl>
 
       <p>{words.reviewIntro}</p>
 
+      {words.warning === undefined ? null : (
+        <p role="note" className="status status--warning">
+          {words.warning}
+        </p>
+      )}
+
+      {words.acknowledgement === undefined ? null : (
+        <div className="status__actions">
+          <label>
+            <input
+              type="checkbox"
+              checked={acknowledged}
+              onChange={(change) => {
+                onAcknowledged(change.target.checked)
+              }}
+              disabled={sending}
+            />{' '}
+            {words.acknowledgement.label}
+          </label>
+          <p className="hint">{words.acknowledgement.note}</p>
+        </div>
+      )}
+
       <div className="status__actions">
-        <button type="button" onClick={onSubmit} disabled={sending}>
+        <button
+          type="button"
+          onClick={onSubmit}
+          disabled={sending || (needsAcknowledgement && !acknowledged)}
+        >
           {words.openLabel}
         </button>
         <button type="button" onClick={onCancel} disabled={sending}>
@@ -228,6 +309,15 @@ function Review({
       </div>
 
       {sending && <p role="status">{words.sendingSentence}</p>}
+    </>
+  )
+}
+
+function Fact({ fact }: { fact: ReviewFact }) {
+  return (
+    <>
+      <dt>{fact.label}</dt>
+      <dd className={fact.mono === true ? 'mono' : undefined}>{fact.value}</dd>
     </>
   )
 }

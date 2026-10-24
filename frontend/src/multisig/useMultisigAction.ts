@@ -46,15 +46,7 @@ import {
   USER_REJECTED_CODE,
 } from '../provider/injected.ts'
 import type { BrowserWalletState } from '../provider/useBrowserWallet.ts'
-import {
-  decodeBool,
-  decodeProposal,
-  decodeUint,
-  PREFLIGHT_ABI,
-  type Preflight,
-  type PreflightOutcome,
-  type PreflightReads,
-} from './confirm.ts'
+import { PREFLIGHT_ABI, type Preflight } from './confirm.ts'
 import type { MultisigGate } from './gate.ts'
 
 /**
@@ -64,16 +56,52 @@ import type { MultisigGate } from './gate.ts'
  * proposal as the contract answered it, not as the event described it. `sent`
  * holds a transaction hash and nothing else.
  */
-export type MultisigActionPhase =
+export type MultisigActionPhase<P extends Preflight = Preflight> =
   | { kind: 'idle' }
   | { kind: 'checking' }
   | { kind: 'refused'; reason: string }
-  | { kind: 'ready'; preflight: Preflight }
-  | { kind: 'sending'; preflight: Preflight }
-  | { kind: 'sent'; preflight: Preflight; hash: string }
-  | { kind: 'failed'; preflight: Preflight; message: string; declined: boolean }
+  | { kind: 'ready'; preflight: P }
+  | { kind: 'sending'; preflight: P }
+  | { kind: 'sent'; preflight: P; hash: string }
+  | { kind: 'failed'; preflight: P; message: string; declined: boolean }
 
-type ReadName = 'isOwner' | 'getTransactionCount' | 'transactions' | 'isConfirmed'
+/**
+ * The verdict on a preflight, for whichever evidence that action reads.
+ *
+ * Confirming and revoking judge four fixed reads; executing judges those four and
+ * the owner set, the threshold and one confirmation per owner. The hook carries
+ * whatever the action decided, and knows nothing about what it means.
+ */
+export type ActionOutcome<P extends Preflight> =
+  | { ok: true; preflight: P }
+  | { ok: false; reason: string }
+
+/**
+ * What a preflight is given to read with.
+ *
+ * `call` is the only chain read in this app that takes a block tag, and it takes
+ * one so a multi-step read can be anchored: execution reads six facts plus one
+ * per owner, and those only describe one state of the contract if they are all
+ * answered at one block.
+ */
+export type ActionReadContext = {
+  /** The account, lower cased, ready to be an ABI argument. */
+  account: string
+  /** The proposal index this row names. */
+  index: bigint
+  /** The proposal this row describes, which the contract must still hold. */
+  payload: SubmitTransactionPayload
+  /** Encodes one read from `PREFLIGHT_ABI`. */
+  encode: (name: ReadName, args: readonly unknown[]) => string
+  /** One read-only `eth_call`, at `latest` unless a block tag is given. */
+  call: (data: string, blockTag?: string) => Promise<unknown>
+  /** One read-only provider request, for reads that are not `eth_call`. */
+  request: (method: string, params?: readonly unknown[]) => Promise<unknown>
+  /** False once this attempt is retired: the caller must stop reading. */
+  live: () => boolean
+}
+
+export type ReadName = 'isOwner' | 'getTransactionCount' | 'transactions' | 'isConfirmed'
 
 /** A transaction hash as a wallet returns one. */
 const HASH = /^0x[0-9a-fA-F]{64}$/
@@ -90,7 +118,9 @@ const UNREADABLE_CHAIN =
 
 const CHANGED_ACCOUNT = 'The wallet is now on a different account, so nothing was sent.'
 
-const MALFORMED = 'The contract answered with data this app cannot read, so nothing was sent.'
+/** What an unreadable answer from the contract is called, for every action. */
+export const MALFORMED_ANSWER =
+  'The contract answered with data this app cannot read, so nothing was sent.'
 
 /**
  * A preflight read, encoded from the ABI rather than from a typed selector.
@@ -107,7 +137,7 @@ function calldataFor(name: ReadName, args: readonly unknown[]): string {
   })
 }
 
-export type UseMultisigActionOptions = {
+export type UseMultisigActionOptions<P extends Preflight = Preflight> = {
   /** The tracked contract's address, as the server record has it. */
   contractAddress: string
   /** The tracked contract's chain, as the server record has it. */
@@ -121,33 +151,30 @@ export type UseMultisigActionOptions = {
   /** Whether the action is offered at all, computed by the caller. */
   gate: MultisigGate
   /**
-   * The verdict on the four reads, which also builds the calldata for this index.
+   * The reads and the verdict, which also builds the calldata for this index.
    * The call and the decision come from one function so the bytes sent are always
-   * the bytes that were checked.
+   * the bytes that were checked. Returning null means this attempt was retired
+   * while reading, so nothing is settled and nothing is drawn.
    */
-  decide: (
-    reads: PreflightReads,
-    index: bigint,
-    payload: SubmitTransactionPayload,
-  ) => PreflightOutcome
+  run: (context: ActionReadContext) => Promise<ActionOutcome<P> | null>
   /** What a refusal in the wallet is called for this action. */
   declined: string
   /** The scope the injected provider is read from. The window, in the app. */
   scope?: unknown
 }
 
-export function useMultisigAction({
+export function useMultisigAction<P extends Preflight = Preflight>({
   contractAddress,
   contractChainId,
   index,
   payload,
   wallet,
   gate,
-  decide,
+  run,
   declined,
   scope = globalThis,
-}: UseMultisigActionOptions): {
-  phase: MultisigActionPhase
+}: UseMultisigActionOptions<P>): {
+  phase: MultisigActionPhase<P>
   gate: MultisigGate
   check: () => Promise<void>
   cancel: () => void
@@ -177,7 +204,9 @@ export function useMultisigAction({
       : `${account.toLowerCase()}:${String(chainId)}:${contractAddress.toLowerCase()}:${index.toString(10)}`
 
   const [lastStamp, setLastStamp] = useState<string | null>(stamp)
-  const [stored, setStored] = useState<{ stamp: string; phase: MultisigActionPhase } | null>(null)
+  const [stored, setStored] = useState<{ stamp: string; phase: MultisigActionPhase<P> } | null>(
+    null,
+  )
 
   // A different account, chain, contract or index drops what the last one said,
   // during render, so no frame shows an old review beside a new row.
@@ -200,12 +229,12 @@ export function useMultisigAction({
     }
   }, [])
 
-  const phase: MultisigActionPhase =
+  const phase: MultisigActionPhase<P> =
     stored !== null && stamp !== null && stored.stamp === stamp ? stored.phase : { kind: 'idle' }
 
   /**
-   * The four reads, in the order the contract itself checks them, then the
-   * caller's verdict. Nothing is drawn from a read that did not parse.
+   * The action's own reads, then its verdict. Nothing is drawn from a read that
+   * did not parse, and nothing is drawn at all once this attempt is retired.
    */
   const check = useCallback(async (): Promise<void> => {
     const live = provider
@@ -219,7 +248,7 @@ export function useMultisigAction({
 
     const current = (): boolean => attemptRef.current === attempt && mountedRef.current
 
-    const settle = (next: MultisigActionPhase): void => {
+    const settle = (next: MultisigActionPhase<P>): void => {
       if (current()) {
         setStored({ stamp, phase: next })
       }
@@ -227,79 +256,41 @@ export function useMultisigAction({
 
     setStored({ stamp, phase: { kind: 'checking' } })
 
-    const read = async (data: string): Promise<unknown> =>
-      await live.request({
-        method: 'eth_call',
-        params: [{ to: contractAddress, data }, 'latest'],
-      })
+    const context: ActionReadContext = {
+      account: accountArg,
+      index,
+      payload,
+      encode: calldataFor,
+      call: async (data: string, blockTag = 'latest'): Promise<unknown> =>
+        await live.request({
+          method: 'eth_call',
+          params: [{ to: contractAddress, data }, blockTag],
+        }),
+      request: async (method: string, params?: readonly unknown[]): Promise<unknown> =>
+        await live.request(params === undefined ? { method } : { method, params }),
+      live: current,
+    }
 
     try {
-      let ownerRaw: unknown
-      let countRaw: unknown
-      let proposalRaw: unknown
-      let confirmedRaw: unknown
+      // A revert lands here too: `transactions(index)` for an index the contract
+      // does not hold is a revert, and it is reported as a provider failure rather
+      // than as bad data.
+      const outcome = await run(context)
 
-      try {
-        // Sequential rather than concurrent: four calls to one wallet are not
-        // worth a burst, and a wallet that serialises them gains nothing from
-        // being asked all at once.
-        ownerRaw = await read(calldataFor('isOwner', [accountArg]))
-        if (!current()) {
-          return
-        }
-
-        countRaw = await read(calldataFor('getTransactionCount', []))
-        if (!current()) {
-          return
-        }
-
-        proposalRaw = await read(calldataFor('transactions', [index]))
-        if (!current()) {
-          return
-        }
-
-        confirmedRaw = await read(calldataFor('isConfirmed', [index, accountArg]))
-        if (!current()) {
-          return
-        }
-      } catch (error) {
-        // A revert lands here: `transactions(index)` for an index the contract
-        // does not hold is a revert, and it is reported as a provider failure
-        // rather than as bad data.
-        settle({ kind: 'refused', reason: describeProviderFailure(error) })
+      // The attempt was retired mid-read, so there is nothing to say about it.
+      if (outcome === null) {
         return
       }
-
-      const isOwner = decodeBool(ownerRaw)
-      const transactionCount = decodeUint(countRaw)
-      const proposal = decodeProposal(proposalRaw)
-      const alreadyConfirmed = decodeBool(confirmedRaw)
-
-      if (
-        isOwner === null ||
-        transactionCount === null ||
-        proposal === null ||
-        alreadyConfirmed === null
-      ) {
-        settle({ kind: 'refused', reason: MALFORMED })
-        return
-      }
-
-      const outcome = decide(
-        { isOwner, transactionCount, proposal, alreadyConfirmed },
-        index,
-        payload,
-      )
 
       settle(
         outcome.ok
           ? { kind: 'ready', preflight: outcome.preflight }
           : { kind: 'refused', reason: outcome.reason },
       )
-    } finally {
-      // Nothing to release: no dispatch happened on this path.
+    } catch (error) {
+      settle({ kind: 'refused', reason: describeProviderFailure(error) })
     }
-  }, [accountArg, contractAddress, decide, gate.open, index, payload, provider, stamp])
+  }, [accountArg, contractAddress, gate.open, index, payload, provider, run, stamp])
 
   /** Leaves the review. Sends nothing, and retires anything in flight. */
   const cancel = useCallback((): void => {
@@ -345,7 +336,7 @@ export function useMultisigAction({
 
     const current = (): boolean => attemptRef.current === attempt && mountedRef.current
 
-    const settle = (next: MultisigActionPhase): void => {
+    const settle = (next: MultisigActionPhase<P>): void => {
       if (current()) {
         setStored({ stamp: sendStamp, phase: next })
       }

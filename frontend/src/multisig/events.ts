@@ -87,6 +87,24 @@ export function findRevocation(
 }
 
 /**
+ * The `ExecuteTransaction` row for one execution, or null.
+ *
+ * Same three-part match again: the index says which proposal, the actor says who
+ * executed it, and the hash says which transaction the receipt belongs to. Two
+ * proposals can be executed in one block, and one proposal can only be executed
+ * once, so the index and the hash together are what make this row that
+ * execution.
+ */
+export function findExecution(
+  hash: string,
+  index: string,
+  actor: string,
+  events: readonly ContractEvent[],
+): ContractEvent | null {
+  return findOwnEvent('ExecuteTransaction', hash, index, actor, events)
+}
+
+/**
  * One owner event by hash, index and actor.
  *
  * Shared by confirmation and revocation because the matching rule is identical
@@ -94,7 +112,7 @@ export function findRevocation(
  * to disagree about which of the three parts is required.
  */
 function findOwnEvent(
-  name: 'ConfirmTransaction' | 'RevokeConfirmation',
+  name: 'ConfirmTransaction' | 'RevokeConfirmation' | 'ExecuteTransaction',
   hash: string,
   index: string,
   actor: string,

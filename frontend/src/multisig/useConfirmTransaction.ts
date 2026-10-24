@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 
 import type { SubmitTransactionPayload } from '../api/index.ts'
 import type { BrowserWalletState } from '../provider/useBrowserWallet.ts'
-import { evaluatePreflight, type PreflightOutcome, type PreflightReads } from './confirm.ts'
+import { runConfirmation } from './reads.ts'
 import { walletGate } from './gate.ts'
 import { useMultisigAction, type MultisigActionPhase } from './useMultisigAction.ts'
 
@@ -83,17 +83,8 @@ export function useConfirmTransaction({
     payload,
     wallet,
     gate,
-    decide: decideConfirmation,
+    run: runConfirmation,
     declined: DECLINED,
     scope,
   })
-}
-
-/** The verdict, held at module scope so the hook sees a stable function. */
-function decideConfirmation(
-  reads: PreflightReads,
-  index: bigint,
-  payload: SubmitTransactionPayload,
-): PreflightOutcome {
-  return evaluatePreflight(reads, index, payload)
 }
