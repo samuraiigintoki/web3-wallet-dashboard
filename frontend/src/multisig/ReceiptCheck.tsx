@@ -1,7 +1,12 @@
 import { useCallback, useRef, useState } from 'react'
 
 import type { BrowserWalletState } from '../provider/useBrowserWallet.ts'
-import { findConfirmation, findSubmittedTransaction, type RefreshedPage } from './events.ts'
+import {
+  findConfirmation,
+  findRevocation,
+  findSubmittedTransaction,
+  type RefreshedPage,
+} from './events.ts'
 import { useTransactionReceipt, type ReceiptState } from './useTransactionReceipt.ts'
 import type { SubmitTarget } from './useSubmitTransaction.ts'
 
@@ -33,6 +38,8 @@ export type ReceiptPurpose =
   | { kind: 'submit' }
   /** The index confirmed, and the account whose confirmation it was. */
   | { kind: 'confirm'; index: string; actor: string }
+  /** The index revoked, and the account whose confirmation was removed. */
+  | { kind: 'revoke'; index: string; actor: string }
 
 export type ReceiptCheckProps = {
   /** The hash the wallet returned, in memory for this screen only. */
@@ -125,7 +132,9 @@ export function ReceiptCheck({
       const match =
         purpose.kind === 'submit'
           ? findSubmittedTransaction(hash, page.events)
-          : findConfirmation(hash, purpose.index, purpose.actor, page.events)
+          : purpose.kind === 'confirm'
+            ? findConfirmation(hash, purpose.index, purpose.actor, page.events)
+            : findRevocation(hash, purpose.index, purpose.actor, page.events)
 
       setEventsCheck(
         match === null
@@ -186,16 +195,26 @@ export function ReceiptCheck({
  * finished proposal.
  */
 function successNote(purpose: ReceiptPurpose): string {
-  return purpose.kind === 'submit'
-    ? 'A successful receipt means the multisig accepted this submission call. It does not mean the owners have confirmed or executed the proposal, that the event has been indexed, or that the block is final. Asking again later can give a different answer.'
-    : 'A successful receipt means this account\'s confirmation was recorded by the contract. It does not mean the proposal reached its threshold or was executed, that the confirmation event has been indexed, or that the block is final. Asking again later can give a different answer.'
+  switch (purpose.kind) {
+    case 'submit':
+      return 'A successful receipt means the multisig accepted this submission call. It does not mean the owners have confirmed or executed the proposal, that the event has been indexed, or that the block is final. Asking again later can give a different answer.'
+    case 'confirm':
+      return 'A successful receipt means this account\'s confirmation was recorded by the contract. It does not mean the proposal reached its threshold or was executed, that the confirmation event has been indexed, or that the block is final. Asking again later can give a different answer.'
+    case 'revoke':
+      return 'A successful receipt means this account\'s confirmation was removed by the contract. It does not mean the proposal was executed or cancelled, that the revocation event has been indexed, or that the block is final. Asking again later can give a different answer.'
+  }
 }
 
 /** What a revert leaves behind, per purpose. */
 function revertNote(purpose: ReceiptPurpose): string {
-  return purpose.kind === 'submit'
-    ? 'A reverted call did not submit the proposal, and the wallet may still have charged a fee for it. This app cannot tell you why it reverted, and asking again later can give a different answer.'
-    : 'A reverted call did not record this confirmation, and the wallet may still have charged a fee for it. The proposal itself is unchanged by a failed confirmation, and this app cannot tell you why it reverted.'
+  switch (purpose.kind) {
+    case 'submit':
+      return 'A reverted call did not submit the proposal, and the wallet may still have charged a fee for it. This app cannot tell you why it reverted, and asking again later can give a different answer.'
+    case 'confirm':
+      return 'A reverted call did not record this confirmation, and the wallet may still have charged a fee for it. The proposal itself is unchanged by a failed confirmation, and this app cannot tell you why it reverted.'
+    case 'revoke':
+      return 'A reverted call did not remove this confirmation, and the wallet may still have charged a fee for it. This confirmation is still recorded, and this app cannot tell you why it reverted.'
+  }
 }
 
 function EventCheck({
@@ -291,9 +310,13 @@ function EventsSentence({ check, purpose }: { check: EventsCheck; purpose: Recei
             ? `The refreshed page shows the SubmitTransaction event for this transaction, in block ${String(
                 check.blockNumber,
               )}.`
-            : `The refreshed page shows the ConfirmTransaction event for this proposal from this account, in block ${String(
-                check.blockNumber,
-              )}.`}{' '}
+            : purpose.kind === 'confirm'
+              ? `The refreshed page shows the ConfirmTransaction event for this proposal from this account, in block ${String(
+                  check.blockNumber,
+                )}.`
+              : `The refreshed page shows the RevokeConfirmation event for this proposal from this account, in block ${String(
+                  check.blockNumber,
+                )}.`}{' '}
           The index is a copy of what the indexer has stored, not a live view of the chain.
         </>
       )

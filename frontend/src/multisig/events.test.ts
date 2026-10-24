@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { ContractEvent } from '../api/index.ts'
-import { findConfirmation, findSubmittedTransaction } from './events.ts'
+import { findConfirmation, findRevocation, findSubmittedTransaction } from './events.ts'
 
 /**
  * Matching a submitted hash against a page of stored events.
@@ -134,5 +134,47 @@ describe('finding one confirmation in a page', () => {
 
   it('returns null for an empty page', () => {
     expect(findConfirmation(HASH, '0', ACTOR, [])).toBeNull()
+  })
+})
+
+describe('finding one revocation in a page', () => {
+  const OTHER_ACTOR = '0x1e1D0e1D0e1D0e1D0e1D0e1D0e1D0e1D0e1D0e1D'
+
+  function revocation(overrides: EventOverrides = {}): ContractEvent {
+    return event({ eventName: 'RevokeConfirmation', ...overrides })
+  }
+
+  it('needs the hash, the index and the actor to agree', () => {
+    expect(findRevocation(HASH, '0', ACTOR, [revocation()])?.eventName).toBe('RevokeConfirmation')
+    expect(findRevocation(HASH, '0', OTHER_ACTOR, [revocation()])).toBeNull()
+    expect(findRevocation(OTHER_HASH, '0', ACTOR, [revocation()])).toBeNull()
+  })
+
+  it('does not read a confirmation by the same account as a revocation', () => {
+    // Same hash, index and actor, one event name apart.
+    const confirmation = event({ eventName: 'ConfirmTransaction' })
+
+    expect(findRevocation(HASH, '0', ACTOR, [confirmation])).toBeNull()
+  })
+
+  it('does not read a revocation as a confirmation', () => {
+    expect(findConfirmation(HASH, '0', ACTOR, [revocation()])).toBeNull()
+  })
+
+  it('finds it among the submission and another owner revoking the same index', () => {
+    const page = [
+      event(),
+      revocation({ transactionHash: OTHER_HASH, actorAddress: OTHER_ACTOR, logIndex: 1 }),
+      revocation({ logIndex: 2 }),
+    ]
+
+    const found = findRevocation(HASH, '0', ACTOR, page)
+
+    expect(found?.logIndex).toBe(2)
+    expect(found?.actorAddress).toBe(ACTOR)
+  })
+
+  it('returns null for an empty page', () => {
+    expect(findRevocation(HASH, '0', ACTOR, [])).toBeNull()
   })
 })

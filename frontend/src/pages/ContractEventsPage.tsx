@@ -5,6 +5,7 @@ import { MULTISIG_ADDRESS, SEPOLIA_CHAIN_ID } from '../provider/multisig.ts'
 import { useBrowserWallet, type BrowserWalletState } from '../provider/useBrowserWallet.ts'
 import { chainCatalogQuery } from '../wallets/chainQueries.ts'
 import { ConfirmTransaction } from '../multisig/ConfirmTransaction.tsx'
+import { RevokeTransaction } from '../multisig/RevokeTransaction.tsx'
 import type { RefreshedPage } from '../multisig/events.ts'
 import type { CatalogFact } from '../multisig/useSubmitTransaction.ts'
 
@@ -181,9 +182,9 @@ export function ContractEventsPage() {
 
           {!confirmable && (
             <p className="hint">
-              {`Confirming is only available on the verified Sepolia multisig contract (${MULTISIG_ADDRESS}, chain ${String(
+              {`Confirming and revoking are only available on the verified Sepolia multisig contract (${MULTISIG_ADDRESS}, chain ${String(
                 SEPOLIA_CHAIN_ID,
-              )}). This tracked contract is not it, so no confirm action is offered on these events.`}
+              )}). This tracked contract is not it, so no action is offered on these events.`}
             </p>
           )}
 
@@ -351,12 +352,27 @@ function EventResults({
               <td>
                 <EventPayload event={event} />
                 {showConfirm && event.eventName === 'SubmitTransaction' && (
-                  <ConfirmTransaction
-                    contract={contract}
-                    event={event}
-                    wallet={wallet}
-                    onRefreshEvents={onRefreshEvents}
-                  />
+                  <>
+                    {/*
+                      Two actions, one proposal. Each reads the contract before it
+                      offers anything, and the verdicts are opposites: an account
+                      that has confirmed is offered the revocation, and one that has
+                      not is offered the confirmation. Neither is offered for the
+                      other's state, so the pair can never both reach a review.
+                    */}
+                    <ConfirmTransaction
+                      contract={contract}
+                      event={event}
+                      wallet={wallet}
+                      onRefreshEvents={onRefreshEvents}
+                    />
+                    <RevokeTransaction
+                      contract={contract}
+                      event={event}
+                      wallet={wallet}
+                      onRefreshEvents={onRefreshEvents}
+                    />
+                  </>
                 )}
               </td>
             </tr>
