@@ -33,8 +33,7 @@
  * where it was. The `sent` phase says the hash and nothing more.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { encodeFunctionData } from 'viem'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 
 import type { SubmitTransactionPayload } from '../api/index.ts'
 import {
@@ -46,8 +45,9 @@ import {
   USER_REJECTED_CODE,
 } from '../provider/injected.ts'
 import type { BrowserWalletState } from '../provider/useBrowserWallet.ts'
-import { PREFLIGHT_ABI, type Preflight } from './confirm.ts'
+import { encodeRead, type Preflight, type ReadName } from './confirm.ts'
 import type { MultisigGate } from './gate.ts'
+import { useStampedState } from './useStampedState.ts'
 
 /**
  * Where one action is.
@@ -101,7 +101,7 @@ export type ActionReadContext = {
   live: () => boolean
 }
 
-export type ReadName = 'isOwner' | 'getTransactionCount' | 'transactions' | 'isConfirmed'
+export type { ReadName }
 
 /** A transaction hash as a wallet returns one. */
 const HASH = /^0x[0-9a-fA-F]{64}$/
@@ -121,21 +121,6 @@ const CHANGED_ACCOUNT = 'The wallet is now on a different account, so nothing wa
 /** What an unreadable answer from the contract is called, for every action. */
 export const MALFORMED_ANSWER =
   'The contract answered with data this app cannot read, so nothing was sent.'
-
-/**
- * A preflight read, encoded from the ABI rather than from a typed selector.
- *
- * The four names are the four functions in `PREFLIGHT_ABI`, so the union is total
- * over it, and the arguments are the ones each function declares. Nothing in this
- * file spells a selector or a word layout by hand.
- */
-function calldataFor(name: ReadName, args: readonly unknown[]): string {
-  return encodeFunctionData({
-    abi: PREFLIGHT_ABI,
-    functionName: name,
-    args: args as never,
-  })
-}
 
 export type UseMultisigActionOptions<P extends Preflight = Preflight> = {
   /** The tracked contract's address, as the server record has it. */
@@ -203,17 +188,14 @@ export function useMultisigAction<P extends Preflight = Preflight>({
       ? null
       : `${account.toLowerCase()}:${String(chainId)}:${contractAddress.toLowerCase()}:${index.toString(10)}`
 
-  const [lastStamp, setLastStamp] = useState<string | null>(stamp)
-  const [stored, setStored] = useState<{ stamp: string; phase: MultisigActionPhase<P> } | null>(
-    null,
-  )
-
-  // A different account, chain, contract or index drops what the last one said,
-  // during render, so no frame shows an old review beside a new row.
-  if (lastStamp !== stamp) {
-    setLastStamp(stamp)
-    setStored(null)
-  }
+  /**
+   * What this action last said, and the situation it said it in.
+   *
+   * A different account, chain, contract or index drops what the last one said,
+   * during render, so no frame shows an old review beside a new row. The rule is
+   * shared with the read-only status control, which needs exactly the same one.
+   */
+  const { value: stored, set: setStored } = useStampedState<MultisigActionPhase<P>>(stamp)
 
   const mountedRef = useRef(true)
   const attemptRef = useRef(0)
@@ -229,8 +211,19 @@ export function useMultisigAction<P extends Preflight = Preflight>({
     }
   }, [])
 
-  const phase: MultisigActionPhase<P> =
-    stored !== null && stamp !== null && stored.stamp === stamp ? stored.phase : { kind: 'idle' }
+  const phase: MultisigActionPhase<P> = stored ?? { kind: 'idle' }
+
+/**
+   * A change of account, chain, contract or index retires any read in flight.
+   *
+   * The stamp alone would not be enough: a wallet that moves away and back again
+   * restores the old stamp, and an answer that was requested before the move
+   * would then be drawn as if nothing had happened. Bumping the attempt here
+   * makes the move final for anything already in flight, and starts nothing.
+   */
+  useEffect(() => {
+    attemptRef.current += 1
+  }, [stamp])
 
   /**
    * The action's own reads, then its verdict. Nothing is drawn from a read that
@@ -250,17 +243,17 @@ export function useMultisigAction<P extends Preflight = Preflight>({
 
     const settle = (next: MultisigActionPhase<P>): void => {
       if (current()) {
-        setStored({ stamp, phase: next })
+        setStored(next)
       }
     }
 
-    setStored({ stamp, phase: { kind: 'checking' } })
+    setStored({ kind: 'checking' })
 
     const context: ActionReadContext = {
       account: accountArg,
       index,
       payload,
-      encode: calldataFor,
+      encode: encodeRead,
       call: async (data: string, blockTag = 'latest'): Promise<unknown> =>
         await live.request({
           method: 'eth_call',
@@ -290,7 +283,7 @@ export function useMultisigAction<P extends Preflight = Preflight>({
     } catch (error) {
       settle({ kind: 'refused', reason: describeProviderFailure(error) })
     }
-  }, [accountArg, contractAddress, gate.open, index, payload, provider, run, stamp])
+  }, [accountArg, contractAddress, gate.open, index, payload, provider, run, setStored, stamp])
 
   /** Leaves the review. Sends nothing, and retires anything in flight. */
   const cancel = useCallback((): void => {
@@ -300,7 +293,7 @@ export function useMultisigAction<P extends Preflight = Preflight>({
 
     attemptRef.current += 1
     setStored(null)
-  }, [])
+  }, [setStored])
 
   /** Goes back to the row after a refusal or a failure. */
   const retry = useCallback((): void => {
@@ -309,7 +302,7 @@ export function useMultisigAction<P extends Preflight = Preflight>({
     }
 
     setStored(null)
-  }, [])
+  }, [setStored])
 
   const submit = useCallback(async (): Promise<void> => {
     const live = provider
@@ -322,13 +315,12 @@ export function useMultisigAction<P extends Preflight = Preflight>({
       return
     }
 
-    if (stored === null || stored.phase.kind !== 'ready' || stored.stamp !== stamp) {
+    if (stored === null || stored.kind !== 'ready') {
       return
     }
 
-    const preflight = stored.phase.preflight
+    const preflight = stored.preflight
     const expectedAccount = account.toLowerCase()
-    const sendStamp = stamp
 
     const attempt = attemptRef.current + 1
     attemptRef.current = attempt
@@ -338,7 +330,7 @@ export function useMultisigAction<P extends Preflight = Preflight>({
 
     const settle = (next: MultisigActionPhase<P>): void => {
       if (current()) {
-        setStored({ stamp: sendStamp, phase: next })
+        setStored(next)
       }
     }
 
@@ -346,7 +338,7 @@ export function useMultisigAction<P extends Preflight = Preflight>({
       settle({ kind: 'failed', preflight, message, declined: refused })
     }
 
-    setStored({ stamp: sendStamp, phase: { kind: 'sending', preflight } })
+    setStored({ kind: 'sending', preflight })
 
     try {
       let accounts: string[] | null
@@ -440,7 +432,7 @@ export function useMultisigAction<P extends Preflight = Preflight>({
     } finally {
       sendingRef.current = false
     }
-  }, [account, chainId, contractAddress, contractChainId, declined, gate.open, provider, stamp, stored])
+  }, [account, chainId, contractAddress, contractChainId, declined, gate.open, provider, setStored, stamp, stored])
 
   return { phase, gate, check, cancel, submit, retry }
 }
