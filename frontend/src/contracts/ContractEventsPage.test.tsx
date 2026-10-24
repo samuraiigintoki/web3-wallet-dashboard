@@ -766,6 +766,60 @@ describe('submitting from the contract view', () => {
     expect(document.body.textContent).toContain('in block 6100000')
   })
 
+  it('reports a manual refresh that failed, instead of the page it already had', async () => {
+    // The first read succeeds, so the query holds a page that does not contain
+    // the submitted hash. The manual refresh then fails. Query keeps the older
+    // page in `data` when a refetch fails, so a screen that read `data` alone
+    // would describe that stale page as the refreshed one: either "indexed",
+    // or "not on the refreshed page", and both would be false.
+    const api = apiFetch({
+      chains: () => jsonResponse({ data: [SEPOLIA_ENTRY] }),
+      events: (_url, _init, call) =>
+        call === 1
+          ? eventsResponse([SUBMIT_EVENT], {
+              page: 1,
+              pageSize: PAGE_SIZE,
+              totalItems: 1,
+              totalPages: 1,
+            })
+          : errorResponse(500, 'INTERNAL_SERVER_ERROR'),
+    })
+    wallet()
+
+    const { user } = renderApp({
+      path: '/contracts/7/events',
+      storage: memoryStorage('stored-token'),
+    })
+
+    await waitFor(() => {
+      expect(button('Review submission').disabled).toBe(false)
+    })
+
+    await submit(user)
+
+    await user.click(button('Check receipt'))
+    await waitFor(() => {
+      expect(button('Refresh indexed events')).toBeDefined()
+    })
+
+    await user.click(button('Refresh indexed events'))
+
+    await waitFor(() => {
+      expect(document.body.textContent).toContain(
+        'The current page of indexed events could not be read again.',
+      )
+    })
+
+    // Two reads were made, and the second one failed.
+    expect(api.eventCalls).toBe(2)
+
+    const text = document.body.textContent ?? ''
+
+    // Neither of the answers a stale page could have produced.
+    expect(text).not.toContain('shows the SubmitTransaction event for this transaction')
+    expect(text).not.toContain('not on the refreshed page')
+  })
+
   it('says only that the event is not on the refreshed page when it is absent', async () => {
     apiFetch({ chains: () => jsonResponse({ data: [SEPOLIA_ENTRY] }) })
     wallet()
