@@ -991,6 +991,8 @@ describe('wallet label editor draft', () => {
         deleteWallet: vi.fn() as unknown as ApiClient['deleteWallet'],
         getWallet: vi.fn() as unknown as ApiClient['getWallet'],
         listContracts: vi.fn() as unknown as ApiClient['listContracts'],
+        getContract: vi.fn() as unknown as ApiClient['getContract'],
+        listContractEvents: vi.fn() as unknown as ApiClient['listContractEvents'],
       },
     }
   }

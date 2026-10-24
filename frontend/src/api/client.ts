@@ -9,9 +9,11 @@
 import { ApiError } from './errors.ts'
 import {
   isCollectionPagination,
+  isContractEventList,
   isContractList,
   isLoginResult,
   isMessageResult,
+  isTrackedContract,
   isUser,
   isWallet,
   isWalletList,
@@ -23,9 +25,11 @@ import {
   type RequestDependencies,
 } from './request.ts'
 import type {
+  ContractEventList,
   ContractList,
   CreateWalletRequest,
   UpdateWalletRequest,
+  ListContractEventsParams,
   ListContractsParams,
   ListWalletsParams,
   LoginRequest,
@@ -33,6 +37,7 @@ import type {
   MessageResult,
   Pagination,
   RegisterRequest,
+  TrackedContract,
   User,
   Wallet,
   WalletList,
@@ -55,6 +60,25 @@ export type ApiClient = {
    * enables or removes a record.
    */
   listContracts: (params: ListContractsParams, init?: CallInit) => Promise<ContractList>
+  /**
+   * One tracked contract by id, for the context above an event list.
+   *
+   * The owner comes from the bearer, so a contract belonging to someone else is
+   * the same `404` a missing one is, and the caller cannot tell them apart.
+   */
+  getContract: (id: number, init?: CallInit) => Promise<TrackedContract>
+  /**
+   * One page of the indexed events the server stored for a tracked contract.
+   *
+   * Owner-scoped by the same association the other contract routes use, so a
+   * foreign id is a `404` rather than an empty page. Read-only: this client
+   * cannot start a scan, re-index, or ask for anything live.
+   */
+  listContractEvents: (
+    id: number,
+    params: ListContractEventsParams,
+    init?: CallInit,
+  ) => Promise<ContractEventList>
   /** Saves one wallet for the caller. The owner comes from the bearer. */
   createWallet: (body: CreateWalletRequest, init?: CallInit) => Promise<Wallet>
   /**
@@ -90,6 +114,25 @@ function requireData<T>(result: ApiResult<T>): T {
   }
 
   return result.data
+}
+
+/**
+ * A response that answers about something other than what was asked for.
+ *
+ * A structurally valid body is not automatically the answer to this request. A
+ * contract read that returns a different contract, or an event page whose rows
+ * belong to another contract, would be drawn under this URL as if it were this
+ * one: the shape checks pass, so nothing else would catch it. The correlation
+ * check is what keeps the screen's subject and the server's answer the same
+ * thing.
+ */
+function mismatchedResponse(message: string, requestId: string | undefined): ApiError {
+  return new ApiError({
+    code: 'UNEXPECTED_RESPONSE',
+    status: 0,
+    message,
+    requestId,
+  })
 }
 
 function unusablePagination(
@@ -318,6 +361,69 @@ export function createApiClient(dependencies: RequestDependencies): ApiClient {
 
       return {
         contracts: requireData(result),
+        pagination: requirePagination(result, params),
+      }
+    },
+
+    async getContract(id, init) {
+      const result = await request({
+        method: 'GET',
+        path: `/contracts/${addressableId(id)}`,
+        auth: true,
+        guard: isTrackedContract,
+        signal: init?.signal,
+      })
+
+      const contract = requireData(result)
+
+      // The body must be the contract this client asked about. A row that is
+      // well formed but describes another contract would otherwise become the
+      // context for this URL, and the events read that follows would be enabled
+      // by a successful read of the wrong record.
+      if (contract.id !== id) {
+        throw mismatchedResponse(
+          `the server answered with contract ${String(contract.id)} for a request for contract ${String(id)}`,
+          result.requestId,
+        )
+      }
+
+      return contract
+    },
+
+    async listContractEvents(id, params, init) {
+      // The same two query parameters as every other list: no filter, no sort,
+      // no page size the caller chooses. The order is the server's, and so are
+      // the totals.
+      const query = new URLSearchParams({
+        page: String(params.page),
+        pageSize: String(params.pageSize),
+      })
+
+      const result = await request({
+        method: 'GET',
+        path: `/contracts/${addressableId(id)}/events?${query.toString()}`,
+        auth: true,
+        guard: isContractEventList,
+        signal: init?.signal,
+      })
+
+      const events = requireData(result)
+
+      // Every row must belong to the contract in the path. One page for one
+      // contract is the whole premise of this call, so a page holding another
+      // contract's rows is a broken answer, not a page to render and trust: a
+      // single foreign row would put somebody else's event under this URL.
+      const foreign = events.find((event) => event.contractId !== id)
+
+      if (foreign !== undefined) {
+        throw mismatchedResponse(
+          `the server answered with events for contract ${String(foreign.contractId)} for a request about contract ${String(id)}`,
+          result.requestId,
+        )
+      }
+
+      return {
+        events,
         pagination: requirePagination(result, params),
       }
     },

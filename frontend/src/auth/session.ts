@@ -22,10 +22,11 @@ export type Session =
  * and may correct its label, and it may not register, sign in or end a session
  * on the side.
  *
- * `listContracts` is here and its write siblings are not. The contract list is a
- * read, it is owner-scoped by the bearer like the wallet list, and the screen
- * that shows it cannot create, update, enable or delete a record even by
- * accident: the capability it is handed has no such call in it.
+ * The contract reads are here and their write siblings are not. The contract
+ * list, one contract and its indexed events are all reads, owner-scoped by the
+ * bearer like the wallet list, and the screens that show them cannot create,
+ * update, enable, delete or re-index anything even by accident: the capability
+ * they are handed has no such call in it.
  *
  * The catalog is absent by design. `GET /api/v1/chains` is public and belongs
  * to no identity, so it is fetched through its own client rather than handed to
@@ -33,7 +34,14 @@ export type Session =
  */
 export type DataClient = Pick<
   ApiClient,
-  'listWallets' | 'createWallet' | 'updateWalletLabel' | 'deleteWallet' | 'getWallet' | 'listContracts'
+  | 'listWallets'
+  | 'createWallet'
+  | 'updateWalletLabel'
+  | 'deleteWallet'
+  | 'getWallet'
+  | 'listContracts'
+  | 'getContract'
+  | 'listContractEvents'
 >
 
 /**

@@ -119,6 +119,65 @@ export type ListContractsParams = {
 }
 
 /**
+ * The four events the indexer stores for the deployed contract.
+ *
+ * A closed set, like the availability values: `eventName` selects which payload
+ * shape a row carries, so a name outside this set is a row this client cannot
+ * read and must not render.
+ */
+export type EventName =
+  | 'SubmitTransaction'
+  | 'ConfirmTransaction'
+  | 'RevokeConfirmation'
+  | 'ExecuteTransaction'
+
+/**
+ * The payload of a `SubmitTransaction` event.
+ *
+ * `valueWei` is the decimal text of a uint256 exactly as stored: it is kept as a
+ * string and never parsed into a number, because most of the range does not fit
+ * in one. `data` is the raw calldata in hex and is not decoded here: this view
+ * shows what was submitted, it does not interpret it.
+ */
+export type SubmitTransactionPayload = {
+  to: string
+  valueWei: string
+  data: string
+}
+
+/**
+ * One indexed event.
+ *
+ * `multisigTxIndex` is a uint256 rendered as decimal text by the server, so it
+ * arrives as a string for the same reason `valueWei` does.
+ */
+export type ContractEvent = {
+  contractId: number
+  eventName: EventName
+  blockNumber: number
+  blockHash: string
+  transactionHash: string
+  transactionIndex: number
+  logIndex: number
+  actorAddress: string
+  multisigTxIndex: string
+  /** `{}` for the three owner events, the submit payload for `SubmitTransaction`. */
+  payload: SubmitTransactionPayload | Record<string, never>
+}
+
+/** GET /api/v1/contracts/{id}/events, one page. */
+export type ContractEventList = {
+  events: ContractEvent[]
+  pagination: Pagination
+}
+
+/** The page of events this client asks for. */
+export type ListContractEventsParams = {
+  page: number
+  pageSize: number
+}
+
+/**
  * GET /api/v1/chains, one row of the public catalog.
  *
  * Exactly the four fields the handler sends. There is no `enabled` flag here:
