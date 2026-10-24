@@ -8,6 +8,7 @@ import {
   readInjectedProvider,
   USER_REJECTED_CODE,
 } from '../provider/injected.ts'
+import type { BrowserWalletState } from '../provider/useBrowserWallet.ts'
 import {
   buildSubmission,
   parseTransactionHash,
@@ -47,10 +48,16 @@ export type SubmitGate = { open: boolean; reason: string }
 export type UseSubmitTransactionOptions = {
   /** The tracked contract the page is showing, or null before it has loaded. */
   contract: SubmitTarget | null
-  /** The account the browser wallet reports, or null when none is connected. */
-  account: string | null
-  /** The chain the browser wallet reports, or null when none is connected. */
-  chainId: number | null
+  /**
+   * The browser wallet as a whole, not just its account and chain.
+   *
+   * The state is what makes the difference between "still checking", "this
+   * browser has no wallet" and "nothing is connected" sayable. Those three are
+   * different facts with different fixes, and a screen that collapsed them into
+   * "no account" would be telling a user their wallet is disconnected when it
+   * does not exist.
+   */
+  wallet: BrowserWalletState
   /** What the catalog says about the contract's chain. */
   catalog: CatalogFact
   /** The scope the injected provider is read from. The window, in the app. */
@@ -73,26 +80,42 @@ const DECLINED = 'The transaction was declined in the wallet.'
 /**
  * The gate: the one condition under which this screen offers to send.
  *
- * Three separate facts have to hold, and each failure has its own sentence
- * because they are not the same thing: no account is a wallet question, a chain
- * that is not the contract's chain is a mismatch, and a chain the catalog does
- * not list is a limit of this deployment. `indexingStatus` appears nowhere: it
- * describes whether the indexer has caught up with a contract, which says
- * nothing about whether a transaction can be submitted to it.
+ * Every refusal has its own sentence, because they are not the same thing. A
+ * wallet still being read is a moment; a browser with no wallet is a fact about
+ * the browser; a wallet with nothing connected is a fact about the wallet; a chain
+ * that is not the contract's chain is a mismatch; and a chain the catalog does not
+ * list is a limit of this deployment. None of them is "no account", and saying so
+ * would send a user to fix the wrong thing.
+ *
+ * `indexingStatus` appears nowhere: it describes whether the indexer has caught up
+ * with a contract, which says nothing about whether a transaction can be
+ * submitted to it.
  */
 export function submitGate(
   contract: SubmitTarget | null,
-  account: string | null,
-  chainId: number | null,
+  wallet: BrowserWalletState,
   catalog: CatalogFact,
 ): SubmitGate {
   if (contract === null) {
     return { open: false, reason: 'No tracked contract is loaded.' }
   }
 
-  if (account === null || chainId === null) {
-    return { open: false, reason: 'No connected account.' }
+  switch (wallet.status) {
+    case 'checking':
+      return { open: false, reason: 'Checking the browser wallet.' }
+    case 'unsupported':
+      return { open: false, reason: 'No browser wallet was found in this browser.' }
+    case 'error':
+      return { open: false, reason: 'The browser wallet could not be read.' }
+    case 'connecting':
+      return { open: false, reason: 'Waiting for the wallet to grant access.' }
+    case 'disconnected':
+      return { open: false, reason: 'No connected account.' }
+    case 'connected':
+      break
   }
+
+  const chainId = wallet.chainId
 
   if (chainId !== contract.chainId) {
     return {
@@ -145,8 +168,7 @@ export function submitGate(
  */
 export function useSubmitTransaction({
   contract,
-  account,
-  chainId,
+  wallet,
   catalog,
   scope = globalThis,
 }: UseSubmitTransactionOptions): {
@@ -162,6 +184,14 @@ export function useSubmitTransaction({
   startAnother: () => void
 } {
   const provider = useMemo(() => readInjectedProvider(scope), [scope])
+
+  /**
+   * The account and chain, taken from the wallet state rather than passed beside
+   * it. One source means the two cannot disagree, and there is no way to hold a
+   * connected account from one render next to a chain from another.
+   */
+  const account = wallet.status === 'connected' ? wallet.account : null
+  const chainId = wallet.status === 'connected' ? wallet.chainId : null
 
   const [draft, setDraft] = useState<SubmitDraft>({
     destination: '',
@@ -194,8 +224,8 @@ export function useSubmitTransaction({
   }, [])
 
   const gate = useMemo(
-    () => submitGate(contract, account, chainId, catalog),
-    [account, catalog, chainId, contract],
+    () => submitGate(contract, wallet, catalog),
+    [catalog, contract, wallet],
   )
 
   /**

@@ -111,7 +111,18 @@ export function ContractEventsPage() {
             onRetry={() => void events.refetch()}
           />
 
-          <SubmitTransactionForm contract={contract.data} />
+          <SubmitTransactionForm
+            contract={contract.data}
+            onRefreshEvents={async () => {
+              // The page's own query, refetched: same key, same identity scope,
+              // same page. Nothing else is read and nothing is invalidated.
+              const result = await events.refetch()
+
+              return result.data === undefined
+                ? null
+                : { events: result.data.events, page }
+            }}
+          />
         </>
       )}
 

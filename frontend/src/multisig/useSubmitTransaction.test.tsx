@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import type { BrowserWalletState } from '../provider/useBrowserWallet.ts'
 import {
   deferred,
   installFakeProvider,
@@ -82,11 +83,15 @@ function sends(fake: FakeProvider): FakeProvider['calls'] {
   return fake.calls.filter((call) => call.method === 'eth_sendTransaction')
 }
 
+/** A wallet that has connected the test account on the contract's chain. */
+function connected(account = ACCOUNT, chainId = SEPOLIA): BrowserWalletState {
+  return { status: 'connected', account, chainId }
+}
+
 function options(overrides: Partial<UseSubmitTransactionOptions> = {}): UseSubmitTransactionOptions {
   return {
     contract: CONTRACT,
-    account: ACCOUNT,
-    chainId: SEPOLIA,
+    wallet: connected(),
     catalog: 'listed' as CatalogFact,
     ...overrides,
   }
@@ -132,7 +137,7 @@ describe('the gate', () => {
   it('closes for a chain mismatch, naming both chains', () => {
     provider()
 
-    const { result } = render({ chainId: 1 })
+    const { result } = render({ wallet: connected(ACCOUNT, 1) })
 
     expect(result.current.gate.open).toBe(false)
     expect(result.current.gate.reason).toContain('chain 1')
@@ -150,13 +155,27 @@ describe('the gate', () => {
     }
   })
 
-  it('closes with no account', () => {
+  it('tells a wallet that is still being checked apart from one that is not connected', () => {
     provider()
 
-    const { result } = render({ account: null, chainId: null })
+    const checking = render({ wallet: { status: 'checking' } })
+    const disconnected = render({ wallet: { status: 'disconnected', notice: null } })
+    const unsupported = render({ wallet: { status: 'unsupported' } })
+    const broken = render({ wallet: { status: 'error', message: 'redacted' } })
 
-    expect(result.current.gate.open).toBe(false)
-    expect(result.current.gate.reason).toBe('No connected account.')
+    const reasons = [
+      checking.result.current.gate.reason,
+      disconnected.result.current.gate.reason,
+      unsupported.result.current.gate.reason,
+      broken.result.current.gate.reason,
+    ]
+
+    // Four different facts, four different sentences: a spinner is not a
+    // disconnected wallet, and a browser with no wallet is not one either.
+    expect(new Set(reasons).size).toBe(4)
+    expect(disconnected.result.current.gate.reason).toBe('No connected account.')
+    expect(checking.result.current.gate.reason).toBe('Checking the browser wallet.')
+    expect(unsupported.result.current.gate.reason).toContain('No browser wallet')
   })
 })
 
@@ -177,7 +196,7 @@ describe('the form', () => {
   it('cannot reach the confirmation while the gate is closed, even with valid input', () => {
     provider()
 
-    const { result } = render({ chainId: 1 })
+    const { result } = render({ wallet: connected(ACCOUNT, 1) })
 
     confirm(result)
 
@@ -427,7 +446,7 @@ describe('stale results', () => {
     })
 
     // The wallet announces a different account while the send is outstanding.
-    rerender({ account: OTHER })
+    rerender({ wallet: connected(OTHER) })
 
     await act(async () => {
       held.resolve(HASH)
@@ -452,10 +471,10 @@ describe('stale results', () => {
 
     // The wallet moves away and back. Nothing was pressed in between, so there
     // is no submission to show for the context it has returned to.
-    rerender({ account: OTHER })
+    rerender({ wallet: connected(OTHER) })
     expect(result.current.phase.kind).toBe('editing')
 
-    rerender({ account: ACCOUNT })
+    rerender({ wallet: connected(ACCOUNT) })
     expect(result.current.phase.kind).toBe('editing')
   })
 
@@ -530,7 +549,7 @@ describe('stale results', () => {
     confirm(result)
     expect(result.current.phase.kind).toBe('confirming')
 
-    rerender({ chainId: 1 })
+    rerender({ wallet: connected(ACCOUNT, 1) })
 
     expect(result.current.phase.kind).toBe('editing')
 

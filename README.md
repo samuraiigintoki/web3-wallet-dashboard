@@ -22,7 +22,7 @@ The Go backend features:
 - Versioned SQL migrations (`backend/migrations/`, 0001 through 0008) embedded with `go:embed` and managed via `cmd/migrate`
 - Table-driven unit tests plus PostgreSQL integration tests, including a restartable scan, reorg and rescan flow, gated by a GitHub Actions CI workflow
 
-The React frontend in `frontend/` covers authentication, saved wallets, tracked contracts and their indexed events, browser-wallet reads, and one browser-wallet write: submitting a proposal to a tracked multisig contract. Confirming, revoking and executing proposals, receipt tracking and production deployment are planned for upcoming blocks.
+The React frontend in `frontend/` covers authentication, saved wallets, tracked contracts and their indexed events, browser-wallet reads, and one browser-wallet write: submitting a proposal to a tracked multisig contract. A submitted transaction can then be checked once, on request, for its receipt and for its indexed event. Confirming, revoking and executing proposals, and production deployment, are planned for upcoming blocks.
 
 ## Architecture
 
@@ -47,7 +47,7 @@ Go backend                EVM JSON-RPC
                        PostgreSQL -> API -> dashboard
 ```
 
-The Go backend, the indexer and the indexed reads are implemented. The React dashboard covers signing in and out, saved wallets, tracked contracts and their indexed events, browser-wallet reads, and one browser-wallet write: submitting a multisig proposal from a tracked contract's page. Confirming, revoking and executing proposals are not implemented, and nothing in the dashboard tracks a transaction after it is submitted.
+The Go backend, the indexer and the indexed reads are implemented. The React dashboard covers signing in and out, saved wallets, tracked contracts and their indexed events, browser-wallet reads, and one browser-wallet write: submitting a multisig proposal from a tracked contract's page. After a submission the dashboard can read its receipt once, on request, and refresh the current page of indexed events. Confirming, revoking and executing proposals are not implemented, and nothing polls: no receipt is watched, no event list refreshes itself, and the hash lives in memory for that screen only.
 
 The browser wallet will sign user transactions. The Go backend will not receive or store users' private keys.
 
@@ -55,12 +55,12 @@ The browser wallet will sign user transactions. The Go backend will not receive 
 
 Implemented in the Go backend: user registration and authentication, wallet and contract address management, filtering and pagination, EVM event indexing with PostgreSQL persistence and authenticated event reads, automated tests and CI, Docker-based local setup, and the architecture, API, database, and security documentation.
 
-Implemented in the React frontend: the login and register screens, a protected application shell that redirects signed-out visitors, a hand-written typed API client over the documented response envelopes, a session restored from browser storage on load, the wallet and tracked-contract screens, the indexed event view with pagination, browser-wallet reads of the account, chain, balance and multisig state, and one write: submitting a `submitTransaction(address,uint256,bytes)` proposal to a tracked contract through the injected wallet, after a confirmation that restates the contract, chain, destination, exact wei value and calldata.
+Implemented in the React frontend: the login and register screens, a protected application shell that redirects signed-out visitors, a hand-written typed API client over the documented response envelopes, a session restored from browser storage on load, the wallet and tracked-contract screens, the indexed event view with pagination, browser-wallet reads of the account, chain, balance and multisig state, and one write: submitting a `submitTransaction(address,uint256,bytes)` proposal to a tracked contract through the injected wallet, after a confirmation that restates the contract, chain, destination, exact wei value and calldata, and a read-only check of that submission's receipt and indexed event.
 
 Planned for later weeks:
 
 - Multisig transaction confirmation, revocation, and execution
-- Receipt tracking and indexed-event refresh after a submission
+- Transaction history, and receipt or index tracking without a user asking
 - Calldata decoding, and contract state reads beyond the multisig summary
 - Browser-wallet writes other than a single proposal submission
 - Indexed transaction and confirmation routes, and indexing progress reporting
