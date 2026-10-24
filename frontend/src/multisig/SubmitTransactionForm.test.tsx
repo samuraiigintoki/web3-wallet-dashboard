@@ -1,7 +1,7 @@
 import { QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createQueryClient } from '../data/queryClient.ts'
 import { installFakeProvider, removeFakeProvider, type FakeProvider } from '../test/fakeProvider.ts'
@@ -47,7 +47,9 @@ function catalogFetch(chains: unknown[] = [SEPOLIA_ENTRY]): void {
   })
 }
 
-function wallet(options: { chain?: string; send?: () => unknown } = {}): FakeProvider {
+function wallet(
+  options: { chain?: string; send?: () => unknown; receipt?: () => unknown } = {},
+): FakeProvider {
   return installFakeProvider({
     answer: ({ method }) => {
       if (method === 'eth_accounts') {
@@ -56,6 +58,10 @@ function wallet(options: { chain?: string; send?: () => unknown } = {}): FakePro
 
       if (method === 'eth_chainId') {
         return options.chain ?? `0x${SEPOLIA.toString(16)}`
+      }
+
+      if (method === 'eth_getTransactionReceipt') {
+        return options.receipt?.() ?? null
       }
 
       if (method === 'eth_sendTransaction') {
@@ -67,14 +73,16 @@ function wallet(options: { chain?: string; send?: () => unknown } = {}): FakePro
   })
 }
 
-function renderForm() {
+function renderForm(onRefreshEvents = async () => ({ events: [], page: 1 })) {
   const user = userEvent.setup()
+  const refresh = vi.fn(onRefreshEvents)
 
   return {
     user,
+    refresh,
     ...render(
       <QueryClientProvider client={createQueryClient()}>
-        <SubmitTransactionForm contract={CONTRACT} />
+        <SubmitTransactionForm contract={CONTRACT} onRefreshEvents={refresh} />
       </QueryClientProvider>,
     ),
   }
@@ -115,6 +123,31 @@ describe('the submit form', () => {
     await waitFor(() => {
       expect(reviewButton().disabled).toBe(false)
     })
+  })
+
+  it('announces the gate in one live region that says nothing again on an unrelated render', async () => {
+    catalogFetch()
+    wallet()
+
+    const { user } = renderForm()
+
+    await waitFor(() => {
+      expect(reviewButton().disabled).toBe(false)
+    })
+
+    const region = screen.getByText('Sending is available.')
+
+    expect(region.getAttribute('aria-live')).toBe('polite')
+    expect(region.getAttribute('aria-atomic')).toBe('true')
+
+    // Typing into a field re-renders the form. The region is the same node with
+    // the same sentence, so a screen reader has nothing new to read out.
+    await user.type(screen.getByLabelText('Destination address'), '0x1')
+
+    const after = screen.getByText('Sending is available.')
+
+    expect(after.isSameNode(region)).toBe(true)
+    expect(after.textContent).toBe(region.textContent)
   })
 
   it('refuses to review while the wallet is on another chain, and says which', async () => {
@@ -220,6 +253,45 @@ describe('the submit form', () => {
     await new Promise((resolve) => setTimeout(resolve, 20))
     // No receipt polling, no event refresh: the provider is not asked again.
     expect(fake.calls.length).toBe(afterSend)
+  })
+
+  it('offers a receipt check after a submission, and asks for the receipt only when pressed', async () => {
+    catalogFetch()
+    const fake = wallet({
+      receipt: () => ({
+        transactionHash: HASH,
+        to: CONTRACT.address,
+        status: '0x1',
+        blockNumber: '0x5d2c40',
+        blockHash: `0x${'33'.repeat(32)}`,
+      }),
+    })
+    const { user, refresh } = renderForm()
+
+    await fill(user)
+    await user.click(reviewButton())
+    await user.click(submitButton())
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Check receipt' })).toBeDefined()
+    })
+
+    expect(fake.calls.filter((call) => call.method === 'eth_getTransactionReceipt')).toHaveLength(0)
+    expect(refresh).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'Check receipt' }))
+
+    await waitFor(() => {
+      expect(document.body.textContent).toContain('included in block 6106176')
+    })
+
+    expect(fake.calls.filter((call) => call.method === 'eth_getTransactionReceipt')).toHaveLength(1)
+
+    await user.click(screen.getByRole('button', { name: 'Refresh indexed events' }))
+
+    await waitFor(() => {
+      expect(refresh).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('cancel returns to the form and sends nothing', async () => {

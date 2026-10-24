@@ -4,6 +4,8 @@ import { useId, type FormEvent } from 'react'
 import { useBrowserWallet } from '../provider/useBrowserWallet.ts'
 import { chainCatalogQuery } from '../wallets/chainQueries.ts'
 import { FIELD_MESSAGES } from './encoding.ts'
+import type { RefreshedPage } from './events.ts'
+import { ReceiptCheck } from './ReceiptCheck.tsx'
 import {
   useSubmitTransaction,
   type CatalogFact,
@@ -23,8 +25,23 @@ import {
  * The wallet is read through the same hook the Overview screen uses, on this
  * screen, for this screen: a wallet connection belongs to this browser tab, and
  * one screen's view of it is not evidence about another's.
+ *
+ * After a submission the screen stops and waits. The receipt and the index are
+ * two separate things a user can ask about, in their own time, and nothing here
+ * asks for either of them on the user's behalf.
  */
-export function SubmitTransactionForm({ contract }: { contract: SubmitTarget }) {
+export function SubmitTransactionForm({
+  contract,
+  onRefreshEvents,
+}: {
+  contract: SubmitTarget
+  /**
+   * Reads the current page of indexed events again for this contract, under the
+   * signed-in identity. The page owns that query, so it owns the refresh: this
+   * form asks the page rather than reaching for the index itself.
+   */
+  onRefreshEvents: () => Promise<RefreshedPage | null>
+}) {
   const { state } = useBrowserWallet()
 
   /**
@@ -60,8 +77,7 @@ export function SubmitTransactionForm({ contract }: { contract: SubmitTarget }) 
 
   const submission = useSubmitTransaction({
     contract,
-    account,
-    chainId,
+    wallet: state,
     catalog: catalogFact,
   })
 
@@ -76,14 +92,24 @@ export function SubmitTransactionForm({ contract }: { contract: SubmitTarget }) 
         revoke or execute, and it cannot tell you what the owners will do next.
       </p>
 
-      {!submission.gate.open && (
-        // Not a live region: this sentence is on screen from the first paint
-        // whenever sending is unavailable, and the phases below are the things
-        // that change and need announcing.
-        <p>
-          Sending is not available.<span className="hint"> {submission.gate.reason}</span>
-        </p>
-      )}
+      {/*
+        The gate, announced when it changes and only then.
+
+        It is one element at a fixed place in the tree, marked polite, so a screen
+        reader hears the new reason when the wallet or the catalog moves and hears
+        nothing at all when this component re-renders for any other reason: React
+        does not touch the text of a node whose content has not changed, and an
+        unchanged live region is not re-announced.
+      */}
+      <p aria-live="polite" aria-atomic="true">
+        {submission.gate.open ? (
+          'Sending is available.'
+        ) : (
+          <>
+            Sending is not available.<span className="hint"> {submission.gate.reason}</span>
+          </>
+        )}
+      </p>
 
       {submission.phase.kind === 'editing' && (
         <SubmitFields
@@ -117,6 +143,16 @@ export function SubmitTransactionForm({ contract }: { contract: SubmitTarget }) 
             owners, executed, or indexed, and this app is not watching for any of
             that.
           </p>
+          <ReceiptCheck
+            // Keyed by the submission, so a different hash or a different
+            // context is a different component with no memory of the last one.
+            key={`${submission.phase.hash}:${contract.id}:${String(contract.chainId)}`}
+            hash={submission.phase.hash}
+            contract={contract}
+            wallet={state}
+            onRefreshEvents={onRefreshEvents}
+          />
+
           <div className="status__actions">
             <button type="button" onClick={submission.startAnother}>
               Submit another

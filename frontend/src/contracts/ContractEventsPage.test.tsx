@@ -1,4 +1,5 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
+import type userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -9,6 +10,7 @@ import {
   type FetchCall,
 } from '../test/http.ts'
 import {
+  deferred,
   installFakeProvider,
   removeFakeProvider,
   type FakeProvider,
@@ -595,7 +597,7 @@ describe('submitting from the contract view', () => {
     isTestnet: true,
   }
 
-  function wallet(): FakeProvider {
+  function wallet(receipt: () => unknown = () => successfulReceipt): FakeProvider {
     return installFakeProvider({
       answer: ({ method }) => {
         if (method === 'eth_accounts') {
@@ -610,8 +612,39 @@ describe('submitting from the contract view', () => {
           return SENT_HASH
         }
 
+        if (method === 'eth_getTransactionReceipt') {
+          return receipt()
+        }
+
         throw new Error(`unexpected method ${method}`)
       },
+    })
+  }
+
+  const successfulReceipt = {
+    transactionHash: SENT_HASH,
+    to: CONTRACT.address,
+    status: '0x1',
+    blockNumber: '0x5d2c40',
+    blockHash: `0x${'33'.repeat(32)}`,
+  }
+
+  const INDEXED_SUBMIT = {
+    ...SUBMIT_EVENT,
+    contractId: CONTRACT.id,
+    transactionHash: SENT_HASH,
+  }
+
+  /** Fills the form, confirms, and opens the wallet once. */
+  async function submit(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+    await user.type(screen.getByLabelText('Destination address'), DESTINATION)
+    await user.type(screen.getByLabelText('Value in wei'), '1000000000000000000')
+    await user.type(screen.getByLabelText('Calldata'), '0xdeadbeef')
+    await user.click(button('Review submission'))
+    await user.click(button('Open wallet and submit'))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Submitted\./).textContent).toContain(SENT_HASH)
     })
   }
 
@@ -624,8 +657,10 @@ describe('submitting from the contract view', () => {
       await screen.findByRole('heading', { name: 'Submit a transaction' }),
     ).toBeDefined()
 
+    // No provider was installed, which is a fact about this browser and not the
+    // same thing as a wallet with nothing connected.
     expect(screen.getByText(/Sending is not available/).textContent).toContain(
-      'No connected account.',
+      'No browser wallet was found in this browser.',
     )
     expect(button('Review submission').disabled).toBe(true)
   })
@@ -675,6 +710,236 @@ describe('submitting from the contract view', () => {
     // is polled for afterwards.
     expect(api.eventCalls).toBe(1)
     expect(api.stub.calls.every((call) => (call.init.method ?? 'GET') === 'GET')).toBe(true)
+  })
+
+  it('checks the receipt once per click, and refreshes the indexed page only on request', async () => {
+    const api = apiFetch({
+      chains: () => jsonResponse({ data: [SEPOLIA_ENTRY] }),
+      events: (_url, _init, call) =>
+        call === 1
+          ? eventsResponse([SUBMIT_EVENT], { page: 1, pageSize: PAGE_SIZE, totalItems: 1, totalPages: 1 })
+          : eventsResponse(
+              [INDEXED_SUBMIT],
+              { page: 1, pageSize: PAGE_SIZE, totalItems: 2, totalPages: 1 },
+            ),
+    })
+    const provider = wallet()
+
+    const { user } = renderApp({
+      path: '/contracts/7/events',
+      storage: memoryStorage('stored-token'),
+    })
+
+    await waitFor(() => {
+      expect(button('Review submission').disabled).toBe(false)
+    })
+
+    await submit(user)
+
+    // Nothing has been asked of the wallet or the index since the submission.
+    expect(provider.calls.filter((call) => call.method === 'eth_getTransactionReceipt')).toHaveLength(0)
+    expect(api.eventCalls).toBe(1)
+
+    await user.click(button('Check receipt'))
+
+    await waitFor(() => {
+      expect(document.body.textContent).toContain('included in block 6106176')
+    })
+
+    expect(provider.calls.filter((call) => call.method === 'eth_getTransactionReceipt')).toHaveLength(1)
+    // A receipt is not an index refresh.
+    expect(api.eventCalls).toBe(1)
+
+    await user.click(button('Refresh indexed events'))
+
+    await waitFor(() => {
+      expect(document.body.textContent).toContain('shows the SubmitTransaction event')
+    })
+
+    // One read of the same page, under the same bearer.
+    expect(api.eventCalls).toBe(2)
+
+    const last = api.stub.calls.filter((call) => /\/contracts\/7\/events/.test(call.url)).at(-1)!
+
+    expect(last.url).toBe(`/api/v1/contracts/7/events?page=1&pageSize=${String(PAGE_SIZE)}`)
+    expect(new Headers(last.init.headers).get('authorization')).toBe('Bearer stored-token')
+    expect(document.body.textContent).toContain('in block 6100000')
+  })
+
+  it('reports a manual refresh that failed, instead of the page it already had', async () => {
+    // The first read succeeds, so the query holds a page that does not contain
+    // the submitted hash. The manual refresh then fails. Query keeps the older
+    // page in `data` when a refetch fails, so a screen that read `data` alone
+    // would describe that stale page as the refreshed one: either "indexed",
+    // or "not on the refreshed page", and both would be false.
+    const api = apiFetch({
+      chains: () => jsonResponse({ data: [SEPOLIA_ENTRY] }),
+      events: (_url, _init, call) =>
+        call === 1
+          ? eventsResponse([SUBMIT_EVENT], {
+              page: 1,
+              pageSize: PAGE_SIZE,
+              totalItems: 1,
+              totalPages: 1,
+            })
+          : errorResponse(500, 'INTERNAL_SERVER_ERROR'),
+    })
+    wallet()
+
+    const { user } = renderApp({
+      path: '/contracts/7/events',
+      storage: memoryStorage('stored-token'),
+    })
+
+    await waitFor(() => {
+      expect(button('Review submission').disabled).toBe(false)
+    })
+
+    await submit(user)
+
+    await user.click(button('Check receipt'))
+    await waitFor(() => {
+      expect(button('Refresh indexed events')).toBeDefined()
+    })
+
+    await user.click(button('Refresh indexed events'))
+
+    await waitFor(() => {
+      expect(document.body.textContent).toContain(
+        'The current page of indexed events could not be read again.',
+      )
+    })
+
+    // Two reads were made, and the second one failed.
+    expect(api.eventCalls).toBe(2)
+
+    const text = document.body.textContent ?? ''
+
+    // Neither of the answers a stale page could have produced.
+    expect(text).not.toContain('shows the SubmitTransaction event for this transaction')
+    expect(text).not.toContain('not on the refreshed page')
+  })
+
+  it('says only that the event is not on the refreshed page when it is absent', async () => {
+    apiFetch({ chains: () => jsonResponse({ data: [SEPOLIA_ENTRY] }) })
+    wallet()
+
+    const { user } = renderApp({
+      path: '/contracts/7/events',
+      storage: memoryStorage('stored-token'),
+    })
+
+    await waitFor(() => {
+      expect(button('Review submission').disabled).toBe(false)
+    })
+
+    await submit(user)
+
+    await user.click(button('Check receipt'))
+    await waitFor(() => {
+      expect(button('Refresh indexed events')).toBeDefined()
+    })
+
+    await user.click(button('Refresh indexed events'))
+
+    await waitFor(() => {
+      expect(document.body.textContent).toContain('not on the refreshed page (page 1)')
+    })
+
+    expect(document.body.textContent).toContain('does not mean the contract emitted nothing')
+  })
+
+  it('reads a receipt with no block yet as no receipt, not as a lost transaction', async () => {
+    apiFetch({ chains: () => jsonResponse({ data: [SEPOLIA_ENTRY] }) })
+    wallet(() => null)
+
+    const { user } = renderApp({
+      path: '/contracts/7/events',
+      storage: memoryStorage('stored-token'),
+    })
+
+    await waitFor(() => {
+      expect(button('Review submission').disabled).toBe(false)
+    })
+
+    await submit(user)
+    await user.click(button('Check receipt'))
+
+    await waitFor(() => {
+      expect(document.body.textContent).toContain('no receipt for this transaction right now')
+    })
+
+    expect(document.body.textContent).toContain('not proof the transaction was dropped')
+    expect(screen.queryByRole('button', { name: 'Refresh indexed events' })).toBeNull()
+  })
+
+  it('clears the receipt when the wallet moves to another account', async () => {
+    apiFetch({ chains: () => jsonResponse({ data: [SEPOLIA_ENTRY] }) })
+    const provider = wallet()
+
+    const { user } = renderApp({
+      path: '/contracts/7/events',
+      storage: memoryStorage('stored-token'),
+    })
+
+    await waitFor(() => {
+      expect(button('Review submission').disabled).toBe(false)
+    })
+
+    await submit(user)
+    await user.click(button('Check receipt'))
+
+    await waitFor(() => {
+      expect(document.body.textContent).toContain('included in block 6106176')
+    })
+
+    // The wallet announces a different account. The submission belonged to the
+    // one that left, so the hash and its receipt go with it.
+    await act(async () => {
+      provider.emit('accountsChanged', ['0x2e2E2e2E2e2E2e2E2e2E2e2E2e2E2e2E2e2E2e2E'])
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByText(/included in block/)).toBeNull()
+    })
+
+    expect(screen.queryByText(/Submitted\./)).toBeNull()
+  })
+
+  it('shows nothing for a receipt that arrives after the page is gone', async () => {
+    const held = deferred<unknown>()
+    apiFetch({ chains: () => jsonResponse({ data: [SEPOLIA_ENTRY] }) })
+    wallet(() => held.promise)
+
+    const { user } = renderApp({
+      path: '/contracts/7/events',
+      storage: memoryStorage('stored-token'),
+    })
+
+    await waitFor(() => {
+      expect(button('Review submission').disabled).toBe(false)
+    })
+
+    await submit(user)
+    await user.click(button('Check receipt'))
+
+    await waitFor(() => {
+      expect(document.body.textContent).toContain('Checking the receipt')
+    })
+
+    await user.click(screen.getByRole('link', { name: 'Back to tracked contracts' }))
+
+    await waitFor(() => {
+      expect(currentPath()).toBe('/contracts')
+    })
+
+    await act(async () => {
+      held.resolve(successfulReceipt)
+      await Promise.resolve()
+    })
+
+    expect(document.body.textContent).not.toContain('included in block')
   })
 
   it('does not treat an indexing status as a permission it needs', async () => {
