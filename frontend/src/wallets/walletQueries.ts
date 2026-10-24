@@ -3,7 +3,7 @@ import type { QueryClient, UseQueryOptions } from '@tanstack/react-query'
 import { ApiError, type WalletList } from '../api/index.ts'
 import type { DataSession } from '../auth/session.ts'
 import { identityKey, type IdentityRef } from '../data/identityKeys.ts'
-import { PAGE_SIZE } from './page.ts'
+import { PAGE_SIZE } from '../data/page.ts'
 
 /**
  * Matches every wallet-list page belonging to one identity, and nothing else.

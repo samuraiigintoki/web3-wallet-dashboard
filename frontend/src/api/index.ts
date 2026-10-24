@@ -27,16 +27,20 @@ export {
 } from './request.ts'
 export type {
   Chain,
+  ContractList,
   CreateWalletRequest,
+  IndexingStatus,
+  ListContractsParams,
   ListWalletsParams,
   LoginRequest,
   LoginResult,
   MessageResult,
   Pagination,
   RegisterRequest,
+  TrackedContract,
   UpdateWalletRequest,
   User,
   Wallet,
   WalletList,
 } from './types.ts'
-export { isChain, isChainList } from './guards.ts'
+export { isChain, isChainList, isContractList, isTrackedContract } from './guards.ts'

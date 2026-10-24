@@ -50,6 +50,7 @@ function dataSessionFor(identity: { userId: number; generation: number }) {
       updateWalletLabel: vi.fn(),
       deleteWallet: vi.fn(),
       getWallet: vi.fn(),
+      listContracts: vi.fn(),
     },
   }
 }

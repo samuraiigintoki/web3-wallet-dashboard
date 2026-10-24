@@ -19,7 +19,7 @@ import {
 import { isProtectedKey } from '../data/identityKeys.ts'
 import { createQueryClient } from '../data/queryClient.ts'
 import { currentPath, renderApp } from '../test/renderApp.tsx'
-import { PAGE_SIZE } from './page.ts'
+import { PAGE_SIZE } from '../data/page.ts'
 import { WalletLabelEditor } from './WalletLabelEditor.tsx'
 
 const USER_A: User = { id: 5, email: 'ada@example.com', createdAt: '2026-10-06T12:00:00Z' }
@@ -990,6 +990,7 @@ describe('wallet label editor draft', () => {
         updateWalletLabel: vi.fn() as unknown as ApiClient['updateWalletLabel'],
         deleteWallet: vi.fn() as unknown as ApiClient['deleteWallet'],
         getWallet: vi.fn() as unknown as ApiClient['getWallet'],
+        listContracts: vi.fn() as unknown as ApiClient['listContracts'],
       },
     }
   }

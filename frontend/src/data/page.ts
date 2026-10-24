@@ -1,9 +1,10 @@
 /**
- * The page this screen asks for, and the limits it asks within.
+ * The page a screen asks for, and the limits it asks within.
  *
- * The server owns both caps and answers an over-cap page with 400, so these
- * numbers are not decoration: they are what keeps a hand-typed URL from
- * producing a request the API rejects.
+ * Shared by every paginated screen: the wallets list and the tracked-contract
+ * list ask the same server the same questions, and the server owns both caps and
+ * answers an over-cap page with 400. These numbers are not decoration: they are
+ * what keeps a hand-typed URL from producing a request the API rejects.
  */
 
 /** The server's page ceiling. Anything above it is a 400. */
@@ -13,7 +14,7 @@ export const MAX_PAGE = 10_000
 export const PAGE_SIZE = 20
 
 /**
- * A page number from the URL.
+ * A page number from the URL, for any paginated screen.
  *
  * Anything that is not a positive plain integer is page 1 rather than an error:
  * a malformed address bar is not a wallet failure, and crashing on `?page=abc`

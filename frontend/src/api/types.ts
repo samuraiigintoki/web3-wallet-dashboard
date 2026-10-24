@@ -76,6 +76,49 @@ export type ListWalletsParams = {
 }
 
 /**
+ * How indexing availability reads for a tracked contract.
+ *
+ * Three values, all of them about the deployment rather than about a scan: the
+ * API computes this at read time and never sends the scanner's running state or
+ * its error text. There is no fourth value for progress because the API does not
+ * describe progress.
+ */
+export type IndexingStatus = 'pending' | 'disabled' | 'unsupported'
+
+/**
+ * GET /api/v1/contracts, one tracked record.
+ *
+ * Exactly the fields the handler sends, all of them, including `createdAt`. A
+ * row missing one is a contract violation rather than a record with a blank
+ * cell, so the guard refuses the whole page instead of drawing a row with a gap.
+ *
+ * `startBlock` is the first block the indexer was asked to scan from, kept as a
+ * number because the API sends an int64 block height, not a uint256 value.
+ */
+export type TrackedContract = {
+  id: number
+  address: string
+  chainId: number
+  label: string
+  enabled: boolean
+  startBlock: number
+  createdAt: string
+  indexingStatus: IndexingStatus
+}
+
+/** GET /api/v1/contracts, one page. */
+export type ContractList = {
+  contracts: TrackedContract[]
+  pagination: Pagination
+}
+
+/** The page of tracked contracts this client asks for. */
+export type ListContractsParams = {
+  page: number
+  pageSize: number
+}
+
+/**
  * GET /api/v1/chains, one row of the public catalog.
  *
  * Exactly the four fields the handler sends. There is no `enabled` flag here:

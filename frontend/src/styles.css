@@ -125,3 +125,11 @@ body {
   font-size: 0.85em;
   overflow-wrap: anywhere;
 }
+
+/* Addresses are monospace and may wrap anywhere: a 42-character hex string is
+   one token, and a narrow screen must not have to scroll to show it. */
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+}

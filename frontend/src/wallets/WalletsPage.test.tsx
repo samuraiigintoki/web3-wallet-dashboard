@@ -13,7 +13,7 @@ import {
 } from '../test/http.ts'
 import { currentPath, memoryStorage, renderApp } from '../test/renderApp.tsx'
 import { createQueryClient } from '../data/queryClient.ts'
-import { PAGE_SIZE } from './page.ts'
+import { PAGE_SIZE } from '../data/page.ts'
 
 const USER = { id: 5, email: 'ada@example.com', createdAt: '2026-10-06T12:00:00Z' }
 

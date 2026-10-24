@@ -2,7 +2,7 @@ import { QueryClient } from '@tanstack/react-query'
 import { describe, expect, it } from 'vitest'
 
 import { identityKey, type IdentityRef } from '../data/identityKeys.ts'
-import { PAGE_SIZE } from './page.ts'
+import { PAGE_SIZE } from '../data/page.ts'
 import { refreshWalletLists } from './walletQueries.ts'
 
 const MINE: IdentityRef = { userId: 5, generation: 1 }
