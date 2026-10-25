@@ -66,7 +66,7 @@ jobs:
       PGD_BIN: /usr/lib/postgresql/17/bin
       PGPASSWORD: wallet
       BACKUP_PASSPHRASE: self-test-passphrase
-      BACKUP_OUT_DIR: ${{ runner.temp }}/backups
+      BACKUP_OUT_DIR: backups
       DATABASE_URL: postgres://wallet:wallet@localhost:5432/wallet?sslmode=disable
 
     steps:
