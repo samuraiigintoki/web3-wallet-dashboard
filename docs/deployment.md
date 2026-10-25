@@ -82,7 +82,7 @@ different sides.
 | Variable | Service | Value |
 | --- | --- | --- |
 | `DATABASE_URL` | API | Neon direct endpoint, `sslmode=require`. Prompted, never committed |
-| `RUN_MIGRATIONS` | API | `on`, which is also the default when unset |
+| `RUN_MIGRATIONS` | API | not set. The start script migrates when it is unset; `off` is the only opt out |
 | `CORS_ALLOWED_ORIGINS` | API | the dashboard origin, exactly |
 | `EVM_RPC_URL` | API | optional Sepolia endpoint; indexing is off when empty |
 | `LOG_LEVEL` | API | `info` |
