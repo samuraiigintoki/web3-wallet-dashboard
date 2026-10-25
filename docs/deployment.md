@@ -18,7 +18,7 @@ verified in earlier weeks stays the testnet deployment the dashboard reads.
 Everything here is on a zero-cost tier. That constrains three decisions:
 
 - **Migrations run at container start.** Render's `preDeployCommand` is a paid
-  feature and the Blueprint rejects it on a free service, so `scripts/docker-start.sh`
+  feature and the Blueprint rejects it on a free service, so `backend/scripts/docker-start.sh`
   runs `migrate up` and then `exec`s the API. If the migration fails the container
   exits non-zero, the deploy is not promoted and the previous instance keeps
   serving. The migrations have to be idempotent and safe to re-run, which the
