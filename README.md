@@ -148,6 +148,8 @@ docker compose up --build
 
 This builds one image and starts three services: `postgres`, a one-shot `migrate` service that applies the schema, and `api`, which starts only after migrations exit successfully and publishes port 8080. The image runs as a non-root user, sets `TZ=UTC`, and reports container health from liveness only.
 
+The hosted staging environment, how it is configured, and how to roll it back are in [docs/deployment.md](docs/deployment.md). There, migrations run at container start instead of as a one-shot service, because the host has no separate migration step.
+
 Verify the running stack from another terminal:
 
 ```bash
@@ -224,6 +226,7 @@ These are the same four gates the `frontend` CI job runs after `npm ci`.
 - [Contract Integration Requirements](docs/contract-requirements.md)
 - [Security Assumptions](docs/security-assumptions.md)
 - [Authentication](docs/auth.md)
+- [Deployment and rollback](docs/deployment.md)
 - [ADR 0001: Wallet Identity Type and MVP Schema Conventions](docs/adr/0001-wallet-id-and-schema-conventions.md)
 - [ADR 0002: Migration Runner and Execution Strategy](docs/adr/0002-migration-runner-and-execution-strategy.md)
 - [ADR 0003: Wallet Ownership Retrofit](docs/adr/0003-wallet-ownership-retrofit.md)
