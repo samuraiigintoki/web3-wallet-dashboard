@@ -17,10 +17,13 @@ verified in earlier weeks stays the testnet deployment the dashboard reads.
 
 Everything here is on a zero-cost tier. That constrains three decisions:
 
-- **Migrations run at container start.** Render's `preDeployCommand` is a paid
-  feature and the Blueprint rejects it on a free service, so the image's own
-  `CMD` is `backend/scripts/docker-start.sh`, which runs `migrate up` and then
-  `exec`s the API. If the migration fails the container
+- **Migrations run at container start, by default.** Render's `preDeployCommand`
+  is a paid feature and the Blueprint rejects it on a free service, so the image's
+  own `CMD` is `backend/scripts/docker-start.sh`, which runs `migrate up` and then
+  `exec`s the API. Migrating is the default when `RUN_MIGRATIONS` says nothing:
+  readiness only proves the database answers, so a container that skipped
+  migrations would report healthy against an old schema. Only the explicit value
+  `off` skips it, and any other value exits 2 without starting anything. If the migration fails the container
   exits non-zero, the deploy is not promoted and the previous instance keeps
   serving. The migrations have to be idempotent and safe to re-run, which the
   advisory lock in `backend/cmd/migrate` guarantees for concurrent starts.
@@ -79,7 +82,7 @@ different sides.
 | Variable | Service | Value |
 | --- | --- | --- |
 | `DATABASE_URL` | API | Neon direct endpoint, `sslmode=require`. Prompted, never committed |
-| `RUN_MIGRATIONS` | API | `on` |
+| `RUN_MIGRATIONS` | API | `on`, which is also the default when unset |
 | `CORS_ALLOWED_ORIGINS` | API | the dashboard origin, exactly |
 | `EVM_RPC_URL` | API | optional Sepolia endpoint; indexing is off when empty |
 | `LOG_LEVEL` | API | `info` |
@@ -96,6 +99,12 @@ refuses to build with a malformed value, and the API refuses to start with one.
 
 Local development needs neither. `VITE_API_BASE_URL` unset means the bundle calls
 `/api/v1`, which the Vite dev server proxies to `http://localhost:8080`.
+
+`VITE_API_BASE_URL` is refused by the build if it carries a username or password.
+A URL like `https://user:password@host/api/v1` parses fine, which is the point:
+every character of this value is compiled into the bundle, so accepting it would
+publish the credential with a green build. The error names the value with the
+credential replaced, so a CI log does not repeat it.
 
 ## First deploy
 

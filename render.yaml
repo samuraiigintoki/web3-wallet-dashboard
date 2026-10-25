@@ -21,9 +21,7 @@ services:
     # script. A command field is a second place for the same fact, and on a
     # service created through the API it did not persist at all, so the container
     # served without migrating and only the log said so.
-    # RUN_MIGRATIONS=on makes it apply the schema and exit non-zero if that
-    # fails, so a bad migration fails the deploy instead of serving new code
-    # against an old schema.
+    #
     # Readiness, not liveness: a deploy is only promoted when the new instance can
     # reach PostgreSQL. Liveness stays the container's own health check.
     healthCheckPath: /health/ready
@@ -40,7 +38,11 @@ services:
       # The API refuses to start without this variable.
       - key: DATABASE_URL
         sync: false
-      # Applies migrations on boot. Only this service runs them.
+      # Stated rather than relied on: the start script migrates when this is
+      # unset, `off` is the only value that skips it, and any other value stops
+      # the container without starting the API. A failed migration exits
+      # non-zero, so the deploy is not promoted and the previous release keeps
+      # serving.
       - key: RUN_MIGRATIONS
         value: "on"
       # The only browser origin allowed to read this API. Exactly one value: the
