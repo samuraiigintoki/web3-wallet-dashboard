@@ -11,7 +11,7 @@ verified in earlier weeks stays the testnet deployment the dashboard reads.
 
 | Piece | Host | Plan | Notes |
 | --- | --- | --- | --- |
-| Dashboard | Render static site | free, no expiry | React bundle on a CDN, SPA rewrite to `index.html` |
+| Dashboard | Render static site | free, no expiry, no compute plan to size | React bundle on a CDN, SPA rewrite to `index.html` |
 | API | Render web service, Docker | free | sleeps after 15 minutes idle, about a minute to wake |
 | Database | Neon Postgres | free, no expiry | 1 GB, autoscaling compute, scale to zero after 5 minutes |
 
@@ -33,8 +33,18 @@ Everything here is on a zero-cost tier. That constrains three decisions:
   warm, so this is a latency cost, not a correctness one.
 
 Both hostnames are the provider defaults, chosen now because they are readable
-and cost nothing. A custom domain later is a DNS record plus one value in
-`render.yaml` for `CORS_ALLOWED_ORIGINS` and one for `VITE_API_BASE_URL`.
+and cost nothing. They are also named in two places that no compiler compares:
+the dashboard's `VITE_API_BASE_URL` and the API's `CORS_ALLOWED_ORIGINS`.
+`backend/internal/deploy` reads `render.yaml` and fails when either stops
+pointing at the service it names, and when the static site declares a `plan` or
+`region`, which Render's schema refuses with `additionalProperties: false`. The
+second check exists because a `plan: free` on the static site was written here
+first, and everything else agreed with it: only Render's published schema
+disagreed.
+
+A custom domain later is a DNS record plus one value in `render.yaml` for
+`CORS_ALLOWED_ORIGINS` and one for `VITE_API_BASE_URL`. The test above then
+holds those two values to the new hostname.
 
 ## Configuration
 

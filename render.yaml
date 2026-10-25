@@ -61,7 +61,9 @@ services:
   - type: web
     name: web3-wallet-dashboard
     runtime: static
-    plan: free
+    # No plan and no region here: a static site has no compute to size, and
+    # Render's published schema rejects both fields on this service kind with
+    # additionalProperties false. `backend/internal/deploy` enforces it.
     branch: main
     buildCommand: cd frontend && npm ci && npm run build
     staticPublishPath: ./frontend/dist
