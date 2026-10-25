@@ -210,30 +210,72 @@ connection string, a session token or an authorization header.
 
 ## Network exposure of the database
 
-The database is on the public internet. Neon gives it a TLS endpoint with a
-password, and that is the whole perimeter: port 5432 answers any client that has
-the credential.
+**This is the one requirement the deployment does not meet.** Issue #104 asks that
+PostgreSQL accept no public connections outside the host's private networking. It
+does not: port 5432 answers any client that has the credential, from anywhere.
 
-A private link would need Render's private networking, which does not reach
-Neon. An IP allow list is available on the Neon side and is the right next step,
-but Render's free tier has no static egress: outbound addresses are shared per
-region and change over time, and Render's dedicated IPs are a Pro feature at
-$100 a month per set. An allow list built on the shared ranges would work until
-Render rotates them and then take the API down, which is worse than the exposure
-it removes.
+That is not an oversight, and the free tier does not offer a way out. Both
+controls that would close it were tried against this project and refused or
+unusable:
 
-So the exposure is accepted and named rather than papered over:
+| Control | Result |
+| --- | --- |
+| Neon IP allow list | The API rejects it with `requested number of allowed ip entries exceeds allowed maximum; max: "0"`. IP Allow is a Neon Scale feature. |
+| Neon `block_public_connections` | Accepted by the API, but it blocks the public endpoint this API uses. Turning it on without Private Networking takes the deployment down. Private Networking is also Scale. |
+| Restricting the role to least privilege | Neon grants every role it creates membership of `neon_superuser`, and no role in the project has the ADMIN option needed to alter or revoke it. `wallet` cannot be de-privileged from SQL. |
+| Private connectivity between the two hosts | Render's private network does not reach Neon, and Render's own Postgres, which would be private, deletes itself 44 days after creation. |
 
-- TLS on every connection (`sslmode=require`), so the credential is not readable
-  in transit.
-- One role, `wallet`, owning one database, with a generated 16 character
-  password. No other role holds a password.
-- Nothing listens on 5432 except PostgreSQL, and there is no database content
-  outside the tables the migrations create.
-- When a paid plan exists, the allow list is one API call:
-  `PATCH /api/v2/projects/{project_id}` with the egress ranges, plus Neon's
-  protected-branch setting so only `main` accepts writes.
+Everything that is available for free has been done:
 
+- TLS on every connection (`sslmode=require`). Unencrypted connections are
+  refused by Neon.
+- The `wallet` credential was rotated after it had been handled outside the
+  platform, so the only valid copy is the one in Render's environment and in
+  `/home/user/.secrets`. The old password is dead: a connection with it fails
+  with `password authentication failed`.
+- No content outside the tables the migrations create. The walk leaves test rows
+  and nothing else.
+- Render's Singapore egress ranges are recorded here, because the day this
+  becomes affordable the allow list is two CIDRs and one API call:
+  `74.220.52.0/24` and `74.220.60.0/24` (`GET /v1/services/{id}/outbound-ips`).
+  They are shared per region and Render has rotated them before, so an allow list
+  built on them needs the Render changelog watched.
+
+The path out, when there is money for it, in order of preference:
+
+1. **Neon Scale.** IP Allow plus Private Networking, no other change. The project,
+   the connection string and the migrations stay as they are.
+2. **Render Postgres, paid plan, private connection string.** Both services in one
+   region and workspace, no public endpoint at all.
+3. **Co-locate everything on one platform with private networking.** A bigger
+   move, and it trades a managed database for an operator's job.
+
+Until one of those is paid for, this is a documented, conscious acceptance of the
+risk for a staging environment, not a solved problem. The credential is the
+perimeter.
+
+### Rotating the database credential
+
+The move above is only useful if it is quick. It is three calls and one deploy:
+
+```sh
+# 1. New password. The response is the only copy of it.
+curl -X POST -H "Authorization: Bearer $NEON_API_KEY" \
+  "https://console.neon.tech/api/v2/projects/$PROJECT/branches/$BRANCH/roles/wallet/reset_password"
+
+# 2. Put the rebuilt connection string in the service's environment.
+#    PUT /v1/services/$SERVICE/env-vars with the full list, DATABASE_URL replaced.
+
+# 3. Deploy, because an environment change alone does not redeploy.
+#    POST /v1/services/$SERVICE/deploys
+```
+
+Then `scripts/smoke/deployment-smoke.sh` against the two live URLs. The running
+container keeps working on pooled connections until they expire by age, which is
+why the deploy is step three and not optional: the pool is retired after five
+minutes, so without a deploy the API starts failing on its own schedule.
+
+## Known limitations
 ## Known limitations
 
 - The API is single instance and sleeps. It is not a high-availability deployment.
@@ -242,7 +284,9 @@ So the exposure is accepted and named rather than papered over:
 - No custom domain, no CDN in front of the API, no autoscaling beyond Neon's
   per-project compute.
 - No alerting. A failed deploy is visible in Render and in the smoke walk.
-- The database endpoint is reachable from the internet. See the section above;
-  the mitigation needs a paid egress plan.
+- The database endpoint is reachable from the internet, which is a departure from
+  the security requirement in issue #104. The section above records what was
+  tried, what the free tier refuses, and what the paid fix is. It needs to be
+  waived by the repository owner, not by whoever wrote the code.
 - Staging data is disposable. It is not backed up, and the smoke walk leaves a
   test account, a wallet and a contract behind on every run.
