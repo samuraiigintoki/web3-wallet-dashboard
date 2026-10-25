@@ -73,11 +73,18 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # Ubuntu 24.04 ships the 16 client, and pg_dump refuses a server that is
+      # newer than itself. The PGDG archive is where the 17 client comes from;
+      # the version printed at the end is the proof it did.
       - name: Install the Postgres 17 client
         run: |
           set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
           sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
           sudo apt-get install -y --no-install-recommends postgresql-client-17
+          /usr/lib/postgresql/17/bin/pg_dump --version
 
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -159,11 +166,18 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # Ubuntu 24.04 ships the 16 client, and pg_dump refuses a server that is
+      # newer than itself. The PGDG archive is where the 17 client comes from;
+      # the version printed at the end is the proof it did.
       - name: Install the Postgres 17 client
         run: |
           set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
           sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
           sudo apt-get install -y --no-install-recommends postgresql-client-17
+          /usr/lib/postgresql/17/bin/pg_dump --version
 
       # Fail loudly rather than skipping. A nightly job that silently does
       # nothing is a backup policy that exists only in the documentation.
@@ -239,11 +253,18 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # Ubuntu 24.04 ships the 16 client, and pg_dump refuses a server that is
+      # newer than itself. The PGDG archive is where the 17 client comes from;
+      # the version printed at the end is the proof it did.
       - name: Install the Postgres 17 client
         run: |
           set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
           sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
           sudo apt-get install -y --no-install-recommends postgresql-client-17
+          /usr/lib/postgresql/17/bin/pg_dump --version
 
       - name: Download the artifact this run took
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
