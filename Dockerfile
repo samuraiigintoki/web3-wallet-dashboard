@@ -30,6 +30,12 @@ ENV TZ=UTC
 COPY --from=build /out/api /usr/local/bin/api
 COPY --from=build /out/migrate /usr/local/bin/migrate
 
+# Migrate-then-serve, for platforms with no separate migration step. Copied
+# rather than written inline so the platform's own command field has no shell
+# quoting to survive.
+COPY scripts/docker-start.sh /usr/local/bin/start
+RUN chmod 0755 /usr/local/bin/start
+
 USER appuser
 
 EXPOSE 8080

@@ -1,0 +1,94 @@
+# The staging deployment, as code.
+#
+# Two Render services on the free plan and one Neon database, chosen because the
+# whole thing costs nothing and still has a clean paid upgrade path. See
+# docs/deployment.md for the decisions, the runbook, the rollback procedure and
+# the limitations this configuration accepts.
+#
+# No secret is written here. Anything marked `sync: false` is prompted for in the
+# Render dashboard when the Blueprint is created, and lives only in Render.
+
+services:
+  # The Go API, built from the repository's own Dockerfile.
+  - type: web
+    name: web3-wallet-api
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # Migrations at boot, because a pre-deploy command is not available on the
+    # free plan. RUN_MIGRATIONS=on makes the container apply the schema and exit
+    # non-zero if that fails, so a bad migration fails the deploy instead of
+    # serving new code against an old schema.
+    dockerCommand: /usr/local/bin/start
+    # Readiness, not liveness: a deploy is only promoted when the new instance can
+    # reach PostgreSQL. Liveness stays the container's own health check.
+    healthCheckPath: /health/ready
+    # Deploy only after CI on the branch has passed.
+    autoDeployTrigger: checksPass
+    envVars:
+      # The Neon connection string, ending in sslmode=require.
+      #
+      # Use Neon's direct endpoint, the host without a `-pooler` suffix. The API
+      # speaks the extended query protocol with cached prepared statements, which
+      # a transaction-pooling endpoint cannot serve. One free API instance needs
+      # nowhere near Neon's connection limit, so pooling buys nothing here.
+      #
+      # The API refuses to start without this variable.
+      - key: DATABASE_URL
+        sync: false
+      # Applies migrations on boot. Only this service runs them.
+      - key: RUN_MIGRATIONS
+        value: "on"
+      # The only browser origin allowed to read this API. Exactly one value: the
+      # frontend's own origin, scheme and host, no trailing slash.
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://web3-wallet-dashboard.onrender.com
+      # Optional contract indexing. Set to a Sepolia endpoint to index events; an
+      # empty value leaves the API serving everything else with one warning.
+      - key: EVM_RPC_URL
+        sync: false
+      - key: LOG_LEVEL
+        value: info
+    # PORT is injected by Render; the API binds to it when ADDR is unset. Do not
+    # set ADDR here, it would override the platform port.
+
+  # The dashboard, built and served as static files from Render's CDN.
+  #
+  # A static site has no compute plan, no cold start and no expiry: it is the one
+  # part of this stack that behaves the same at zero cost as at any price.
+  - type: web
+    name: web3-wallet-dashboard
+    runtime: static
+    plan: free
+    branch: main
+    buildCommand: cd frontend && npm ci && npm run build
+    staticPublishPath: ./frontend/dist
+    autoDeployTrigger: checksPass
+    envVars:
+      # Compiled into the bundle, so it is public by definition. It names the API
+      # service above plus /api/v1, and it must match the CORS allowlist.
+      - key: VITE_API_BASE_URL
+        value: https://web3-wallet-api.onrender.com/api/v1
+    routes:
+      # react-router paths are client-side, so a deep link or a refresh asks the CDN
+      # for a file that does not exist. Render serves a real file when one exists,
+      # so hashed assets are unaffected.
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: no-referrer
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      # The API origin is the only host this page needs to reach.
+      - path: /*
+        name: Permissions-Policy
+        value: geolocation=(), microphone=(), camera=()
