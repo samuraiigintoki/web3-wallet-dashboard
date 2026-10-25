@@ -44,6 +44,18 @@ func run(ctx context.Context, logger *slog.Logger) (runErr error) {
 		addr = defaultAddr
 	}
 
+	// The origins allowed to call this API from a browser.
+	//
+	// Unset means none: a deployment that has not said which frontend reads it
+	// answers no cross-origin request, and a bad entry is a startup failure
+	// rather than a silently short allowlist. Local development is unaffected,
+	// because the Vite dev server proxies /api and those calls are same-origin.
+	corsPolicy, err := httpapi.ParseCORSOrigins(os.Getenv("CORS_ALLOWED_ORIGINS"))
+	if err != nil {
+		return fmt.Errorf("invalid CORS configuration: %w", err)
+	}
+	logger.Info("CORS allowlist configured", "origins", corsPolicy.Len())
+
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return fmt.Errorf("failed to initiate DB pool: %w", err)
@@ -86,7 +98,13 @@ func run(ctx context.Context, logger *slog.Logger) (runErr error) {
 
 	globalLimiter := newTokenBucketLimiter(globalLimitPerMinute, globalLimitBurst)
 	authLimiter := newTokenBucketLimiter(authLimitPerMinute, authLimitBurst)
-	handler := httpapi.NewRouter(walletSvc, userSvc, chainSvc, contractSvc, indexerRepo, logger, databaseReadiness{db: db}, globalLimiter, authLimiter)
+	// The CORS wrap is outermost so a preflight is answered before the rate
+	// limiter and before any handler, and so no route added later can be missed
+	// by it.
+	handler := httpapi.WithCORS(
+		httpapi.NewRouter(walletSvc, userSvc, chainSvc, contractSvc, indexerRepo, logger, databaseReadiness{db: db}, globalLimiter, authLimiter),
+		corsPolicy,
+	)
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
