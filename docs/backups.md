@@ -145,6 +145,7 @@ actually ran, with what was compared.
 | Date | Where | Artifact | Source | Tables | Rows compared | Result |
 | --- | --- | --- | --- | --- | --- | --- |
 | 2026-10-25 | local Postgres 17, `restoredb` | `wallet-20261025T210851Z.dump.enc` (118 KB) | local `wallet` | 12 | 12 tables matched, including `users` 5, `contracts` 7, `schema_migrations` 8 | pass |
+| 2026-10-25 | local Postgres 17, `stagedrill` | `wallet-20261025T211449Z.dump.enc` (36 KB) | **staging**, the Neon database the API is serving from | 12 | all 12 matched: `users` 11, `wallets` 7, `user_contracts` 7, `user_sessions` 9, `contracts` 1, `chains` 3, `schema_migrations` 8 | pass, restore 0.31 s; the dump took 19.1 s because the suspended compute had to wake first |
 
 The same session checked the failure paths, because a guard nobody has seen
 fire is a guard nobody knows works:
@@ -161,7 +162,9 @@ fire is a guard nobody knows works:
 
 | Date | Workflow run | Job | Result |
 | --- | --- | --- | --- |
-| 2026-10-25 | first `Backup` run on this branch | `self-test` | recorded in the pull request once the run finishes |
+| 2026-10-25 | `40234416584`, run 1 | `self-test` (no secrets, throwaway Postgres 17) | pass in 46 s: schema built by the real migrations, 25 rows of its own round tripped, all three guards refused what they should |
+| 2026-10-25 | `40234338160`, run 1 | `self-test` | failed at the install step: Ubuntu 24.04 has no `postgresql-client-17` without the PGDG archive. Fixed, and the version is now printed on that step |
+| 2026-10-25 | `40234262372`, run 1 | rejected before any job | the workflow used `runner.temp` in a job level `env`, which is not an allowed context. The run had zero jobs and said nothing useful, which is why `actionlint` is worth running before a push |
 
 ## What this does not do
 
