@@ -30,9 +30,10 @@ ENV TZ=UTC
 COPY --from=build /out/api /usr/local/bin/api
 COPY --from=build /out/migrate /usr/local/bin/migrate
 
-# Migrate-then-serve, for platforms with no separate migration step. Copied
-# rather than written inline so the platform's own command field has no shell
-# quoting to survive.
+# Migrate-then-serve. Copied rather than written inline so a platform's own
+# command field has no shell quoting to survive, and because the default below
+# is this script: the image, not the platform, owns the decision to migrate
+# before serving.
 COPY backend/scripts/docker-start.sh /usr/local/bin/start
 RUN chmod 0755 /usr/local/bin/start
 
@@ -46,7 +47,14 @@ EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=3s --start-period=3s --retries=3 \
   CMD wget -q -O /dev/null http://127.0.0.1:8080/health/live || exit 1
 
-# The API is what the image runs by default. No ENTRYPOINT is set, so the
-# migrate service in docker-compose.yml overrides just the command and reuses
-# this same image for a one-shot `migrate up`.
-CMD ["api"]
+# The start script is what the image runs by default, so every path into this
+# image migrates before it serves unless RUN_MIGRATIONS says otherwise. That
+# matters for a platform whose service is created by an API call or a command
+# field that silently does not persist: the image behaviour is the one thing
+# nobody can forget to configure. docker-compose runs `migrate up` as its own
+# service and leaves RUN_MIGRATIONS unset, so there the script starts the API and
+# nothing else.
+#
+# No ENTRYPOINT is set, so a one-shot `migrate up` overrides just the command and
+# reuses the same image.
+CMD ["/usr/local/bin/start"]

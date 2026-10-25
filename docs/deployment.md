@@ -18,8 +18,9 @@ verified in earlier weeks stays the testnet deployment the dashboard reads.
 Everything here is on a zero-cost tier. That constrains three decisions:
 
 - **Migrations run at container start.** Render's `preDeployCommand` is a paid
-  feature and the Blueprint rejects it on a free service, so `backend/scripts/docker-start.sh`
-  runs `migrate up` and then `exec`s the API. If the migration fails the container
+  feature and the Blueprint rejects it on a free service, so the image's own
+  `CMD` is `backend/scripts/docker-start.sh`, which runs `migrate up` and then
+  `exec`s the API. If the migration fails the container
   exits non-zero, the deploy is not promoted and the previous instance keeps
   serving. The migrations have to be idempotent and safe to re-run, which the
   advisory lock in `backend/cmd/migrate` guarantees for concurrent starts.
@@ -32,8 +33,14 @@ Everything here is on a zero-cost tier. That constrains three decisions:
   loading state while that happens. Nothing in the app depends on the API being
   warm, so this is a latency cost, not a correctness one.
 
-Both hostnames are the provider defaults, chosen now because they are readable
-and cost nothing. They are also named in two places that no compiler compares:
+The two live hostnames are:
+
+- Dashboard: `https://web3-wallet-dashboard-c4ii.onrender.com`
+- API: `https://web3-wallet-api.onrender.com`
+
+The dashboard carries a suffix because Render appends one when the name is
+already taken on `onrender.com`. Both are provider defaults, chosen because they
+are readable and cost nothing. They are also named in two places that no compiler compares:
 the dashboard's `VITE_API_BASE_URL` and the API's `CORS_ALLOWED_ORIGINS`.
 `backend/internal/deploy` reads `render.yaml` and fails when either stops
 pointing at the service it names, and when the static site declares a `plan` or

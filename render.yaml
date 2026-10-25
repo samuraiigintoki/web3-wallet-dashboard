@@ -17,11 +17,13 @@ services:
     region: singapore
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    # Migrations at boot, because a pre-deploy command is not available on the
-    # free plan. RUN_MIGRATIONS=on makes the container apply the schema and exit
-    # non-zero if that fails, so a bad migration fails the deploy instead of
-    # serving new code against an old schema.
-    dockerCommand: /usr/local/bin/start
+    # No dockerCommand field: the image's own CMD is the migrate-then-serve start
+    # script. A command field is a second place for the same fact, and on a
+    # service created through the API it did not persist at all, so the container
+    # served without migrating and only the log said so.
+    # RUN_MIGRATIONS=on makes it apply the schema and exit non-zero if that
+    # fails, so a bad migration fails the deploy instead of serving new code
+    # against an old schema.
     # Readiness, not liveness: a deploy is only promoted when the new instance can
     # reach PostgreSQL. Liveness stays the container's own health check.
     healthCheckPath: /health/ready
@@ -43,8 +45,13 @@ services:
         value: "on"
       # The only browser origin allowed to read this API. Exactly one value: the
       # frontend's own origin, scheme and host, no trailing slash.
+      #
+      # The suffixed host is Render's: it adds one when a name is already taken on
+      # onrender.com. The blueprint's name is still web3-wallet-dashboard, so a
+      # fresh workspace may serve it without the suffix, and this value has to
+      # match whatever the created service actually answers on.
       - key: CORS_ALLOWED_ORIGINS
-        value: https://web3-wallet-dashboard.onrender.com
+        value: https://web3-wallet-dashboard-c4ii.onrender.com
       # Optional contract indexing. Set to a Sepolia endpoint to index events; an
       # empty value leaves the API serving everything else with one warning.
       - key: EVM_RPC_URL

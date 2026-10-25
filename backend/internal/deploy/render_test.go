@@ -3,6 +3,7 @@ package deploy
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -136,13 +137,43 @@ func TestFrontendAndAPINameEachOther(t *testing.T) {
 		t.Fatalf("render.yaml needs one static site and one docker service, found static=%v docker=%v", static != nil, docker != nil)
 	}
 
-	wantAPIBase := "https://" + docker.name + ".onrender.com/api/v1"
-	if got := static.envValue["VITE_API_BASE_URL"]; got != wantAPIBase {
-		t.Errorf("the dashboard builds against %q, want %q, which is the API service's own hostname", got, wantAPIBase)
+	// Render appends a short suffix to a service name that is already taken on
+	// onrender.com, so the public host is the service name or that name plus a
+	// suffix. Anything else is the wrong service, which is what this checks.
+	apiBase := regexp.MustCompile(`^https://` + regexp.QuoteMeta(docker.name) + `(-[a-z0-9]+)?\.onrender\.com/api/v1$`)
+	if got := static.envValue["VITE_API_BASE_URL"]; !apiBase.MatchString(got) {
+		t.Errorf("the dashboard builds against %q, want the API service's own host: https://%s.onrender.com/api/v1", got, docker.name)
 	}
 
-	wantOrigin := "https://" + static.name + ".onrender.com"
-	if got := docker.envValue["CORS_ALLOWED_ORIGINS"]; got != wantOrigin {
-		t.Errorf("the API allows %q, want %q, which is the dashboard's own origin", got, wantOrigin)
+	origin := regexp.MustCompile(`^https://` + regexp.QuoteMeta(static.name) + `(-[a-z0-9]+)?\.onrender\.com$`)
+	if got := docker.envValue["CORS_ALLOWED_ORIGINS"]; !origin.MatchString(got) {
+		t.Errorf("the API allows %q, want the dashboard's own origin: https://%s.onrender.com", got, static.name)
+	}
+}
+
+// The image's default command is the migrate-then-serve script, because that is
+// the only place the decision survives every route into the image. A platform
+// command field can be ignored: one created through Render's API silently did not
+// persist dockerCommand, and the container served against whatever schema was
+// already there. A deploy that skips migrations looks healthy, which is the worst
+// way for it to fail.
+func TestImageRunsTheStartScript(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(repositoryRoot(t), "Dockerfile"))
+	if err != nil {
+		t.Fatalf("read Dockerfile: %v", err)
+	}
+
+	var cmd string
+	for _, line := range strings.Split(string(raw), "\n") {
+		if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(line)), "CMD ") {
+			cmd = strings.TrimSpace(line)
+		}
+	}
+
+	if cmd == "" {
+		t.Fatal("the Dockerfile sets no CMD, so the image falls back to whatever the base image does")
+	}
+	if !strings.Contains(cmd, "/usr/local/bin/start") {
+		t.Errorf("the image's CMD is %q, want the start script so migrations run before the API serves", cmd)
 	}
 }
