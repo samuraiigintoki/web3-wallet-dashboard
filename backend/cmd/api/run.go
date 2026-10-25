@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/chain"
@@ -33,15 +34,39 @@ const (
 	maxHeaderBytes      = 1 << 20
 )
 
+// listenAddr decides where the HTTP server binds.
+//
+// Every managed host injects the port it will route to: Render and Heroku set
+// PORT, Kubernetes sets it too, and a container that ignores it binds somewhere
+// no request ever arrives. ADDR wins when it is set, because it is the local and
+// docker-compose switch; PORT is honoured when it is not; the built-in default
+// covers a bare `go run`.
+//
+// A malformed PORT is a startup failure. An API that silently listens on the
+// wrong port is only discovered by a health check timing out.
+func listenAddr(addr, port string) (string, error) {
+	if addr != "" {
+		return addr, nil
+	}
+	if port == "" {
+		return defaultAddr, nil
+	}
+	number, err := strconv.Atoi(port)
+	if err != nil || number < 1 || number > 65535 {
+		return "", fmt.Errorf("PORT must be a TCP port between 1 and 65535, got %q", port)
+	}
+	return ":" + strconv.Itoa(number), nil
+}
+
 func run(ctx context.Context, logger *slog.Logger) (runErr error) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		return errors.New("DATABASE_URL environment variable is required")
 	}
 
-	addr := os.Getenv("ADDR")
-	if addr == "" {
-		addr = defaultAddr
+	addr, err := listenAddr(os.Getenv("ADDR"), os.Getenv("PORT"))
+	if err != nil {
+		return err
 	}
 
 	// The origins allowed to call this API from a browser.
