@@ -52,6 +52,40 @@ describe('resolveApiBase', () => {
     }
   })
 
+  // A URL may carry a username and password, and every character of this value is
+  // compiled into the bundle every visitor downloads. Accepting it would publish
+  // the credential, and the build would look green while doing it.
+  it('refuses a value that carries a username or password', () => {
+    for (const raw of [
+      'https://user:password@api.example.com/api/v1',
+      'https://user@api.example.com/api/v1',
+      'http://user:password@127.0.0.1:8080/api/v1',
+      'https://:password@api.example.com/api/v1',
+    ]) {
+      expect(() => resolveApiBase(raw), raw).toThrowError(/VITE_API_BASE_URL/)
+    }
+  })
+
+  it('says which credential is wrong without printing it, because the build log is public too', () => {
+    const message = (() => {
+      try {
+        resolveApiBase('https://user:s3cr3t@api.example.com/api/v1')
+      } catch (error) {
+        return (error as Error).message
+      }
+      return ''
+    })()
+
+    expect(message).toContain('must not carry a username or password')
+    expect(message).not.toContain('s3cr3t')
+    expect(message).not.toContain('user:')
+    expect(message).toContain('https://<credentials>@api.example.com/api/v1')
+  })
+
+  it('still takes an ordinary origin, so the check is narrow', () => {
+    expect(resolveApiBase('https://api.example.com/api/v1')).toBe('https://api.example.com/api/v1')
+  })
+
   it('names the variable and the value in the failure, so a build log says what to fix', () => {
     expect(() => resolveApiBase('api/v1')).toThrowError(
       'VITE_API_BASE_URL must be an absolute http(s) URL or a path beginning with /, and it was "api/v1".',
