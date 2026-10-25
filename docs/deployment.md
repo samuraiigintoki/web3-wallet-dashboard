@@ -288,5 +288,16 @@ minutes, so without a deploy the API starts failing on its own schedule.
   the security requirement in issue #104. The section above records what was
   tried, what the free tier refuses, and what the paid fix is. It needs to be
   waived by the repository owner, not by whoever wrote the code.
-- Staging data is disposable. It is not backed up, and the smoke walk leaves a
-  test account, a wallet and a contract behind on every run.
+- Staging data is disposable: no user owns it, and the smoke walk leaves a test
+  account, a wallet and a contract behind on every run. It is copied nightly, so
+  a loss costs at most a day of writes, and the artifacts are kept 30 days. See
+  [docs/backups.md](backups.md).
+
+## Backups
+
+The database has no managed backup on the free tier, so the repository takes its
+own: a nightly encrypted dump, uploaded as an artifact, with the same run
+restoring it into a throwaway database to prove it works. The scripts, the
+secret names, the restore procedure and the drill log are in
+[docs/backups.md](backups.md).
+

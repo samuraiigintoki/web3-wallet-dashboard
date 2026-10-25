@@ -1,0 +1,276 @@
+name: Backup
+
+# Three things happen here, and they are deliberately separate jobs:
+#
+#   self-test   runs on every pull request. It takes a backup of a throwaway
+#               Postgres, restores it, and requires the row counts to match, so
+#               the scripts are exercised without a credential and without
+#               touching staging. It also asserts that the guards refuse what
+#               they are supposed to refuse.
+#   backup      runs nightly and on demand. It dumps staging, encrypts it, and
+#               uploads the artifact.
+#   drill       runs after backup. It downloads that same artifact, restores it
+#               into an empty Postgres in the runner, and compares it against the
+#               manifest. A backup that has never been restored is a hope, so
+#               the nightly run produces both the backup and the evidence it
+#               restores.
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'scripts/backup/**'
+      - '.github/workflows/backup.yml'
+  push:
+    branches: [ main ]
+    paths:
+      - 'scripts/backup/**'
+      - '.github/workflows/backup.yml'
+  schedule:
+    # 20:47 UTC, which is 02:17 in the maintainer's timezone. Off the hour on
+    # purpose: the scheduler is busiest at :00.
+    - cron: '47 20 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  self-test:
+    name: self-test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        # The client version is pinned to the server's, because pg_dump refuses
+        # a server newer than itself and staging runs 17.
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: wallet
+          POSTGRES_PASSWORD: wallet
+          POSTGRES_DB: wallet
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGD_BIN: /usr/lib/postgresql/17/bin
+      PGPASSWORD: wallet
+      BACKUP_PASSPHRASE: self-test-passphrase
+      BACKUP_OUT_DIR: ${{ runner.temp }}/backups
+      DATABASE_URL: postgres://wallet:wallet@localhost:5432/wallet?sslmode=disable
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install the Postgres 17 client
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Build the schema with the real migrations
+        working-directory: backend
+        run: go run ./cmd/migrate up
+
+      # A table this workflow owns, so the check does not depend on what the
+      # seed migrations happen to contain, and so an empty database still proves
+      # rows come back.
+      - name: Put rows in the source database
+        run: |
+          set -euo pipefail
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE TABLE backup_self_test (id integer PRIMARY KEY, note text NOT NULL);
+          INSERT INTO backup_self_test (id, note)
+          SELECT g, 'row ' || g FROM generate_series(1, 25) AS g;
+          SQL
+
+      - name: Take the backup
+        run: ./scripts/backup/backup.sh
+
+      - name: Create an empty database to restore into
+        run: psql postgres://wallet:wallet@localhost:5432/postgres?sslmode=disable -v ON_ERROR_STOP=1 -c 'CREATE DATABASE restored'
+
+      - name: Restore it and compare the row counts
+        env:
+          DATABASE_URL: postgres://wallet:wallet@localhost:5432/restored?sslmode=disable
+        run: |
+          set -euo pipefail
+          artifact="$(ls "$BACKUP_OUT_DIR"/*.dump.enc)"
+          ./scripts/backup/restore.sh "$artifact"
+
+      - name: The guards refuse what they should refuse
+        env:
+          DATABASE_URL: postgres://wallet:wallet@localhost:5432/restored?sslmode=disable
+        run: |
+          set -euo pipefail
+          artifact="$(ls "$BACKUP_OUT_DIR"/*.dump.enc)"
+
+          expect_status() {
+            local want="$1"; shift
+            set +e
+            "$@" > /dev/null 2>&1
+            local got=$?
+            set -e
+            if [[ "$got" -ne "$want" ]]; then
+              echo "expected exit $want, got $got: $*" >&2
+              exit 1
+            fi
+          }
+
+          # A target that already holds the tables, without RESTORE_FORCE.
+          expect_status 2 ./scripts/backup/restore.sh "$artifact"
+
+          # A target that is not this machine, without RESTORE_TARGET_CONFIRMED.
+          expect_status 2 env DATABASE_URL='postgres://wallet:wallet@db.example.invalid:5432/wallet' \
+            ./scripts/backup/restore.sh "$artifact"
+
+          # A passphrase that does not open the artifact. RESTORE_FORCE is set so
+          # the run reaches the decryption instead of stopping at the populated
+          # target, which is its own case above.
+          expect_status 1 env BACKUP_PASSPHRASE=not-the-passphrase RESTORE_FORCE=1 \
+            ./scripts/backup/restore.sh "$artifact"
+
+          echo "guards hold"
+
+  backup:
+    name: backup
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install the Postgres 17 client
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
+
+      # Fail loudly rather than skipping. A nightly job that silently does
+      # nothing is a backup policy that exists only in the documentation.
+      - name: Check the secrets exist
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          for name in DATABASE_URL BACKUP_PASSPHRASE; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::the $name secret is not set, so no backup can be taken"
+              exit 1
+            fi
+          done
+
+      - name: Take the backup
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+          BACKUP_OUT_DIR: backups
+          PGD_BIN: /usr/lib/postgresql/17/bin
+        run: ./scripts/backup/backup.sh
+
+      - name: Record what was taken
+        if: always()
+        run: |
+          if compgen -G 'backups/*.json' > /dev/null; then
+            # The manifest holds no credential by construction; print it so the
+            # run summary is the record of what this artifact contains.
+            {
+              echo '## Backup artifact'
+              echo '```json'
+              cat backups/*.json
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload the encrypted artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: backup-${{ github.run_id }}
+          path: |
+            backups/*.dump.enc
+            backups/*.dump.enc.sha256
+            backups/*.json
+          retention-days: 30
+          if-no-files-found: error
+
+  drill:
+    name: drill
+    needs: backup
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: wallet
+          POSTGRES_PASSWORD: wallet
+          POSTGRES_DB: restore_target
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install the Postgres 17 client
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
+
+      - name: Download the artifact this run took
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: backup-${{ github.run_id }}
+          path: restored
+
+      - name: Restore it into an empty database
+        env:
+          DATABASE_URL: postgres://wallet:wallet@localhost:5432/restore_target?sslmode=disable
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+          PGD_BIN: /usr/lib/postgresql/17/bin
+        run: |
+          set -euo pipefail
+          artifact="$(ls restored/*.dump.enc)"
+          ./scripts/backup/restore.sh "$artifact"
+
+      - name: Record the drill
+        if: always()
+        run: |
+          {
+            echo '## Restore drill'
+            if [[ "${{ job.status }}" == 'success' ]]; then
+              echo 'The artifact from this run restored into an empty Postgres 17 and'
+              echo 'every table held the row count the manifest recorded.'
+            else
+              echo 'The artifact from this run did not restore. The backup is not evidence'
+              echo 'until this job passes.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
