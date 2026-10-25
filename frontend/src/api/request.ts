@@ -23,6 +23,33 @@ import type { Pagination } from './types.ts'
 export const DEFAULT_TIMEOUT_MS = 10_000
 
 /**
+ * How a read waits out a sleeping API.
+ *
+ * A free hosting tier stops the service after fifteen idle minutes and restarts
+ * it on the next request, which takes between thirty and sixty seconds. A single
+ * attempt with a ten second timeout therefore turns the first visit after idle
+ * into an error page, when the honest answer is "starting".
+ *
+ * Only reads retry. A POST, PATCH or DELETE is never repeated automatically: a
+ * retry after a timeout cannot know whether the first attempt reached the
+ * server, and repeating a request that creates, updates or deletes something is
+ * worse than showing the error.
+ *
+ * The delays are fixed rather than exponential because the tail is what matters
+ * here, not the shape: five attempts spread over about a minute, then the error.
+ */
+export const WAKE_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 15_000] as const
+
+/**
+ * The wall clock ceiling for one read, retries included.
+ *
+ * Bounded from the first attempt rather than per delay, so a slow sequence of
+ * attempts cannot add up to a wait nobody chose. Anything past this surfaces the
+ * last error the API produced.
+ */
+export const WAKE_RETRY_BUDGET_MS = 90_000
+
+/**
  * The base every request is made against, resolved once for this bundle.
  *
  * The parsing and the rules live in `apiBase.ts`, because the Vite config calls
@@ -89,6 +116,17 @@ export type RequestDependencies = {
   onUnauthorized: (sentToken: string) => void
   fetchImpl?: typeof fetch
   timeoutMs?: number
+  /**
+   * The wait between attempts. Injected so a test can assert the schedule
+   * without spending it.
+   */
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>
+  /**
+   * The wake policy, off unless set. `{}` turns it on with the schedule above;
+   * overriding the delays or the budget is for tests that cannot spend a minute.
+   * A caller that leaves this out gets exactly one attempt.
+   */
+  wakeRetry?: false | { delaysMs?: readonly number[]; budgetMs?: number }
 }
 
 export type RequestFn = <T>(options: RequestOptions<T>) => Promise<ApiResult<T>>
@@ -163,15 +201,88 @@ function unexpectedResponse(status: number, requestId?: string): ApiError {
   })
 }
 
+/**
+ * The failures a sleeping or restarting API produces.
+ *
+ * A stopped service answers nothing at all, so the client sees its own timeout or
+ * a network error. A service that is starting behind a proxy answers 502, 503 or
+ * 504 while the container comes up.
+ */
+function isWakeFailure(error: ApiError): boolean {
+  if (error.code === 'TIMEOUT' || error.code === 'NETWORK_ERROR') {
+    return true
+  }
+
+  return error.status === 502 || error.status === 503 || error.status === 504
+}
+
+/** Waits, unless the caller cancels first. */
+function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted === true) {
+      reject(
+        new ApiError({
+          code: 'ABORTED',
+          status: 0,
+          message: 'the request was cancelled',
+        }),
+      )
+      return
+    }
+
+    const onAbort = (): void => {
+      clearTimeout(timer)
+      reject(
+        new ApiError({
+          code: 'ABORTED',
+          status: 0,
+          message: 'the request was cancelled',
+        }),
+      )
+    }
+
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
 export function createRequest(dependencies: RequestDependencies): RequestFn {
   const {
     getToken,
     onUnauthorized,
     fetchImpl: configuredFetch,
     timeoutMs = DEFAULT_TIMEOUT_MS,
+    sleep = defaultSleep,
+    wakeRetry,
   } = dependencies
 
-  return async function request<T>(
+  /**
+   * Off unless asked for.
+   *
+   * The policy describes the host, not the HTTP contract, so the primitive keeps
+   * its single attempt and the composition root that knows the API sleeps turns
+   * it on. Nothing else in the app changes behaviour by accident.
+   */
+  const retryPolicy =
+    wakeRetry === undefined || wakeRetry === false
+      ? null
+      : {
+          delaysMs: wakeRetry.delaysMs ?? WAKE_RETRY_DELAYS_MS,
+          budgetMs: wakeRetry.budgetMs ?? WAKE_RETRY_BUDGET_MS,
+        }
+
+  /**
+   * One attempt, exactly as this client behaved before the wake policy existed.
+   *
+   * Kept separate so the retry loop wraps it instead of growing inside it: the
+   * body of the attempt is the part that must not change, because every status,
+   * every guard failure and the unauthorized callback are asserted by tests.
+   */
+  async function attemptOnce<T>(
     options: RequestOptions<T>,
   ): Promise<ApiResult<T>> {
     const { method, path, body, auth = false, guard, signal } = options
@@ -293,6 +404,45 @@ export function createRequest(dependencies: RequestDependencies): RequestFn {
     }
 
     return { data: payload.data, status: response.status, pagination, requestId }
+  }
+
+  /**
+   * The public call. Reads wait out a sleeping API; everything else does not.
+   *
+   * The budget is measured from the first attempt, and the delay is checked
+   * before it is spent, so the caller gets a bounded wait rather than an
+   * optimistic sum of delays.
+   */
+  return async function request<T>(
+    options: RequestOptions<T>,
+  ): Promise<ApiResult<T>> {
+    if (retryPolicy === null || options.method !== 'GET') {
+      return attemptOnce(options)
+    }
+
+    const startedAt = Date.now()
+    let attempt = 0
+
+    for (;;) {
+      try {
+        return await attemptOnce(options)
+      } catch (error) {
+        if (!(error instanceof ApiError) || !isWakeFailure(error)) {
+          throw error
+        }
+
+        const delay = retryPolicy.delaysMs[attempt]
+        if (delay === undefined) {
+          throw error
+        }
+        if (Date.now() - startedAt + delay > retryPolicy.budgetMs) {
+          throw error
+        }
+
+        attempt += 1
+        await sleep(delay, options.signal)
+      }
+    }
   }
 }
 

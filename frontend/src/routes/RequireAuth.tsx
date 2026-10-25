@@ -1,6 +1,7 @@
 import { Navigate, Outlet, useLocation } from 'react-router'
 
 import { useAuth } from '../auth/useAuth.ts'
+import { RestoringSession } from './RestoringSession.tsx'
 
 export function RequireAuth() {
   const { session, retryRestore, signOutLocally } = useAuth()
@@ -9,11 +10,7 @@ export function RequireAuth() {
   if (session.status === 'restoring') {
     // Never redirect while the answer is still unknown. Bouncing to /login
     // here would sign out every reload of an open session.
-    return (
-      <main className="page" aria-busy="true">
-        <p role="status">Restoring your session.</p>
-      </main>
-    )
+    return <RestoringSession />
   }
 
   if (session.status === 'unavailable') {
