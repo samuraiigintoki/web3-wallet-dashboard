@@ -6,6 +6,7 @@ import { useBrowserWallet, type BrowserWalletState } from '../provider/useBrowse
 import { chainCatalogQuery } from '../wallets/chainQueries.ts'
 import { ConfirmTransaction } from '../multisig/ConfirmTransaction.tsx'
 import { ExecuteTransaction } from '../multisig/ExecuteTransaction.tsx'
+import { ProposalStatus } from '../multisig/ProposalStatus.tsx'
 import { RevokeTransaction } from '../multisig/RevokeTransaction.tsx'
 import type { RefreshedPage } from '../multisig/events.ts'
 import type { CatalogFact } from '../multisig/useSubmitTransaction.ts'
@@ -183,7 +184,7 @@ export function ContractEventsPage() {
 
           {!confirmable && (
             <p className="hint">
-              {`Confirming, revoking and executing are only available on the verified Sepolia multisig contract (${MULTISIG_ADDRESS}, chain ${String(
+              {`Confirming, revoking, executing and reading a live status are only available on the verified Sepolia multisig contract (${MULTISIG_ADDRESS}, chain ${String(
                 SEPOLIA_CHAIN_ID,
               )}). This tracked contract is not it, so no action is offered on these events.`}
             </p>
@@ -191,6 +192,7 @@ export function ContractEventsPage() {
 
           <EventResults
             showConfirm={confirmable}
+            showStatus={confirmable}
             events={events.data?.events}
             pagination={events.data?.pagination}
             page={page}
@@ -281,6 +283,15 @@ type EventResultsProps = {
   onRefreshEvents: () => Promise<RefreshedPage | null>
   /** Whether this contract may be confirmed on at all. */
   showConfirm: boolean
+  /**
+   * Whether a live status may be read for its rows.
+   *
+   * The same condition as the writes, because it is the same fact: this app only
+   * knows what the verified deployment's functions mean, so an address it cannot
+   * vouch for gets no read either. It is a separate prop rather than reusing
+   * `showConfirm` so that the day the two conditions differ, they are free to.
+   */
+  showStatus: boolean
 }
 
 function EventResults({
@@ -296,6 +307,7 @@ function EventResults({
   wallet,
   onRefreshEvents,
   showConfirm,
+  showStatus,
 }: EventResultsProps) {
   if (error !== null) {
     // A failed read is a data error, not a lost session. Retry reads again; the
@@ -352,6 +364,14 @@ function EventResults({
               <td className="mono">{event.transactionHash}</td>
               <td>
                 <EventPayload event={event} />
+                {showStatus && event.eventName === 'SubmitTransaction' && (
+                  /*
+                    The read-only control comes first, because it asks the chain a
+                    question and nothing else. Reading a status is not a step
+                    towards a write and does not depend on any action passing.
+                  */
+                  <ProposalStatus contract={contract} event={event} wallet={wallet} />
+                )}
                 {showConfirm && event.eventName === 'SubmitTransaction' && (
                   <>
                     {/*

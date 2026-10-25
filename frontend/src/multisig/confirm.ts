@@ -75,6 +75,25 @@ export const PREFLIGHT_ABI = [
   },
 ] as const satisfies Abi
 
+/** The four read names in `PREFLIGHT_ABI`, for callers that encode them. */
+export type ReadName = 'isOwner' | 'getTransactionCount' | 'transactions' | 'isConfirmed'
+
+/**
+ * One read from `PREFLIGHT_ABI`, encoded from the ABI rather than from a typed
+ * selector.
+ *
+ * Every reader in this app that asks the contract a question goes through this
+ * function, so no file spells a selector or a word layout by hand and no two
+ * readers can disagree about which function a read means.
+ */
+export function encodeRead(name: ReadName, args: readonly unknown[]): string {
+  return encodeFunctionData({
+    abi: PREFLIGHT_ABI,
+    functionName: name,
+    args: args as never,
+  })
+}
+
 /** `confirmTransaction(uint256)`, the one call this slice sends. */
 export const CONFIRM_ABI = [
   {

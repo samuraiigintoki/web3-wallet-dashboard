@@ -1136,12 +1136,17 @@ describe('confirming from the contract view', () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText(/Confirming, revoking and executing are only available on the verified Sepolia/),
+        screen.getByText(
+          /Confirming, revoking, executing and reading a live status are only available on the verified Sepolia/,
+        ),
       ).toBeDefined()
     })
 
     expect(screen.queryByRole('button', { name: 'Confirm proposal' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Revoke my confirmation' })).toBeNull()
+    // Not even the read-only status control, which asks the same contract a
+    // question this app can only interpret for the deployment it knows.
+    expect(screen.queryByRole('button', { name: 'Check live status' })).toBeNull()
     // And nothing was read from a contract this app cannot act on.
     expect(provider.requested).not.toContain('eth_call')
   })
@@ -1506,5 +1511,139 @@ describe('executing from the contract view', () => {
     expect(screen.getAllByRole('button', { name: 'Revoke my confirmation' })).toHaveLength(1)
     expect(screen.getAllByRole('button', { name: 'Check execution' })).toHaveLength(1)
     expect(screen.queryByRole('button', { name: /another owner/ })).toBeNull()
+  })
+})
+
+describe('reading a live status from the contract view', () => {
+  const ACCOUNT = '0x1e1D0e1D0e1D0e1D0e1D0e1D0e1D0e1D0e1D0e1D'
+  const BLOCK = '0x5d13ca'
+  const SEPOLIA_ENTRY = {
+    chainId: CONTRACT.chainId,
+    name: 'Sepolia',
+    symbol: 'ETH',
+    isTestnet: true,
+  }
+
+  const IS_OWNER = '0x2f54bf6e'
+  const TRANSACTION_COUNT = '0x2e7700f0'
+  const TRANSACTIONS = '0x9ace38c2'
+  const IS_CONFIRMED = '0x80f59a65'
+  const GET_OWNERS = '0xa0e67e2b'
+  const THRESHOLD = '0x42cde4e8'
+
+  function word(value: bigint): string {
+    return value.toString(16).padStart(64, '0')
+  }
+
+  const PROPOSAL = [
+    '0x',
+    SUBMIT_EVENT.payload.to.replace(/^0x/, '').padStart(64, '0'),
+    word(1_000_000_000_000_000_000n),
+    word(128n),
+    word(0n),
+    word(4n),
+    'deadbeef'.padEnd(64, '0'),
+  ].join('')
+
+  const ONE_OWNER = [
+    '0x',
+    word(32n),
+    word(1n),
+    ACCOUNT.replace(/^0x/, '').padStart(64, '0'),
+  ].join('')
+
+  function wallet(): FakeProvider {
+    return installFakeProvider({
+      answer: ({ method, params }) => {
+        if (method === 'eth_accounts') {
+          return [ACCOUNT]
+        }
+
+        if (method === 'eth_chainId') {
+          return `0x${CONTRACT.chainId.toString(16)}`
+        }
+
+        if (method === 'eth_blockNumber') {
+          return BLOCK
+        }
+
+        if (method === 'eth_call') {
+          const data = (params as [{ data: string }])[0].data
+
+          if (data.startsWith(IS_OWNER) || data.startsWith(IS_CONFIRMED)) {
+            return `0x${word(1n)}`
+          }
+
+          if (data.startsWith(TRANSACTION_COUNT)) {
+            return `0x${word(1n)}`
+          }
+
+          if (data.startsWith(TRANSACTIONS)) {
+            return PROPOSAL
+          }
+
+          if (data.startsWith(GET_OWNERS)) {
+            return ONE_OWNER
+          }
+
+          if (data.startsWith(THRESHOLD)) {
+            return `0x${word(1n)}`
+          }
+        }
+
+        throw new Error(`unexpected method ${method}`)
+      },
+    })
+  }
+
+  it('reads nothing from the chain until the row is asked for a status', async () => {
+    apiFetch({ chains: () => jsonResponse({ data: [SEPOLIA_ENTRY] }) })
+    const provider = wallet()
+
+    renderApp({ path: '/contracts/7/events', storage: memoryStorage('stored-token') })
+
+    await waitFor(() => {
+      expect(button('Check live status').disabled).toBe(false)
+    })
+
+    // The screen has drawn the row, the three write controls and this read, and
+    // not one chain request has been made on its own.
+    expect(provider.requested).not.toContain('eth_blockNumber')
+    expect(provider.requested).not.toContain('eth_call')
+  })
+
+  it('shows the live status of the row from one anchored block, and sends nothing', async () => {
+    const api = apiFetch({ chains: () => jsonResponse({ data: [SEPOLIA_ENTRY] }) })
+    const provider = wallet()
+
+    const { user } = renderApp({
+      path: '/contracts/7/events',
+      storage: memoryStorage('stored-token'),
+    })
+
+    await waitFor(() => {
+      expect(button('Check live status').disabled).toBe(false)
+    })
+
+    await user.click(button('Check live status'))
+
+    const facts = (await screen.findByText('Snapshot block')).closest('dl')!.textContent ?? ''
+
+    expect(facts).toContain('6099914')
+    expect(facts).toContain('1 of 1 owners, with 1 required')
+    expect(
+      screen.getByText(
+        'This proposal has 1 of the 1 confirmations this contract requires at block 6099914, so it could be executed from here. That does not mean the call it makes would succeed, and a later block may say something else.',
+      ),
+    ).toBeDefined()
+    expect(
+      screen.getByText(
+        'Your account is one of the owners, and the contract reported its confirmation at this block.',
+      ),
+    ).toBeDefined()
+
+    // A read is not a write, and it is not a refresh of the stored list either.
+    expect(provider.requested).not.toContain('eth_sendTransaction')
+    expect(api.eventCalls).toBe(1)
   })
 })
