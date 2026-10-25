@@ -103,8 +103,13 @@ Local development needs neither. `VITE_API_BASE_URL` unset means the bundle call
 `VITE_API_BASE_URL` is refused by the build if it carries a username or password.
 A URL like `https://user:password@host/api/v1` parses fine, which is the point:
 every character of this value is compiled into the bundle, so accepting it would
-publish the credential with a green build. The error names the value with the
-credential replaced, so a CI log does not repeat it.
+publish the credential with a green build.
+
+The error never echoes the value. It prints the variable name and the length, and
+nothing else, because a partially masked URL is not safe: for
+`https://user:@s3cr3t@api.example.com/api/v1` the URL parser reads everything
+before the last `@` as userinfo, so masking up to the first `@` leaves the
+password in the message. Anything containing an `@` is redacted whole.
 
 ## First deploy
 

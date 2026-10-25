@@ -61,6 +61,11 @@ describe('resolveApiBase', () => {
       'https://user@api.example.com/api/v1',
       'http://user:password@127.0.0.1:8080/api/v1',
       'https://:password@api.example.com/api/v1',
+      // The password is percent-encoded into userinfo by the extra `@`, so the
+      // credential is the text between the colons, not the text before the first
+      // `@`. Masking up to the first `@` leaves `s3cr3t` in the message.
+      'https://zeus:@s3cr3t@api.example.com/api/v1',
+      'https://zeus:pa@ss@word@api.example.com/api/v1',
     ]) {
       expect(() => resolveApiBase(raw), raw).toThrowError(/VITE_API_BASE_URL/)
     }
@@ -79,7 +84,55 @@ describe('resolveApiBase', () => {
     expect(message).toContain('must not carry a username or password')
     expect(message).not.toContain('s3cr3t')
     expect(message).not.toContain('user:')
-    expect(message).toContain('https://<credentials>@api.example.com/api/v1')
+    expect(message).not.toContain('api.example.com')
+  })
+
+  // Redacting up to the first `@` is the obvious fix for the message above, and it
+  // is wrong for this shape: the URL parser reads everything before the last `@`
+  // as userinfo, so `user:` and `s3cr3t` are one credential and the second half
+  // survives the mask. Every one of these must produce a message with no part of
+  // the value in it.
+  it('redacts a credential whatever `@` the password hides behind', () => {
+    for (const raw of [
+      'https://zeus:@s3cr3t@api.example.com/api/v1',
+      'https://zeus:pa@ss@word@api.example.com/api/v1',
+      'https://@s3cr3t@api.example.com/api/v1',
+    ]) {
+      const message = (() => {
+        try {
+          resolveApiBase(raw)
+        } catch (error) {
+          return (error as Error).message
+        }
+        return ''
+      })()
+
+      expect(message, raw).toContain('VITE_API_BASE_URL')
+      expect(message, raw).not.toContain('s3cr3t')
+      expect(message, raw).not.toContain('ss@word')
+      expect(message, raw).not.toContain('zeus')
+      expect(message, raw).not.toContain('@')
+      expect(message, raw).not.toContain('api.example.com')
+    }
+  })
+
+  // The shape check runs before the URL is parsed, so a value that carries a
+  // credential and is not a URL at all reaches the other message. It must not echo
+  // either.
+  it('redacts a credential that is not shaped like a URL', () => {
+    const message = (() => {
+      try {
+        resolveApiBase('user:s3cr3t@api.example.com/api/v1')
+      } catch (error) {
+        return (error as Error).message
+      }
+      return ''
+    })()
+
+    expect(message).toContain('must be an absolute http(s) URL')
+    expect(message).not.toContain('s3cr3t')
+    expect(message).not.toContain('user:s3cr3t')
+    expect(message).toContain('<redacted:')
   })
 
   it('still takes an ordinary origin, so the check is narrow', () => {

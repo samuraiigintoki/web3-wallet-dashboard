@@ -30,11 +30,22 @@ const ABSOLUTE_BASE = /^https?:\/\/[^/?#\s]+(?:\/[^?#\s]*)?$/
 const ROOTED_PATH = /^\/(?!\/)[^?#\s]*$/
 
 /**
- * The value as it is safe to print: any userinfo is replaced, because an error
- * thrown at build time lands in a CI log that many people can read.
+ * The value as it is safe to print in an error, because an error thrown at build
+ * time lands in a CI log that more people read than the one who typed it.
+ *
+ * Anything containing `@` is redacted whole rather than partly masked. A regex
+ * that replaces the text before the first `@` looks right and is not:
+ * `https://user:@s3cr3t@api.example.com/api/v1` keeps `s3cr3t`, which is exactly
+ * the credential the message is trying to protect. There is no safe partial form
+ * for a string whose shape is the thing under suspicion, so the shape is all that
+ * is printed.
  */
 function printable(value: string): string {
-  return value.replace(/^(https?:\/\/)[^/?#@]*@/i, '$1<credentials>@')
+  if (value.includes('@')) {
+    return `<redacted: ${value.length} characters, and it contains an @>`
+  }
+
+  return `"${value}"`
 }
 
 /**
@@ -54,7 +65,7 @@ export function resolveApiBase(raw: string | undefined): string {
 
   if (!ABSOLUTE_BASE.test(value) && !ROOTED_PATH.test(value)) {
     throw new Error(
-      `VITE_API_BASE_URL must be an absolute http(s) URL or a path beginning with /, and it was "${value}".`,
+      `VITE_API_BASE_URL must be an absolute http(s) URL or a path beginning with /, and it was ${printable(value)}.`,
     )
   }
 
@@ -67,13 +78,15 @@ export function resolveApiBase(raw: string | undefined): string {
       parsed = new URL(value)
     } catch {
       throw new Error(
-        `VITE_API_BASE_URL must be a URL this build can parse, and it was "${printable(value)}".`,
+        `VITE_API_BASE_URL must be a URL this build can parse, and it was ${printable(value)}.`,
       )
     }
 
     if (parsed.username !== '' || parsed.password !== '') {
+      // Not even the host is printed here. The value is the thing that is wrong,
+      // and the one safe amount of it to publish is how long it was.
       throw new Error(
-        `VITE_API_BASE_URL must not carry a username or password, because it is compiled into the browser bundle: "${printable(value)}".`,
+        `VITE_API_BASE_URL must not carry a username or password, because it is compiled into the browser bundle. The value was redacted: it is ${value.length} characters.`,
       )
     }
   }
