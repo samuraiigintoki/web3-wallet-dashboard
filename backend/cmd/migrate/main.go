@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -41,16 +42,73 @@ func main() {
 		log.Fatalf("bootstrap failed: %v", err)
 	}
 
-	switch direction {
-	case "up":
-		if err := runUp(db); err != nil {
-			log.Fatalf("migrate up failed: %v", err)
+	// One migration run at a time, across every process that can reach this
+	// database.
+	//
+	// A deployment runs this binary before the API serves, and a restart, an
+	// overlapping deploy or a second instance can start one at the same moment.
+	// Two runs that both read the same unapplied version would both try to apply
+	// it: one succeeds and the other fails on a table that now exists, turning a
+	// deployment into a failed start for no reason. The lock serialises them, so
+	// the second run finds the version applied and does nothing.
+	//
+	// The lock is released when the session ends, which is when this process
+	// exits, including on a crash: there is no window in which a dead migration
+	// holds the schema.
+	if err := withMigrationLock(db, func() error {
+		switch direction {
+		case "up":
+			return runUp(db)
+		case "down":
+			return runDown(db)
 		}
-	case "down":
-		if err := runDown(db); err != nil {
-			log.Fatalf("migrate down failed: %v", err)
-		}
+		return nil
+	}); err != nil {
+		log.Fatalf("migrate %s failed: %v", direction, err)
 	}
+}
+
+// migrationLockKey is this application's advisory lock id.
+//
+// The two-key form of `pg_advisory_lock` namespaces the lock by a fixed
+// application id as well as by this key, so an unrelated tool that happens to
+// pick the same second number cannot block a deployment.
+const (
+	migrationLockNamespace = 0x77656233 // "web3"
+	migrationLockKey       = 0x6d6967   // "mig"
+)
+
+func withMigrationLock(db *sql.DB, apply func() error) error {
+	// One connection for the whole run: an advisory lock belongs to a session,
+	// and the pool would otherwise be free to hand the unlock to a different
+	// connection than the one that took the lock.
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		return fmt.Errorf("failed to open a connection for the migration lock: %w", err)
+	}
+	defer conn.Close()
+
+	if _, err := conn.ExecContext(
+		context.Background(),
+		"SELECT pg_advisory_lock($1, $2)",
+		migrationLockNamespace,
+		migrationLockKey,
+	); err != nil {
+		return fmt.Errorf("failed to take the migration lock: %w", err)
+	}
+
+	defer func() {
+		// Best effort: if this fails the session is closed immediately after,
+		// which releases the lock anyway.
+		_, _ = conn.ExecContext(
+			context.Background(),
+			"SELECT pg_advisory_unlock($1, $2)",
+			migrationLockNamespace,
+			migrationLockKey,
+		)
+	}()
+
+	return apply()
 }
 
 func bootstrap(db *sql.DB) error {
