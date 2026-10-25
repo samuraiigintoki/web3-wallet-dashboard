@@ -11,15 +11,9 @@ import {
   isServerErrorCode,
   type ApiErrorCode,
 } from './errors.ts'
+import { resolveApiBase } from './apiBase.ts'
 import { isPagination, isRecord, parseErrorDetails } from './guards.ts'
 import type { Pagination } from './types.ts'
-
-/**
- * The only base the browser ever uses. Requests are same-origin and the dev
- * server proxies them, so there is no host to configure and the bearer token
- * cannot be sent anywhere else.
- */
-export const API_BASE = '/api/v1'
 
 /**
  * One attempt per call with a bounded wait. The backend's EVM client makes a
@@ -27,6 +21,16 @@ export const API_BASE = '/api/v1'
  * caller's rate-limit budget without telling them.
  */
 export const DEFAULT_TIMEOUT_MS = 10_000
+
+/**
+ * The base every request is made against, resolved once for this bundle.
+ *
+ * The parsing and the rules live in `apiBase.ts`, because the Vite config calls
+ * the same function: a malformed value must fail the build, and it can only do
+ * that if the check does not depend on `import.meta`, which a config file has no
+ * access to.
+ */
+export const API_BASE = resolveApiBase(import.meta.env.VITE_API_BASE_URL)
 
 const REQUEST_ID_HEADER = 'X-Request-ID'
 const RETRY_AFTER_HEADER = 'Retry-After'
