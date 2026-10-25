@@ -13,7 +13,7 @@ verified in earlier weeks stays the testnet deployment the dashboard reads.
 | --- | --- | --- | --- |
 | Dashboard | Render static site | free, no expiry, no compute plan to size | React bundle on a CDN, SPA rewrite to `index.html` |
 | API | Render web service, Docker | free | sleeps after 15 minutes idle, about a minute to wake |
-| Database | Neon Postgres | free, no expiry | 1 GB, autoscaling compute, scale to zero after 5 minutes |
+| Database | Neon Postgres | free, no expiry | 1 GB, 0.25 to 2 CU autoscaling, scale to zero after 5 minutes, in `aws-ap-southeast-1` |
 
 Everything here is on a zero-cost tier. That constrains three decisions:
 
@@ -40,7 +40,8 @@ The two live hostnames are:
 
 The dashboard carries a suffix because Render appends one when the name is
 already taken on `onrender.com`. Both are provider defaults, chosen because they
-are readable and cost nothing. They are also named in two places that no compiler compares:
+are readable and cost nothing. They are also named in two places that no
+compiler compares:
 the dashboard's `VITE_API_BASE_URL` and the API's `CORS_ALLOWED_ORIGINS`.
 `backend/internal/deploy` reads `render.yaml` and fails when either stops
 pointing at the service it names, and when the static site declares a `plan` or
@@ -52,6 +53,23 @@ disagreed.
 A custom domain later is a DNS record plus one value in `render.yaml` for
 `CORS_ALLOWED_ORIGINS` and one for `VITE_API_BASE_URL`. The test above then
 holds those two values to the new hostname.
+
+## How these two services exist today
+
+The Render services were created through Render's API, because a Blueprint's
+GitHub app authorisation is a dashboard click. Both are linked to the
+`feature/staging-deploy` branch with `autoDeployTrigger: checksPass`, so every
+commit that passes CI on that branch redeploys. Two steps remain when the branch
+merges, and they are the only manual steps in this document:
+
+1. Point both services at `main` (Settings, Branch, or `PATCH /v1/services/{id}`
+   with `{"branch": "main"}`).
+2. Nothing else. `autoDeployTrigger` is already `checksPass`.
+
+The routes, headers and environment variables that `render.yaml` declares were
+applied to the created services; the file and the live services agree, which
+`backend/internal/deploy` and `scripts/smoke/deployment-smoke.sh` check from
+different sides.
 
 ## Configuration
 
@@ -81,8 +99,10 @@ Local development needs neither. `VITE_API_BASE_URL` unset means the bundle call
 
 ## First deploy
 
-1. Create the Neon project, then copy the direct connection string with
-   `sslmode=require` appended.
+1. Create the Neon project (`aws-ap-southeast-1` to sit beside the Singapore
+   API), a role and a database, then copy the direct connection string with
+   `sslmode=require` appended. The free plan's compute autoscaling ceiling is
+   0.25 to 2 CU; raise it only when there is a paid plan to pay for it.
 2. In Render, create a Blueprint from this repository. It reads `render.yaml` and
    asks for the `sync: false` values.
 3. Paste the Neon string as `DATABASE_URL`, and a Sepolia RPC URL as `EVM_RPC_URL`.
@@ -95,9 +115,10 @@ Local development needs neither. `VITE_API_BASE_URL` unset means the bundle call
 
 ## Deploying a change
 
-Push to `main`. Render redeploys only after CI passes on that commit
-(`autoDeployTrigger: checksPass`). There is no manual step and no long-lived
-staging branch: `main` is staging, and the merge is the deploy.
+Push to the linked branch, which is `main` once the first deploy is merged and
+`feature/staging-deploy` until then. Render redeploys only after CI passes on that
+commit (`autoDeployTrigger: checksPass`). There is no manual step: the branch is
+staging, and a merge is the deploy.
 
 ## Rollback
 
@@ -173,6 +194,32 @@ line. `DATABASE_URL` and `EVM_RPC_URL` are Render environment variables marked
 repository. The API logs a CORS origin count, never the origins, and never logs a
 connection string, a session token or an authorization header.
 
+## Network exposure of the database
+
+The database is on the public internet. Neon gives it a TLS endpoint with a
+password, and that is the whole perimeter: port 5432 answers any client that has
+the credential.
+
+A private link would need Render's private networking, which does not reach
+Neon. An IP allow list is available on the Neon side and is the right next step,
+but Render's free tier has no static egress: outbound addresses are shared per
+region and change over time, and Render's dedicated IPs are a Pro feature at
+$100 a month per set. An allow list built on the shared ranges would work until
+Render rotates them and then take the API down, which is worse than the exposure
+it removes.
+
+So the exposure is accepted and named rather than papered over:
+
+- TLS on every connection (`sslmode=require`), so the credential is not readable
+  in transit.
+- One role, `wallet`, owning one database, with a generated 16 character
+  password. No other role holds a password.
+- Nothing listens on 5432 except PostgreSQL, and there is no database content
+  outside the tables the migrations create.
+- When a paid plan exists, the allow list is one API call:
+  `PATCH /api/v2/projects/{project_id}` with the egress ranges, plus Neon's
+  protected-branch setting so only `main` accepts writes.
+
 ## Known limitations
 
 - The API is single instance and sleeps. It is not a high-availability deployment.
@@ -181,5 +228,7 @@ connection string, a session token or an authorization header.
 - No custom domain, no CDN in front of the API, no autoscaling beyond Neon's
   per-project compute.
 - No alerting. A failed deploy is visible in Render and in the smoke walk.
+- The database endpoint is reachable from the internet. See the section above;
+  the mitigation needs a paid egress plan.
 - Staging data is disposable. It is not backed up, and the smoke walk leaves a
   test account, a wallet and a contract behind on every run.
