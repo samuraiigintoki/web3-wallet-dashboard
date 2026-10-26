@@ -52,13 +52,14 @@ if not params.get("host") or not params.get("dbname"):
 for value in params.values():
     if any(char in value for char in ("\x00", "\r", "\n")):
         raise SystemExit(1)
+    if value and value[-1].isspace():
+        raise SystemExit(1)
 
-def quote(value):
-    return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
-
+# libpq's service-file parser takes values literally; quotes are not stripped.
+# Newlines and trailing whitespace are rejected because they cannot be preserved.
 contents = [f"[{service_name}]\n"]
 for key, value in params.items():
-    line = f"{key}={quote(value)}\n"
+    line = f"{key}={value}\n"
     if len(line.encode("utf-8")) >= 1023:
         raise SystemExit(1)
     contents.append(line)

@@ -11,7 +11,7 @@ Add these repository or organization Actions secrets before the first scheduled 
 | `STAGING_DATABASE_URL` | PostgreSQL connection URI for the database to export. Use a dedicated account with the minimum privileges required to dump all application schemas and data. |
 | `BACKUP_AGE_RECIPIENT` | The public `age1...` recipient corresponding to the recovery identity. This is a public encryption key, not the private identity. |
 
-Both values must be set for the `encrypted-backup` job. The workflow validates the recipient before exporting. It requires PostgreSQL 17 client tools and accepts a single-host `postgres://` or `postgresql://` URI. The scripts require Bash and Python 3. They write the URI to a mode-600 temporary libpq service file and remove it on exit; they do not pass the credential-bearing URI to PostgreSQL process arguments or print it.
+Both values must be set for the `encrypted-backup` job. The workflow validates the recipient before exporting. It requires PostgreSQL 17 client tools and accepts a single-host `postgres://` or `postgresql://` URI. The scripts require Bash and Python 3. They write the URI to a mode-600 temporary libpq service file and remove it on exit; they do not pass the credential-bearing URI to PostgreSQL process arguments or print it. Newlines and trailing whitespace in URI values are not supported by libpq service files.
 
 ### Create and protect the recovery identity
 
