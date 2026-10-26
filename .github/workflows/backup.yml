@@ -150,7 +150,25 @@ jobs:
             exit 1
           fi
 
-          ./scripts/db-export.sh "$plaintext"
+          if ! ./scripts/db-export.sh "$plaintext"; then
+            echo 'Export wrapper failed; running a diagnostic against the disposable test database.'
+            diagnostic_service_file="$drill_dir/diagnostic.pg_service.conf"
+            source ./scripts/libpq-service.sh
+            if ! prepare_pg_service "$DATABASE_URL" "$diagnostic_service_file" db_export_diagnostic; then
+              echo '::error::Could not prepare the test-only diagnostic connection.'
+              exit 1
+            fi
+            unset DATABASE_URL
+            PGSERVICEFILE="$diagnostic_service_file" PGSERVICE=db_export_diagnostic pg_dump \
+              --no-password \
+              --format=custom \
+              --no-owner \
+              --no-privileges \
+              --dbname=service=db_export_diagnostic \
+              --file="$drill_dir/diagnostic.dump"
+            echo '::error::Database export failed; no artifact was created'
+            exit 1
+          fi
           if ! age --encrypt --recipient "$recipient" --output "$ciphertext" "$plaintext" 2>/dev/null; then
             echo '::error::Encryption failed in the PostgreSQL 17 restore drill'
             exit 1
