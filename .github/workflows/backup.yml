@@ -1,0 +1,302 @@
+name: PostgreSQL encrypted backup
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/backup.yml'
+      - 'backend/cmd/migrate/**'
+      - 'backend/go.mod'
+      - 'backend/go.sum'
+      - 'backend/migrations/**'
+      - 'docs/backups.md'
+      - 'scripts/db-export.sh'
+      - 'scripts/db-restore.sh'
+      - 'scripts/libpq-service.sh'
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/backup.yml'
+      - 'backend/cmd/migrate/**'
+      - 'backend/go.mod'
+      - 'backend/go.sum'
+      - 'backend/migrations/**'
+      - 'docs/backups.md'
+      - 'scripts/db-export.sh'
+      - 'scripts/db-restore.sh'
+      - 'scripts/libpq-service.sh'
+  schedule:
+    - cron: '47 20 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: postgres-backup-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  self-test:
+    name: restore-drill
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: backup_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d backup_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres@127.0.0.1:5432/backup_test?sslmode=disable
+      ADMIN_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/postgres?sslmode=disable
+      TARGET_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/backup_restore_target?sslmode=disable
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install age and PostgreSQL 17 client
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends age postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
+          echo '/usr/lib/postgresql/17/bin' >> "$GITHUB_PATH"
+          /usr/lib/postgresql/17/bin/pg_dump --version
+          /usr/lib/postgresql/17/bin/pg_restore --version
+          age --version
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      - name: Apply the real migrations to PostgreSQL 17
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql://postgres@127.0.0.1:5432/backup_test?sslmode=disable
+        run: go run ./cmd/migrate up
+
+      - name: Seed representative application data
+        run: |
+          set -euo pipefail
+          psql --no-psqlrc --no-password --quiet --set=ON_ERROR_STOP=1 "$DATABASE_URL" <<'SQL'
+          WITH test_user AS (
+            INSERT INTO users (email, password_hash)
+            VALUES ('backup-drill@example.invalid', 'test-only-not-a-password-hash')
+            RETURNING id
+          )
+          INSERT INTO wallets (user_id, address, chain_id, label)
+          SELECT id, '0x1111111111111111111111111111111111111111', 11155111, 'backup restore drill'
+          FROM test_user;
+          SQL
+
+      - name: Export, encrypt, decrypt, and restore
+        run: |
+          set -euo pipefail
+          umask 077
+          drill_dir="$(mktemp -d "$RUNNER_TEMP/pg-backup-drill.XXXXXX")"
+          trap 'rm -rf -- "$drill_dir"' EXIT
+          identity="$drill_dir/test-identity.txt"
+          plaintext="$drill_dir/source.dump"
+          ciphertext="$drill_dir/source.dump.age"
+          decrypted="$drill_dir/decrypted.dump"
+
+          expect_exit() {
+            local expected="$1"
+            shift
+            local actual=0
+            "$@" >/dev/null 2>&1 || actual=$?
+            if [[ "$actual" -ne "$expected" ]]; then
+              echo "::error::Expected exit $expected from a guarded operation, got $actual"
+              exit 1
+            fi
+          }
+
+          expect_failure() {
+            local actual=0
+            "$@" >/dev/null 2>&1 || actual=$?
+            if [[ "$actual" -eq 0 ]]; then
+              echo '::error::An invalid backup input was accepted'
+              exit 1
+            fi
+          }
+
+          expect_exit 2 env -u DATABASE_URL ./scripts/db-export.sh "$drill_dir/missing.dump"
+          expect_exit 2 env -u TARGET_DATABASE_URL ./scripts/db-restore.sh "$drill_dir/missing.dump"
+          : > "$drill_dir/empty-input"
+          expect_failure age --encrypt --recipient 'not-a-valid-age-recipient' --output "$drill_dir/invalid-recipient.age" "$drill_dir/empty-input"
+
+          age-keygen --output "$identity" >/dev/null 2>&1
+          recipient="$(age-keygen -y "$identity" 2>/dev/null)"
+          if [[ "$recipient" != age1* ]]; then
+            echo '::error::The temporary age recipient was not generated'
+            exit 1
+          fi
+
+          if ! ./scripts/db-export.sh "$plaintext"; then
+            echo 'Export wrapper failed; running a diagnostic against the disposable test database.'
+            diagnostic_service_file="$drill_dir/diagnostic.pg_service.conf"
+            source ./scripts/libpq-service.sh
+            if ! prepare_pg_service "$DATABASE_URL" "$diagnostic_service_file" db_export_diagnostic; then
+              echo '::error::Could not prepare the test-only diagnostic connection.'
+              exit 1
+            fi
+            unset DATABASE_URL
+            PGSERVICEFILE="$diagnostic_service_file" PGSERVICE=db_export_diagnostic pg_dump \
+              --no-password \
+              --format=custom \
+              --no-owner \
+              --no-privileges \
+              --dbname=service=db_export_diagnostic \
+              --file="$drill_dir/diagnostic.dump"
+            echo '::error::Database export failed; no artifact was created'
+            exit 1
+          fi
+          if ! age --encrypt --recipient "$recipient" --output "$ciphertext" "$plaintext" 2>/dev/null; then
+            echo '::error::Encryption failed in the PostgreSQL 17 restore drill'
+            exit 1
+          fi
+          rm -f -- "$plaintext"
+          if [[ -e "$plaintext" ]]; then
+            echo '::error::Plaintext remained after encryption'
+            exit 1
+          fi
+
+          printf 'not an age identity\n' > "$drill_dir/invalid-identity.txt"
+          expect_failure age --decrypt --identity "$drill_dir/invalid-identity.txt" --output "$drill_dir/invalid.dump" "$ciphertext"
+          age --decrypt --identity "$identity" --output "$decrypted" "$ciphertext" 2>/dev/null
+
+          psql --no-psqlrc --no-password --quiet --set=ON_ERROR_STOP=1 "$ADMIN_DATABASE_URL" \
+            --command='CREATE DATABASE backup_restore_target'
+          TARGET_DATABASE_URL="$TARGET_DATABASE_URL" ./scripts/db-restore.sh "$decrypted"
+
+          restored="$(psql --no-psqlrc --no-password --quiet --tuples-only --no-align \
+            --set=ON_ERROR_STOP=1 "$TARGET_DATABASE_URL" --command="
+              SELECT CASE WHEN
+                (SELECT count(*) FROM schema_migrations) = 8
+                AND (SELECT count(*) FROM chains) = 3
+                AND (SELECT count(*) FROM users WHERE email = 'backup-drill@example.invalid') = 1
+                AND (SELECT count(*) FROM wallets WHERE label = 'backup restore drill') = 1
+                AND to_regclass('public.contract_events') IS NOT NULL
+              THEN 'ok' ELSE 'failed' END;
+            ")"
+          if [[ "$restored" != 'ok' ]]; then
+            echo '::error::Restored schema or representative rows did not match'
+            exit 1
+          fi
+
+          expect_exit 2 env TARGET_DATABASE_URL="$TARGET_DATABASE_URL" ./scripts/db-restore.sh "$decrypted"
+          expect_exit 2 env TARGET_DATABASE_URL='not-a-postgresql-url' ./scripts/db-restore.sh "$decrypted"
+          expect_failure env TARGET_DATABASE_URL='postgresql://postgres@127.0.0.1:5432/missing_restore_database?sslmode=disable' ./scripts/db-restore.sh "$decrypted"
+          remaining_wallets="$(psql --no-psqlrc --no-password --quiet --tuples-only --no-align \
+            --set=ON_ERROR_STOP=1 "$TARGET_DATABASE_URL" --command='SELECT count(*) FROM wallets')"
+          if [[ "$remaining_wallets" != '1' ]]; then
+            echo '::error::A rejected restore changed the existing target'
+            exit 1
+          fi
+          echo 'PostgreSQL 17 restore drill passed: 8 migrations, 3 chains, 1 user, 1 wallet.'
+
+  backup:
+    name: encrypted-backup
+    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install age and PostgreSQL 17 client
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends age postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
+          echo '/usr/lib/postgresql/17/bin' >> "$GITHUB_PATH"
+          /usr/lib/postgresql/17/bin/pg_dump --version
+          age --version
+
+      - name: Check required configuration
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          BACKUP_AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$DATABASE_URL" ]]; then
+            echo '::error::Set the STAGING_DATABASE_URL Actions secret before running a backup'
+            exit 1
+          fi
+          if [[ -z "$BACKUP_AGE_RECIPIENT" ]]; then
+            echo '::error::Set the BACKUP_AGE_RECIPIENT Actions secret before running a backup'
+            exit 1
+          fi
+          unset DATABASE_URL
+          if ! printf '' | age --encrypt --recipient "$BACKUP_AGE_RECIPIENT" >/dev/null 2>&1; then
+            echo '::error::BACKUP_AGE_RECIPIENT is not a valid age recipient'
+            exit 1
+          fi
+
+      - name: Export and encrypt the database
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          BACKUP_AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
+        run: |
+          set -euo pipefail
+          umask 077
+          drill_dir="$(mktemp -d "$RUNNER_TEMP/postgres-backup.XXXXXX")"
+          artifact_file="$RUNNER_TEMP/postgres-backup-${GITHUB_RUN_ID}.dump.age"
+          trap 'rm -rf -- "$drill_dir"' EXIT
+          plaintext="$drill_dir/postgres.dump"
+          ciphertext="$drill_dir/postgres.dump.age"
+
+          if ! ./scripts/db-export.sh "$plaintext"; then
+            echo '::error::Database export failed; no artifact was created'
+            exit 1
+          fi
+          unset DATABASE_URL
+          if ! age --encrypt --recipient "$BACKUP_AGE_RECIPIENT" --output "$ciphertext" "$plaintext" 2>/dev/null; then
+            echo '::error::Database encryption failed; no artifact was created'
+            exit 1
+          fi
+          unset BACKUP_AGE_RECIPIENT
+          rm -f -- "$plaintext"
+          if [[ -e "$plaintext" || ! -s "$ciphertext" ]]; then
+            echo '::error::Plaintext cleanup or ciphertext verification failed'
+            exit 1
+          fi
+          if ! install -m 600 -- "$ciphertext" "$artifact_file" 2>/dev/null; then
+            echo '::error::Could not stage the encrypted artifact'
+            exit 1
+          fi
+          echo 'Encrypted database artifact is ready for upload.'
+
+      - name: Upload encrypted database artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: postgres-backup-${{ github.run_id }}
+          path: ${{ runner.temp }}/postgres-backup-${{ github.run_id }}.dump.age
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Remove runner copy of encrypted artifact
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP/postgres-backup-${GITHUB_RUN_ID}.dump.age"
