@@ -77,7 +77,9 @@ The workflow encrypts the custom-format dump with `age` before upload. It delete
 
 For pull requests, pushes to `main`, and manual dispatches, the `restore-drill` job starts a disposable PostgreSQL 17 service, applies the repository's real migrations, inserts a test user and wallet, exports the database, encrypts and decrypts it with an ephemeral test identity, then restores into a separate new database. It verifies all 8 migration records, the 3 seeded chains, the test user and wallet, and the `contract_events` table. The ephemeral private test identity and all dump files are deleted at job exit and are never uploaded.
 
-The same job checks that export without `DATABASE_URL` is rejected; missing and malformed restore targets are rejected; a nonempty target is rejected without changing its wallet row; and invalid `age` recipients and identities fail. The hosted PostgreSQL 17 restore drill result will be recorded here after the first CI run.
+The same job checks that export without `DATABASE_URL` is rejected; missing and malformed restore targets are rejected; a nonempty target is rejected without changing its wallet row; and invalid `age` recipients and identities fail.
+
+**Recorded hosted drill:** passed on 2026-10-26 UTC at commit [`4f26c9f`](https://github.com/samuraiigintoki/web3-wallet-dashboard/commit/4f26c9f45914fc18e35982c9df63d5875548348b). The [workflow run](https://github.com/samuraiigintoki/web3-wallet-dashboard/actions/runs/40348726609) completed successfully; its `restore-drill` job used PostgreSQL 17 and verified the 8 migrations, 3 seeded chains, test user and wallet, and `contract_events` table. The required failure checks passed in the same job.
 
 ## Scope and limitations
 
