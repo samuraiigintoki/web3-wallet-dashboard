@@ -250,9 +250,12 @@ The path out, when there is money for it, in order of preference:
 3. **Co-locate everything on one platform with private networking.** A bigger
    move, and it trades a managed database for an operator's job.
 
-Until one of those is paid for, this is a documented, conscious acceptance of the
-risk for a staging environment, not a solved problem. The credential is the
-perimeter.
+Until one of those is paid for, this remains a documented, temporary staging-only
+exception, not a solved problem. The owner recorded the exception on [issue #104](https://github.com/samuraiigintoki/web3-wallet-dashboard/issues/104#issuecomment-6422889672)
+on 2026-10-26, with a review date of 2026-11-26. It does not apply to production
+or satisfy the private-networking requirement. If the requirement remains unmet
+and there is no new dated owner exception, staging must be taken offline. The
+credential is the perimeter.
 
 ### Rotating the database credential
 
@@ -284,20 +287,27 @@ minutes, so without a deploy the API starts failing on its own schedule.
 - No custom domain, no CDN in front of the API, no autoscaling beyond Neon's
   per-project compute.
 - No alerting. A failed deploy is visible in Render and in the smoke walk.
-- The database endpoint is reachable from the internet, which is a departure from
-  the security requirement in issue #104. The section above records what was
-  tried, what the free tier refuses, and what the paid fix is. It needs to be
-  waived by the repository owner, not by whoever wrote the code.
+- The database endpoint is public, so staging still fails issue #104's
+  private-networking requirement. The owner recorded a dated, staging-only
+  exception on 2026-10-26. It does not claim compliance or apply to production.
+  Review no-card hosting with persistent PostgreSQL and private networking by
+  2026-11-26. If private networking remains unmet and there is no new dated owner
+  exception, take staging offline.
 - Staging data is disposable: no user owns it, and the smoke walk leaves a test
-  account, a wallet and a contract behind on every run. It is copied nightly, so
-  a loss costs at most a day of writes, and the artifacts are kept 30 days. See
+  account, a wallet and a contract behind on every run. The Age-based workflow
+  uploads encrypted artifacts with seven-day retention. The live artifact from
+  run [40372465056](https://github.com/samuraiigintoki/web3-wallet-dashboard/actions/runs/40372465056)
+  uploaded successfully, but local decryption and restore are still pending. See
   [docs/backups.md](backups.md).
 
 ## Backups
 
-The database has no managed backup on the free tier, so the repository takes its
-own: a nightly encrypted dump, uploaded as an artifact, with the same run
-restoring it into a throwaway database to prove it works. The scripts, the
-secret names, the restore procedure and the drill log are in
-[docs/backups.md](backups.md).
-
+The free tier has no managed backup. The Age-based GitHub Actions workflow takes
+an encrypted PostgreSQL 17 dump nightly or by manual dispatch, uploads ciphertext
+only, and retains artifacts for seven days. Its separate `restore-drill` job
+checks export, encryption, decryption and restore with an ephemeral test identity
+and a disposable database; it does not decrypt the live artifact. The manual
+live run [40372465056](https://github.com/samuraiigintoki/web3-wallet-dashboard/actions/runs/40372465056)
+succeeded, but recovery from that artifact remains unverified until it is
+locally decrypted and restored. See [docs/backups.md](backups.md) for the
+procedure and status.

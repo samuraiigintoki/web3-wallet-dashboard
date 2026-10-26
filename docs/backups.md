@@ -1,180 +1,94 @@
-# Backups and restores
+# PostgreSQL backups and restore
 
-The staging database is a free Neon Postgres. Neon's free plan keeps a short
-point-in-time history and no export, and nothing in this repository took a copy
-of it, so a dropped table or a deleted project had no recovery path. This
-document describes the copy that now exists, how it is taken, how it is proven,
-and how it is used.
+This procedure creates an encrypted, custom-format PostgreSQL 17 dump and verifies that it can be restored into a new, empty PostgreSQL 17 database. The nightly job uploads ciphertext only. The private `age` identity is never needed by GitHub Actions.
 
-Everything here is zero cost: it runs on GitHub Actions' included minutes and
-stores artifacts in the repository's own artifact storage.
+## Required GitHub configuration
 
-## What is backed up
+Add these repository or organization Actions secrets before the first scheduled or manually dispatched backup:
 
-The whole database, in `pg_dump`'s custom format: every table, index, constraint
-and the row data. Not the Neon project, not its roles and passwords, not the
-Render service or its environment variables.
-
-| Piece | Where it lives | Is it in the backup |
-| --- | --- | --- |
-| Tables, indexes, constraints, rows | Neon | yes |
-| Database role passwords | Neon | no, they are rotated by procedure |
-| API configuration and secrets | Render and GitHub secrets | no, `render.yaml` is in Git |
-| Sepolia contract state | the chain | no, and nothing here may touch it |
-
-A backup is not a substitute for the deployed configuration. If the Neon project
-is lost, the database comes back from an artifact and the connection string in
-Render is replaced, which is the same procedure a password rotation follows in
-`docs/deployment.md`.
-
-## How the nightly backup runs
-
-`.github/workflows/backup.yml` has three jobs:
-
-- **self-test** runs on every pull request that touches the scripts or the
-  workflow. It builds the real schema with the real migrations in a throwaway
-  Postgres 17, adds 25 rows to a table of its own, takes a backup, restores it
-  into an empty database, and requires the row counts to match. It then checks
-  that the guards refuse the three things they are meant to refuse. No secret is
-  involved, so it runs on a fork too.
-- **backup** runs at 20:47 UTC (02:17 IST) and on demand. It dumps staging,
-  encrypts the dump, and uploads it as a workflow artifact with 30 day
-  retention.
-- **drill** runs after it, downloads the artifact that same run produced,
-  restores it into an empty Postgres 17 in the runner, and compares the row
-  counts against the manifest. A nightly run therefore produces the backup and
-  the evidence that this backup restores.
-
-Both scheduled jobs need two repository secrets:
-
-| Secret | What it holds |
+| Secret | Value |
 | --- | --- |
-| `STAGING_DATABASE_URL` | the Neon connection string, the same value as `DATABASE_URL` on the API |
-| `BACKUP_PASSPHRASE` | the passphrase the artifacts are encrypted with |
+| `STAGING_DATABASE_URL` | PostgreSQL connection URI for the database to export. Use a dedicated account with the minimum privileges required to dump all application schemas and data. |
+| `BACKUP_AGE_RECIPIENT` | The public `age1...` recipient corresponding to the recovery identity. This is a public encryption key, not the private identity. |
 
-If either is missing the run fails rather than skipping, because a nightly job
-that quietly does nothing is not a backup policy.
+Both values must be set for the `encrypted-backup` job. The workflow validates the recipient before exporting. It requires PostgreSQL 17 client tools and accepts a single-host `postgres://` or `postgresql://` URI. The scripts require Bash and Python 3. They write the URI to a mode-600 temporary libpq service file and remove it on exit; they do not pass the credential-bearing URI to PostgreSQL process arguments or print it. Newlines and trailing whitespace in URI values are not supported by libpq service files.
 
-The passphrase is not in the repository and not in the workflow. **A copy must
-exist somewhere other than GitHub.** If it is lost, every artifact becomes
-unreadable, which is the property that makes the encryption worth having. Keep
-it in a password manager, and rotate it by setting the new value and taking a
-fresh backup; artifacts stay readable with the passphrase that was current when
-they were taken.
+### Create and protect the recovery identity
 
-## Where the artifact goes and what is in it
+On a trusted machine, install `age`, then create the recovery identity in a protected location:
 
-Each run uploads three files, named from one UTC timestamp:
-
-```
-wallet-20261025T210958Z.dump.enc          the encrypted dump
-wallet-20261025T210958Z.dump.enc.sha256   sha256 of the encrypted file
-wallet-20261025T210958Z.json              the manifest
+```sh
+umask 077
+mkdir -p "$HOME/.config/age"
+age-keygen -o "$HOME/.config/age/staging-db-backup.txt"
+age-keygen -y "$HOME/.config/age/staging-db-backup.txt"
 ```
 
-The manifest records when it was taken, which database it came from (host only,
-never the password or the database name), the `pg_dump` version, the sizes and
-sha256 of both the plaintext dump and the encrypted artifact, the cipher, and
-the row count of every table. It is what a restore is compared against, and it
-holds no credential.
+Copy only the displayed public `age1...` recipient into the `BACKUP_AGE_RECIPIENT` Actions secret. Keep the identity file private and outside GitHub, the repository, the runner, and all artifacts. Maintain an offline, access-controlled recovery copy. Do not paste the identity into logs, issues, pull requests, or documentation.
 
-Encryption is `openssl enc -aes-256-cbc` with `-pbkdf2 -iter 600000` and a
-random salt, with the passphrase supplied through the environment, never
-through an argument, so it does not appear in a process list. This uses
-`openssl` from the base image rather than a new dependency.
+For key rotation, first set the new public recipient, then run a manual backup and verify that its artifact decrypts with the new identity. Keep the old identity available offline until every artifact encrypted to the old recipient has expired. Never delete the only recovery identity for a retained backup.
 
-## Restoring
+## Schedule, artifact access, and retention
 
-The scripts are in `scripts/backup/`. Both print only redacted connection
-strings, and neither writes a plaintext dump outside a private temporary
-directory that is removed on exit.
+`.github/workflows/backup.yml` runs on the default branch every day at 20:47 UTC (02:17 the following day in India). GitHub may delay scheduled runs during periods of high load. Use **Actions → PostgreSQL encrypted backup → Run workflow** on `main` to start a backup manually. A manual dispatch on another branch runs the restore self-test only; it will not export the configured database.
 
-**The nightly drill is the same command.** To run it by hand against a local
-Postgres:
+A successful backup creates an artifact named `postgres-backup-<run-id>` containing one file, `postgres-backup-<run-id>.dump.age`. The artifact is retained for 7 days. This repository is public, so treat workflow artifacts as accessible to repository readers; download permissions follow repository read access ([GitHub Actions artifact access](https://docs.github.com/en/actions/managing-workflow-runs/downloading-workflow-artifacts)). Encryption protects the dump contents, not artifact names, timestamps, run metadata, or the fact that a backup exists.
 
-```bash
-psql postgres://wallet:wallet@localhost:5432/postgres -c 'CREATE DATABASE restore_target'
+The workflow encrypts the custom-format dump with `age` before upload. It deletes the plaintext file before staging the artifact, and a cleanup step removes the runner's encrypted working copy after upload. No plaintext dump is uploaded or retained as an artifact. Backups are finite-retention recovery copies, not a point-in-time recovery service. The scheduled copy may be about a day old, and a missed or delayed run increases that window.
 
-DATABASE_URL=postgres://wallet:wallet@localhost:5432/restore_target?sslmode=disable \
-BACKUP_PASSPHRASE=... \
-  scripts/backup/restore.sh wallet-20261025T210958Z.dump.enc
-```
+## Retrieve, decrypt, and restore
 
-The script decrypts the artifact, checks the plaintext against the manifest's
-sha256, runs `pg_restore --clean --if-exists --no-owner --no-privileges
---exit-on-error`, and then compares every table's row count with the manifest.
-A mismatch is a failed restore, printed as a diff, not a warning.
+1. Open the latest successful backup run in the repository's **Actions** tab and download its `postgres-backup-<run-id>` artifact. The GitHub CLI can also download it:
 
-Three guards exist so that pointing this at the wrong database is a decision
-rather than a typo:
-
-- a target that already holds tables is refused unless `RESTORE_FORCE=1`,
-  because `pg_restore --clean` drops what it finds;
-- a target that is not this machine is refused unless
-  `RESTORE_TARGET_CONFIRMED=1`;
-- the connection string is read from the environment, not the command line, so
-  it does not land in shell history.
-
-### Recovering staging
-
-1. Provision the replacement database and put its connection string in
-   `DATABASE_URL` on the Render service, per `docs/deployment.md`.
-2. Download the newest artifact from the successful `Backup` runs in the
-   Actions tab. Check it came from a run whose `drill` job passed.
-3. Restore into the new database, with both guards set:
-
-   ```bash
-   DATABASE_URL="$NEW_DATABASE_URL" \
-   BACKUP_PASSPHRASE=... \
-   RESTORE_TARGET_CONFIRMED=1 \
-   RESTORE_FORCE=1 \
-     scripts/backup/restore.sh wallet-...Z.dump.enc
+   ```sh
+   gh run download <run-id> -n postgres-backup-<run-id> -D ./db-backup
    ```
 
-   The migration table comes back with the data, so the API's start-up
-   `migrate up` finds the schema at the version the backup was taken at and
-   applies only what is newer.
-4. Deploy the API and run `scripts/smoke/deployment-smoke.sh` against the pair.
-5. Note the artifact name and the time in the drill log below.
+2. On a trusted machine with `age` and PostgreSQL 17 client tools installed, decrypt to a protected local file. Use the private identity file, never a passphrase or the public recipient:
 
-## Drill log
+   ```sh
+   umask 077
+   age --decrypt \
+     --identity "$HOME/.config/age/staging-db-backup.txt" \
+     --output ./restore.dump \
+     ./db-backup/postgres-backup-<run-id>.dump.age
+   ```
 
-A backup is only evidence once it has been restored. Each row is a restore that
-actually ran, with what was compared.
+3. Create a new, disposable, empty database on the intended PostgreSQL 17 server. Do not point the restore at a production database or a database that contains data you need. The target account must be able to create the application's schema and objects. Provide its PostgreSQL connection URI through a protected shell environment, not a command argument, shell history, or committed file. For an interactive Bash session:
 
-| Date | Where | Artifact | Source | Tables | Rows compared | Result |
-| --- | --- | --- | --- | --- | --- | --- |
-| 2026-10-25 | local Postgres 17, `restoredb` | `wallet-20261025T210851Z.dump.enc` (118 KB) | local `wallet` | 12 | 12 tables matched, including `users` 5, `contracts` 7, `schema_migrations` 8 | pass |
-| 2026-10-25 | local Postgres 17, `stagedrill` | `wallet-20261025T211449Z.dump.enc` (36 KB) | **staging**, the Neon database the API is serving from | 12 | all 12 matched: `users` 11, `wallets` 7, `user_contracts` 7, `user_sessions` 9, `contracts` 1, `chains` 3, `schema_migrations` 8 | pass, restore 0.31 s; the dump took 19.1 s because the suspended compute had to wake first |
+   ```sh
+   read -rsp 'Empty target PostgreSQL URI: ' TARGET_DATABASE_URL
+   printf '\n'
+   export TARGET_DATABASE_URL
+   ```
 
-The same session checked the failure paths, because a guard nobody has seen
-fire is a guard nobody knows works:
+4. Run the restore and clear the shell variable when finished:
 
-| Case | Expected | Observed |
-| --- | --- | --- |
-| wrong passphrase | exit 1, nothing restored | exit 1, `the passphrase is wrong or the file is damaged` |
-| target already populated, no `RESTORE_FORCE` | exit 2 | exit 2, names the 12 tables it will not drop |
-| target not on this machine, no `RESTORE_TARGET_CONFIRMED` | exit 2 | exit 2, names the host |
-| manifest edited so `users` says 99 | exit 1 with a diff | exit 1, diff `users 99` against `users 5` |
-| `-Fc` dump of 121 KB | restores in one pass | 0.42 s, 12/12 tables |
+   ```sh
+   scripts/db-restore.sh ./restore.dump
+   unset TARGET_DATABASE_URL
+   ```
 
-### Recorded runs
+   `db-restore.sh` requires `TARGET_DATABASE_URL` explicitly. It checks the target before writing and refuses any target with user objects or large objects. It does not use `pg_restore --clean` or `--create`; it restores in one transaction and rolls back a failed restore. PostgreSQL 17 `pg_restore` and `psql` are required. Keep the decrypted dump in protected storage and securely remove it when the recovery task is complete.
 
-| Date | Workflow run | Job | Result |
-| --- | --- | --- | --- |
-| 2026-10-25 | `40234416584`, run 1 | `self-test` (no secrets, throwaway Postgres 17) | pass in 46 s: schema built by the real migrations, 25 rows of its own round tripped, all three guards refused what they should |
-| 2026-10-25 | `40234338160`, run 1 | `self-test` | failed at the install step: Ubuntu 24.04 has no `postgresql-client-17` without the PGDG archive. Fixed, and the version is now printed on that step |
-| 2026-10-25 | `40234262372`, run 1 | rejected before any job | the workflow used `runner.temp` in a job level `env`, which is not an allowed context. The run had zero jobs and said nothing useful, which is why `actionlint` is worth running before a push |
+5. Verify the restored application schema and representative records before directing any application traffic to the database. Follow the application's normal recovery and credential-rotation procedure before using a restored database.
 
-## What this does not do
+## Automated restore drill
 
-- It does not back up continuously. Up to 24 hours of writes are lost in the
-  worst case, which for a demonstration environment with no real users is
-  accepted and stated here rather than implied.
-- It does not keep the artifacts forever. GitHub retains them 30 days, so the
-  window of recoverable history is 30 days.
-- It does not protect against a passphrase that is lost, or against the
-  repository's own secrets being lost with it.
-- It does not test a restore to a *different* host on a schedule. The drill
-  restores into a Postgres 17 service container in the runner, which proves the
-  artifact and the scripts, not the staging credentials.
+For pull requests, pushes to `main`, and manual dispatches, the `restore-drill` job starts a disposable PostgreSQL 17 service, applies the repository's real migrations, inserts a test user and wallet, exports the database, encrypts and decrypts it with an ephemeral test identity, then restores into a separate new database. It verifies all 8 migration records, the 3 seeded chains, the test user and wallet, and the `contract_events` table. The ephemeral private test identity and all dump files are deleted at job exit and are never uploaded.
+
+The same job checks that export without `DATABASE_URL` is rejected; missing and malformed restore targets are rejected; a nonempty target is rejected without changing its wallet row; and invalid `age` recipients and identities fail.
+
+**Recorded hosted drill:** passed on 2026-10-26 UTC at commit [`4f26c9f`](https://github.com/samuraiigintoki/web3-wallet-dashboard/commit/4f26c9f45914fc18e35982c9df63d5875548348b). The [workflow run](https://github.com/samuraiigintoki/web3-wallet-dashboard/actions/runs/40348726609) completed successfully; its `restore-drill` job used PostgreSQL 17 and verified the 8 migrations, 3 seeded chains, test user and wallet, and `contract_events` table. The required failure checks passed in the same job.
+
+## Live artifact status (2026-10-26)
+
+The manual backup on `main` succeeded in [workflow run 40372465056](https://github.com/samuraiigintoki/web3-wallet-dashboard/actions/runs/40372465056). Its uploaded artifact, `postgres-backup-40372465056`, contains only `postgres-backup-40372465056.dump.age`; the Age encryption header was verified. GitHub reports expiry at 2026-11-02 17:52:37 UTC, seven days after creation. The status is also recorded in the [issue #104 follow-up](https://github.com/samuraiigintoki/web3-wallet-dashboard/issues/104#issuecomment-6423665404).
+
+Both `encrypted-backup` and `restore-drill` passed in that run. The automated restore drill uses an ephemeral test identity and does not decrypt or restore the live artifact. The live artifact has not yet been decrypted with the privately held recovery identity or restored into a disposable PostgreSQL 17 database. That local verification remains pending, so successful encrypted upload is not yet full live recovery verification.
+
+## Scope and limitations
+
+This is a single-database dump. It does not include cluster-wide roles, server settings, or other databases. Owner and ACL restoration is disabled, so recreate required roles and grants separately during recovery.
+
+These backups do not make the Neon endpoint private, enable private networking, or satisfy issue #104. They provide encrypted export and an automated restore drill only; the live artifact still awaits local decryption and restore. The owner recorded a dated staging-only exception on [issue #104](https://github.com/samuraiigintoki/web3-wallet-dashboard/issues/104#issuecomment-6422889672) on 2026-10-26. It does not apply to production or claim private-network compliance. Review no-card hosting with persistent PostgreSQL and private networking by 2026-11-26. If the requirement remains unmet and there is no new dated owner exception, staging must be taken offline.
