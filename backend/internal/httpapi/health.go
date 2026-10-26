@@ -30,7 +30,22 @@ func readyHandler(logger *slog.Logger, checker ReadinessChecker, timeout time.Du
 		ctx, cancel := context.WithTimeout(r.Context(), timeout)
 		defer cancel()
 
-		if err := checker.Check(ctx); err != nil {
+		deadline, _ := ctx.Deadline()
+		initialBudget := time.Until(deadline)
+		minimumRetryBudget := initialBudget / 2
+
+		err := checker.Check(ctx)
+		if err == nil {
+			err = ctx.Err()
+		}
+		if err != nil && hasReadinessRetryBudget(ctx, minimumRetryBudget) {
+			// Both attempts share the original context and deadline.
+			err = checker.Check(ctx)
+			if err == nil {
+				err = ctx.Err()
+			}
+		}
+		if err != nil {
 			requestID := r.Header.Get(requestIDHeader)
 			if fields, ok := requestLogFieldsFromContext(r.Context()); ok {
 				requestID = fields.requestID
@@ -44,4 +59,16 @@ func readyHandler(logger *slog.Logger, checker ReadinessChecker, timeout time.Du
 			recordResponseWriteError(w, err)
 		}
 	}
+}
+
+func hasReadinessRetryBudget(ctx context.Context, minimumRemaining time.Duration) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return false
+	}
+	remaining := time.Until(deadline)
+	return remaining > 0 && remaining >= minimumRemaining
 }
