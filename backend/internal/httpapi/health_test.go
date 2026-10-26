@@ -186,6 +186,37 @@ func TestReadinessEndpointSuccessAndAccessLog(t *testing.T) {
 	}
 }
 
+func TestReadinessRetriesOnceAndReturnsHealthyOnSecondAttempt(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	checker := &stubReadinessChecker{}
+	checker.check = func(context.Context) error {
+		if checker.calls == 1 {
+			return errors.New("temporary database failure")
+		}
+		return nil
+	}
+	router := newHealthTestRouter(checker, logger)
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health/ready", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("readiness status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if got, want := rec.Body.String(), "{\"status\":\"ok\"}\n"; got != want {
+		t.Fatalf("readiness body = %q, want %q", got, want)
+	}
+	if checker.calls != 2 {
+		t.Fatalf("readiness checker calls = %d, want 2", checker.calls)
+	}
+	for _, entry := range decodeHealthLogEntries(t, logs.String()) {
+		if entry["msg"] == "readiness check failed" {
+			t.Fatalf("successful retry logged a readiness failure: %s", logs.String())
+		}
+	}
+}
+
 func TestReadinessFailureIsUnavailableAndKeepsCausePrivate(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
@@ -202,15 +233,17 @@ func TestReadinessFailureIsUnavailableAndKeepsCausePrivate(t *testing.T) {
 	if strings.Contains(rec.Body.String(), cause.Error()) || strings.Contains(rec.Body.String(), "private-value") {
 		t.Fatalf("readiness cause leaked to response: %s", rec.Body.String())
 	}
-	if checker.calls != 1 {
-		t.Fatalf("readiness checker calls = %d, want 1", checker.calls)
+	if checker.calls != 2 {
+		t.Fatalf("readiness checker calls = %d, want 2", checker.calls)
 	}
 
 	entries := decodeHealthLogEntries(t, logs.String())
+	var failureLogCount int
 	var sawCauseLog, sawAccessLog bool
 	for _, entry := range entries {
 		switch entry["msg"] {
 		case "readiness check failed":
+			failureLogCount++
 			sawCauseLog = true
 			if entry["level"] != "ERROR" || entry["request_id"] != "ready-failure-1" || entry["error"] != cause.Error() {
 				t.Errorf("readiness cause log = %#v", entry)
@@ -225,6 +258,9 @@ func TestReadinessFailureIsUnavailableAndKeepsCausePrivate(t *testing.T) {
 	if !sawCauseLog || !sawAccessLog {
 		t.Fatalf("want both private failure and access logs; got %s", logs.String())
 	}
+	if failureLogCount != 1 {
+		t.Fatalf("readiness failure log count = %d, want 1 after exhausting the retry", failureLogCount)
+	}
 }
 
 func TestReadyHandlerTimeoutAndRequestCancellation(t *testing.T) {
@@ -233,7 +269,7 @@ func TestReadyHandlerTimeoutAndRequestCancellation(t *testing.T) {
 		checker := &stubReadinessChecker{check: func(ctx context.Context) error {
 			<-ctx.Done()
 			observed <- ctx.Err()
-			return ctx.Err()
+			return nil
 		}}
 		rec := httptest.NewRecorder()
 		readyHandler(testLogger(), checker, 20*time.Millisecond).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health/ready", nil))
@@ -251,7 +287,7 @@ func TestReadyHandlerTimeoutAndRequestCancellation(t *testing.T) {
 		observed := make(chan error, 1)
 		checker := &stubReadinessChecker{check: func(ctx context.Context) error {
 			observed <- ctx.Err()
-			return ctx.Err()
+			return nil
 		}}
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
@@ -265,6 +301,91 @@ func TestReadyHandlerTimeoutAndRequestCancellation(t *testing.T) {
 		}
 		if checker.calls != 1 {
 			t.Fatalf("readiness checker calls = %d, want 1", checker.calls)
+		}
+	})
+
+	t.Run("request context canceled after first failure", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		checker := &stubReadinessChecker{check: func(context.Context) error {
+			cancel()
+			return errors.New("transient database failure")
+		}}
+		req := httptest.NewRequest(http.MethodGet, "/health/ready", nil).WithContext(ctx)
+		rec := httptest.NewRecorder()
+		readyHandler(testLogger(), checker, time.Second).ServeHTTP(rec, req)
+
+		assertNotReadyResponse(t, rec)
+		if checker.calls != 1 {
+			t.Fatalf("readiness checker calls = %d after cancellation, want 1", checker.calls)
+		}
+	})
+}
+
+func TestReadinessRetryUsesSingleDeadline(t *testing.T) {
+	const timeout = 200 * time.Millisecond
+	var firstDeadline, secondDeadline time.Time
+	checker := &stubReadinessChecker{}
+	checker.check = func(ctx context.Context) error {
+		deadline, ok := ctx.Deadline()
+		if !ok {
+			t.Fatal("readiness context has no deadline")
+		}
+		switch checker.calls {
+		case 1:
+			firstDeadline = deadline
+			return errors.New("transient database failure")
+		case 2:
+			secondDeadline = deadline
+			<-ctx.Done()
+			return ctx.Err()
+		default:
+			t.Fatalf("readiness checker called %d times, want at most 2", checker.calls)
+			return errors.New("unexpected readiness attempt")
+		}
+	}
+
+	rec := httptest.NewRecorder()
+	readyHandler(testLogger(), checker, timeout).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health/ready", nil))
+
+	assertNotReadyResponse(t, rec)
+	if checker.calls != 2 {
+		t.Fatalf("readiness checker calls = %d, want 2", checker.calls)
+	}
+	if !firstDeadline.Equal(secondDeadline) {
+		t.Fatalf("attempt deadlines differ: first=%s second=%s", firstDeadline, secondDeadline)
+	}
+}
+
+func TestHasReadinessRetryBudget(t *testing.T) {
+	t.Run("enough remains", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if !hasReadinessRetryBudget(ctx, 100*time.Millisecond) {
+			t.Fatal("retry was refused with enough budget remaining")
+		}
+	})
+
+	t.Run("less than the required remainder", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer cancel()
+		if hasReadinessRetryBudget(ctx, 100*time.Millisecond) {
+			t.Fatal("retry was allowed with too little budget remaining")
+		}
+	})
+
+	t.Run("deadline expired", func(t *testing.T) {
+		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+		defer cancel()
+		if hasReadinessRetryBudget(ctx, 0) {
+			t.Fatal("retry was allowed after the deadline")
+		}
+	})
+
+	t.Run("request canceled", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if hasReadinessRetryBudget(ctx, 0) {
+			t.Fatal("retry was allowed after request cancellation")
 		}
 	})
 }
