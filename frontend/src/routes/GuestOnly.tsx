@@ -1,6 +1,7 @@
 import { Navigate, Outlet, useLocation } from 'react-router'
 
 import { useAuth } from '../auth/useAuth.ts'
+import { RestoringSession } from './RestoringSession.tsx'
 import { readLocationState } from './locationState.ts'
 
 /**
@@ -16,11 +17,7 @@ export function GuestOnly() {
   const location = useLocation()
 
   if (session.status === 'restoring') {
-    return (
-      <main className="page" aria-busy="true">
-        <p role="status">Restoring your session.</p>
-      </main>
-    )
+    return <RestoringSession />
   }
 
   if (session.status === 'authenticated') {

@@ -1,0 +1,313 @@
+# Deployment
+
+How this repository is deployed to staging, how to roll it back, and what the
+staging environment does not promise.
+
+Staging is a portfolio and demonstration environment. It is not a production
+security or uptime commitment, and it deploys no contract: the Sepolia multisig
+verified in earlier weeks stays the testnet deployment the dashboard reads.
+
+## The environment
+
+| Piece | Host | Plan | Notes |
+| --- | --- | --- | --- |
+| Dashboard | Render static site | free, no expiry, no compute plan to size | React bundle on a CDN, SPA rewrite to `index.html` |
+| API | Render web service, Docker | free | sleeps after 15 minutes idle, about a minute to wake |
+| Database | Neon Postgres | free, no expiry | 1 GB, 0.25 to 2 CU autoscaling, scale to zero after 5 minutes, in `aws-ap-southeast-1` |
+
+Everything here is on a zero-cost tier. That constrains three decisions:
+
+- **Migrations run at container start, by default.** Render's `preDeployCommand`
+  is a paid feature and the Blueprint rejects it on a free service, so the image's
+  own `CMD` is `backend/scripts/docker-start.sh`, which runs `migrate up` and then
+  `exec`s the API. Migrating is the default when `RUN_MIGRATIONS` says nothing:
+  readiness only proves the database answers, so a container that skipped
+  migrations would report healthy against an old schema. Only the explicit value
+  `off` skips it, and any other value exits 2 without starting anything. If the migration fails the container
+  exits non-zero, the deploy is not promoted and the previous instance keeps
+  serving. The migrations have to be idempotent and safe to re-run, which the
+  advisory lock in `backend/cmd/migrate` guarantees for concurrent starts.
+- **The database is Neon, not Render Postgres.** Render's free Postgres expires
+  30 days after creation and is deleted 14 days later. Neon's free plan has no
+  time limit, and its paid tier is a per-project upgrade rather than a rebuild,
+  so the schema and the connection string outlive the free tier if usage grows.
+- **The API sleeps.** A cold request after 15 idle minutes pays roughly a minute
+  of startup, which includes the migration check. The dashboard shows its own
+  loading state while that happens. Nothing in the app depends on the API being
+  warm, so this is a latency cost, not a correctness one.
+
+The two live hostnames are:
+
+- Dashboard: `https://web3-wallet-dashboard-c4ii.onrender.com`
+- API: `https://web3-wallet-api.onrender.com`
+
+The dashboard carries a suffix because Render appends one when the name is
+already taken on `onrender.com`. Both are provider defaults, chosen because they
+are readable and cost nothing. They are also named in two places that no
+compiler compares:
+the dashboard's `VITE_API_BASE_URL` and the API's `CORS_ALLOWED_ORIGINS`.
+`backend/internal/deploy` reads `render.yaml` and fails when either stops
+pointing at the service it names, and when the static site declares a `plan` or
+`region`, which Render's schema refuses with `additionalProperties: false`. The
+second check exists because a `plan: free` on the static site was written here
+first, and everything else agreed with it: only Render's published schema
+disagreed.
+
+A custom domain later is a DNS record plus one value in `render.yaml` for
+`CORS_ALLOWED_ORIGINS` and one for `VITE_API_BASE_URL`. The test above then
+holds those two values to the new hostname.
+
+## How these two services exist today
+
+The Render services were created through Render's API, because a Blueprint's
+GitHub app authorisation is a dashboard click. Both are linked to the
+`feature/staging-deploy` branch with `autoDeployTrigger: checksPass`, so every
+commit that passes CI on that branch redeploys. Two steps remain when the branch
+merges, and they are the only manual steps in this document:
+
+1. Point both services at `main` (Settings, Branch, or `PATCH /v1/services/{id}`
+   with `{"branch": "main"}`).
+2. Nothing else. `autoDeployTrigger` is already `checksPass`.
+
+The routes, headers and environment variables that `render.yaml` declares were
+applied to the created services; the file and the live services agree, which
+`backend/internal/deploy` and `scripts/smoke/deployment-smoke.sh` check from
+different sides.
+
+## Configuration
+
+`render.yaml` is the whole deployment. No secret is written in it: anything marked
+`sync: false` is prompted for once, in the dashboard, and lives only in Render.
+
+| Variable | Service | Value |
+| --- | --- | --- |
+| `DATABASE_URL` | API | Neon direct endpoint, `sslmode=require`. Prompted, never committed |
+| `RUN_MIGRATIONS` | API | not set. The start script migrates when it is unset; `off` is the only opt out |
+| `CORS_ALLOWED_ORIGINS` | API | the dashboard origin, exactly |
+| `EVM_RPC_URL` | API | optional Sepolia endpoint; indexing is off when empty |
+| `LOG_LEVEL` | API | `info` |
+| `VITE_API_BASE_URL` | dashboard | `https://web3-wallet-api.onrender.com/api/v1` |
+| `PORT` | API | injected by Render, do not set |
+
+Use Neon's **direct** endpoint, the host without a `-pooler` suffix. The API uses
+cached prepared statements and a transaction-pooling endpoint cannot serve those.
+
+`VITE_API_BASE_URL` is compiled into the browser bundle, so it is public by
+definition. It must match the origin in `CORS_ALLOWED_ORIGINS`, or the browser
+will block every call. Both are validated at their own boundary: the frontend
+refuses to build with a malformed value, and the API refuses to start with one.
+
+Local development needs neither. `VITE_API_BASE_URL` unset means the bundle calls
+`/api/v1`, which the Vite dev server proxies to `http://localhost:8080`.
+
+`VITE_API_BASE_URL` is refused by the build if it carries a username or password.
+A URL like `https://user:password@host/api/v1` parses fine, which is the point:
+every character of this value is compiled into the bundle, so accepting it would
+publish the credential with a green build.
+
+The error never echoes the value. It prints the variable name and the length, and
+nothing else, because a partially masked URL is not safe: for
+`https://user:@s3cr3t@api.example.com/api/v1` the URL parser reads everything
+before the last `@` as userinfo, so masking up to the first `@` leaves the
+password in the message. Anything containing an `@` is redacted whole.
+
+## First deploy
+
+1. Create the Neon project (`aws-ap-southeast-1` to sit beside the Singapore
+   API), a role and a database, then copy the direct connection string with
+   `sslmode=require` appended. The free plan's compute autoscaling ceiling is
+   0.25 to 2 CU; raise it only when there is a paid plan to pay for it.
+2. In Render, create a Blueprint from this repository. It reads `render.yaml` and
+   asks for the `sync: false` values.
+3. Paste the Neon string as `DATABASE_URL`, and a Sepolia RPC URL as `EVM_RPC_URL`.
+4. Apply. The API container runs migrations, then starts. Render promotes the
+   deploy when `/health/ready` answers 200, which means the database was
+   reachable at that moment.
+5. Deploy the dashboard. The build fails rather than shipping a bundle pointed at
+   a malformed API base.
+6. Run the smoke walk against the two live URLs (below).
+
+## Deploying a change
+
+Push to the linked branch, which is `main` once the first deploy is merged and
+`feature/staging-deploy` until then. Render redeploys only after CI passes on that
+commit (`autoDeployTrigger: checksPass`). There is no manual step: the branch is
+staging, and a merge is the deploy.
+
+## Rollback
+
+Application: open the API service in Render, Deploys, pick the last deploy that
+was live, and choose **Rollback**. The dashboard is a static site and rolls back
+the same way. Rollback redeploys that image; it does not touch the database.
+
+Schema: migrations are forward-only in practice, because a rollback that reverses
+a migration can destroy data that the previous release never wrote. The policy is:
+
+- Additive migrations (`ADD COLUMN`, new tables, new indexes) are the default.
+  They are safe to leave in place when rolling the code back, so a rollback is
+  code only.
+- A destructive migration (`DROP`, narrowing a type, a `NOT NULL` on existing
+  rows) must ship in its own deploy, after the release that stops using the old
+  shape has been live and observed. Never in the same deploy as the code change.
+- If a bad migration is already applied, fix it forward with a new migration.
+  `migrate down` is for local work only. Running it against staging is a manual,
+  deliberate act with a fresh Neon restore point as the safety net, not a
+  rollback step.
+
+Neon keeps a 6 hour restore window on the free plan, which covers a mistaken
+migration in the same afternoon. It does not cover last week.
+
+## Health and readiness
+
+- `/health/live` answers while the process is up. The container health check uses
+  it, so a database blip does not get the container killed and restarted in a loop.
+- `/health/ready` answers 200 only when the database accepts a query. Render uses
+  it to decide whether a deploy is live.
+- Both are unauthenticated and outside the CORS allowlist requirement: they carry
+  no CORS headers and no credentials, so a probe from any origin works.
+
+## The smoke walk
+
+`scripts/smoke/deployment-smoke.sh <frontend-url> <api-url>` walks a deployed
+environment:
+
+```sh
+scripts/smoke/deployment-smoke.sh \
+  https://web3-wallet-dashboard.onrender.com \
+  https://web3-wallet-api.onrender.com
+```
+
+It checks the dashboard is served (including a deep link, which proves the SPA
+rewrite works), liveness and readiness, that the CORS allowlist admits the
+dashboard origin and refuses another one, and then registers a throwaway account,
+logs in, reads the profile, the chain catalog, the wallet list, creates a wallet
+and a tracked contract, and reads a paginated events page. It prints a pass and
+fail line per step and exits non-zero on any failure.
+
+It never sends a transaction, never needs a funded key and never touches the
+Sepolia multisig. It also cannot be run twice from the same address within the
+rate-limit window: the auth endpoints are rate limited, so a second run in quick
+succession answers 429. Wait for the window or restart the instance.
+
+The same script runs against a local stack if the URLs are loopback:
+
+```sh
+go run ./cmd/api                                   # in backend/, DATABASE_URL set
+cd frontend && npx vite build && npx vite preview  # serves the built bundle
+scripts/smoke/deployment-smoke.sh http://localhost:4173 http://127.0.0.1:8080
+```
+
+with `CORS_ALLOWED_ORIGINS=http://localhost:4173` on the API. This is the
+rehearsal the local run in the pull request used.
+
+## Secrets
+
+Nothing secret belongs in this repository, in the frontend bundle, or in a log
+line. `DATABASE_URL` and `EVM_RPC_URL` are Render environment variables marked
+`sync: false`, so they are entered in the dashboard and are not readable from the
+repository. The API logs a CORS origin count, never the origins, and never logs a
+connection string, a session token or an authorization header.
+
+## Network exposure of the database
+
+**This is the one requirement the deployment does not meet.** Issue #104 asks that
+PostgreSQL accept no public connections outside the host's private networking. It
+does not: port 5432 answers any client that has the credential, from anywhere.
+
+That is not an oversight, and the free tier does not offer a way out. Both
+controls that would close it were tried against this project and refused or
+unusable:
+
+| Control | Result |
+| --- | --- |
+| Neon IP allow list | The API rejects it with `requested number of allowed ip entries exceeds allowed maximum; max: "0"`. IP Allow is a Neon Scale feature. |
+| Neon `block_public_connections` | Accepted by the API, but it blocks the public endpoint this API uses. Turning it on without Private Networking takes the deployment down. Private Networking is also Scale. |
+| Restricting the role to least privilege | Neon grants every role it creates membership of `neon_superuser`, and no role in the project has the ADMIN option needed to alter or revoke it. `wallet` cannot be de-privileged from SQL. |
+| Private connectivity between the two hosts | Render's private network does not reach Neon, and Render's own Postgres, which would be private, deletes itself 44 days after creation. |
+
+Everything that is available for free has been done:
+
+- TLS on every connection (`sslmode=require`). Unencrypted connections are
+  refused by Neon.
+- The `wallet` credential was rotated after it had been handled outside the
+  platform, so the only valid copy is the one in Render's environment and in
+  `/home/user/.secrets`. The old password is dead: a connection with it fails
+  with `password authentication failed`.
+- No content outside the tables the migrations create. The walk leaves test rows
+  and nothing else.
+- Render's Singapore egress ranges are recorded here, because the day this
+  becomes affordable the allow list is two CIDRs and one API call:
+  `74.220.52.0/24` and `74.220.60.0/24` (`GET /v1/services/{id}/outbound-ips`).
+  They are shared per region and Render has rotated them before, so an allow list
+  built on them needs the Render changelog watched.
+
+The path out, when there is money for it, in order of preference:
+
+1. **Neon Scale.** IP Allow plus Private Networking, no other change. The project,
+   the connection string and the migrations stay as they are.
+2. **Render Postgres, paid plan, private connection string.** Both services in one
+   region and workspace, no public endpoint at all.
+3. **Co-locate everything on one platform with private networking.** A bigger
+   move, and it trades a managed database for an operator's job.
+
+Until one of those is paid for, this remains a documented, temporary staging-only
+exception, not a solved problem. The owner recorded the exception on [issue #104](https://github.com/samuraiigintoki/web3-wallet-dashboard/issues/104#issuecomment-6422889672)
+on 2026-10-26, with a review date of 2026-11-26. It does not apply to production
+or satisfy the private-networking requirement. If the requirement remains unmet
+and there is no new dated owner exception, staging must be taken offline. The
+credential is the perimeter.
+
+### Rotating the database credential
+
+The move above is only useful if it is quick. It is three calls and one deploy:
+
+```sh
+# 1. New password. The response is the only copy of it.
+curl -X POST -H "Authorization: Bearer $NEON_API_KEY" \
+  "https://console.neon.tech/api/v2/projects/$PROJECT/branches/$BRANCH/roles/wallet/reset_password"
+
+# 2. Put the rebuilt connection string in the service's environment.
+#    PUT /v1/services/$SERVICE/env-vars with the full list, DATABASE_URL replaced.
+
+# 3. Deploy, because an environment change alone does not redeploy.
+#    POST /v1/services/$SERVICE/deploys
+```
+
+Then `scripts/smoke/deployment-smoke.sh` against the two live URLs. The running
+container keeps working on pooled connections until they expire by age, which is
+why the deploy is step three and not optional: the pool is retired after five
+minutes, so without a deploy the API starts failing on its own schedule.
+
+## Known limitations
+## Known limitations
+
+- The API is single instance and sleeps. It is not a high-availability deployment.
+- The free Neon database is 1 GB and scales to zero, so the first query after an
+  idle period pays a wake-up.
+- No custom domain, no CDN in front of the API, no autoscaling beyond Neon's
+  per-project compute.
+- No alerting. A failed deploy is visible in Render and in the smoke walk.
+- The database endpoint is public, so staging still fails issue #104's
+  private-networking requirement. The owner recorded a dated, staging-only
+  exception on 2026-10-26. It does not claim compliance or apply to production.
+  Review no-card hosting with persistent PostgreSQL and private networking by
+  2026-11-26. If private networking remains unmet and there is no new dated owner
+  exception, take staging offline.
+- Staging data is disposable: no user owns it, and the smoke walk leaves a test
+  account, a wallet and a contract behind on every run. The Age-based workflow
+  uploads encrypted artifacts with seven-day retention. The live artifact from
+  run [40372465056](https://github.com/samuraiigintoki/web3-wallet-dashboard/actions/runs/40372465056)
+  uploaded successfully and was decrypted and restored locally into disposable
+  PostgreSQL 17.11. See [docs/backups.md](backups.md).
+
+## Backups
+
+The free tier has no managed backup. The Age-based GitHub Actions workflow takes
+an encrypted PostgreSQL 17 dump nightly or by manual dispatch, uploads ciphertext
+only, and retains artifacts for seven days. Its separate `restore-drill` job
+checks export, encryption, decryption and restore with an ephemeral test identity
+and a disposable database; it does not decrypt the live artifact. The manual
+live run [40372465056](https://github.com/samuraiigintoki/web3-wallet-dashboard/actions/runs/40372465056)
+succeeded, and the artifact was decrypted and restored locally into disposable
+PostgreSQL 17.11. See [docs/backups.md](backups.md) for the procedure and
+verification.

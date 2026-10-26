@@ -1,0 +1,103 @@
+# The staging deployment, as code.
+#
+# Two Render services on the free plan and one Neon database, chosen because the
+# whole thing costs nothing and still has a clean paid upgrade path. See
+# docs/deployment.md for the decisions, the runbook, the rollback procedure and
+# the limitations this configuration accepts.
+#
+# No secret is written here. Anything marked `sync: false` is prompted for in the
+# Render dashboard when the Blueprint is created, and lives only in Render.
+
+services:
+  # The Go API, built from the repository's own Dockerfile.
+  - type: web
+    name: web3-wallet-api
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # No dockerCommand field: the image's own CMD is the migrate-then-serve start
+    # script. A command field is a second place for the same fact, and on a
+    # service created through the API it did not persist at all, so the container
+    # served without migrating and only the log said so.
+    #
+    # Readiness, not liveness: a deploy is only promoted when the new instance can
+    # reach PostgreSQL. Liveness stays the container's own health check.
+    healthCheckPath: /health/ready
+    # Deploy only after CI on the branch has passed.
+    autoDeployTrigger: checksPass
+    envVars:
+      # The Neon connection string, ending in sslmode=require.
+      #
+      # Use Neon's direct endpoint, the host without a `-pooler` suffix. The API
+      # speaks the extended query protocol with cached prepared statements, which
+      # a transaction-pooling endpoint cannot serve. One free API instance needs
+      # nowhere near Neon's connection limit, so pooling buys nothing here.
+      #
+      # The API refuses to start without this variable.
+      - key: DATABASE_URL
+        sync: false
+      # RUN_MIGRATIONS is deliberately absent. The start script migrates when it
+      # is unset, which is the behaviour this service needs, and a variable that
+      # only restates a default is one more thing to drift. `off` is the only
+      # value that skips migrating, and any other value stops the container
+      # without starting the API.
+      # The only browser origin allowed to read this API. Exactly one value: the
+      # frontend's own origin, scheme and host, no trailing slash.
+      #
+      # The suffixed host is Render's: it adds one when a name is already taken on
+      # onrender.com. The blueprint's name is still web3-wallet-dashboard, so a
+      # fresh workspace may serve it without the suffix, and this value has to
+      # match whatever the created service actually answers on.
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://web3-wallet-dashboard-c4ii.onrender.com
+      # Optional contract indexing. Set to a Sepolia endpoint to index events; an
+      # empty value leaves the API serving everything else with one warning.
+      - key: EVM_RPC_URL
+        sync: false
+      - key: LOG_LEVEL
+        value: info
+    # PORT is injected by Render; the API binds to it when ADDR is unset. Do not
+    # set ADDR here, it would override the platform port.
+
+  # The dashboard, built and served as static files from Render's CDN.
+  #
+  # A static site has no compute plan, no cold start and no expiry: it is the one
+  # part of this stack that behaves the same at zero cost as at any price.
+  - type: web
+    name: web3-wallet-dashboard
+    runtime: static
+    # No plan and no region here: a static site has no compute to size, and
+    # Render's published schema rejects both fields on this service kind with
+    # additionalProperties false. `backend/internal/deploy` enforces it.
+    branch: main
+    buildCommand: cd frontend && npm ci && npm run build
+    staticPublishPath: ./frontend/dist
+    autoDeployTrigger: checksPass
+    envVars:
+      # Compiled into the bundle, so it is public by definition. It names the API
+      # service above plus /api/v1, and it must match the CORS allowlist.
+      - key: VITE_API_BASE_URL
+        value: https://web3-wallet-api.onrender.com/api/v1
+    routes:
+      # react-router paths are client-side, so a deep link or a refresh asks the CDN
+      # for a file that does not exist. Render serves a real file when one exists,
+      # so hashed assets are unaffected.
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: no-referrer
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      # The API origin is the only host this page needs to reach.
+      - path: /*
+        name: Permissions-Policy
+        value: geolocation=(), microphone=(), camera=()

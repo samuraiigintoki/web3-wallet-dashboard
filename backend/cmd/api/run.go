@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/samuraiigintoki/web3-wallet-dashboard/backend/internal/chain"
@@ -33,16 +34,52 @@ const (
 	maxHeaderBytes      = 1 << 20
 )
 
+// listenAddr decides where the HTTP server binds.
+//
+// Every managed host injects the port it will route to: Render and Heroku set
+// PORT, Kubernetes sets it too, and a container that ignores it binds somewhere
+// no request ever arrives. ADDR wins when it is set, because it is the local and
+// docker-compose switch; PORT is honoured when it is not; the built-in default
+// covers a bare `go run`.
+//
+// A malformed PORT is a startup failure. An API that silently listens on the
+// wrong port is only discovered by a health check timing out.
+func listenAddr(addr, port string) (string, error) {
+	if addr != "" {
+		return addr, nil
+	}
+	if port == "" {
+		return defaultAddr, nil
+	}
+	number, err := strconv.Atoi(port)
+	if err != nil || number < 1 || number > 65535 {
+		return "", fmt.Errorf("PORT must be a TCP port between 1 and 65535, got %q", port)
+	}
+	return ":" + strconv.Itoa(number), nil
+}
+
 func run(ctx context.Context, logger *slog.Logger) (runErr error) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		return errors.New("DATABASE_URL environment variable is required")
 	}
 
-	addr := os.Getenv("ADDR")
-	if addr == "" {
-		addr = defaultAddr
+	addr, err := listenAddr(os.Getenv("ADDR"), os.Getenv("PORT"))
+	if err != nil {
+		return err
 	}
+
+	// The origins allowed to call this API from a browser.
+	//
+	// Unset means none: a deployment that has not said which frontend reads it
+	// answers no cross-origin request, and a bad entry is a startup failure
+	// rather than a silently short allowlist. Local development is unaffected,
+	// because the Vite dev server proxies /api and those calls are same-origin.
+	corsPolicy, err := httpapi.ParseCORSOrigins(os.Getenv("CORS_ALLOWED_ORIGINS"))
+	if err != nil {
+		return fmt.Errorf("invalid CORS configuration: %w", err)
+	}
+	logger.Info("CORS allowlist configured", "origins", corsPolicy.Len())
 
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
@@ -86,7 +123,13 @@ func run(ctx context.Context, logger *slog.Logger) (runErr error) {
 
 	globalLimiter := newTokenBucketLimiter(globalLimitPerMinute, globalLimitBurst)
 	authLimiter := newTokenBucketLimiter(authLimitPerMinute, authLimitBurst)
-	handler := httpapi.NewRouter(walletSvc, userSvc, chainSvc, contractSvc, indexerRepo, logger, databaseReadiness{db: db}, globalLimiter, authLimiter)
+	// The CORS wrap is outermost so a preflight is answered before the rate
+	// limiter and before any handler, and so no route added later can be missed
+	// by it.
+	handler := httpapi.WithCORS(
+		httpapi.NewRouter(walletSvc, userSvc, chainSvc, contractSvc, indexerRepo, logger, databaseReadiness{db: db}, globalLimiter, authLimiter),
+		corsPolicy,
+	)
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {

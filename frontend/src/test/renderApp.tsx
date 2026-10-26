@@ -23,6 +23,12 @@ export function renderApp(
     state?: unknown
     /** Lets a test inspect and seed the cache the routes share. */
     queryClient?: QueryClient
+    /**
+     * Request behaviour for the provider. Off by default, so a test that asserts
+     * an unavailable state sees one immediately; a test that exercises the wake
+     * policy passes its own.
+     */
+    requestPolicy?: { wakeRetry?: false; sleep?: (ms: number) => Promise<void> }
   } = {},
 ) {
   const storage = options.storage ?? memoryStorage()
@@ -38,7 +44,10 @@ export function renderApp(
   }
 
   const utils = render(
-    <AuthProvider storage={storage}>
+    <AuthProvider
+      storage={storage}
+      requestPolicy={options.requestPolicy ?? { wakeRetry: false }}
+    >
       <MemoryRouter initialEntries={[entry]}>
         <LocationProbe />
         <AppRoutes queryClient={options.queryClient} />

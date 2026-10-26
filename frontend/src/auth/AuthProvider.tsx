@@ -8,6 +8,7 @@ import {
   type ApiClient,
   type LoginRequest,
   type RegisterRequest,
+  type RequestDependencies,
   type User,
 } from '../api/index.ts'
 import {
@@ -18,11 +19,32 @@ import {
 } from './session.ts'
 import { tokenStorage, type TokenStorage } from './storage.ts'
 
+/**
+ * The request behaviour every client this provider builds inherits.
+ *
+ * The wake policy is a fact about the host, not about the app: a deployment that
+ * stops the API when it is idle needs reads that wait for it, while a test that
+ * asserts the unavailable state needs answers that arrive at once. Injecting the
+ * policy here keeps that decision at the composition root instead of hiding it
+ * inside the request helper.
+ */
+type RequestPolicy = Pick<RequestDependencies, 'timeoutMs' | 'sleep' | 'wakeRetry'>
+
 type AuthProviderProps = {
   children: ReactNode
   /** Seam for tests. The application always uses the real storage. */
   storage?: TokenStorage
+  /** Host-specific request behaviour. The application takes the defaults. */
+  requestPolicy?: RequestPolicy
 }
+
+/**
+ * The wake policy this provider enables by default.
+ *
+ * Frozen and shared so it is one stable dependency, never a fresh object: the
+ * callbacks that hold it must not change identity on every render.
+ */
+const DEFAULT_WAKE_RETRY = Object.freeze({})
 
 /** The outcome of a sign-in that another tab's credential superseded. */
 function supersededSignIn(): ApiError {
@@ -33,7 +55,32 @@ function supersededSignIn(): ApiError {
   })
 }
 
-export function AuthProvider({ children, storage = tokenStorage }: AuthProviderProps) {
+export function AuthProvider({
+  children,
+  storage = tokenStorage,
+  requestPolicy,
+}: AuthProviderProps) {
+  /**
+   * What every client built here uses.
+   *
+   * The staging host stops the API after fifteen idle minutes, so the first
+   * request of a visit is the one that waits. Enabling the policy here means the
+   * session restore, which is that first request, absorbs the wake instead of
+   * showing the user an unavailable state they would have to retry by hand.
+   *
+   * Taken as primitives, not as the policy object: the callbacks below are
+   * dependencies of the restore effect, and a fresh object every render would
+   * re-create the client on every render. That re-ran the restore after a
+   * sign-out, which is a session coming back from the dead.
+   */
+  const requestedWakeRetry = requestPolicy?.wakeRetry
+  const wakeRetry = useMemo(
+    () => requestedWakeRetry ?? DEFAULT_WAKE_RETRY,
+    [requestedWakeRetry],
+  )
+  const timeoutMs = requestPolicy?.timeoutMs
+  const sleep = requestPolicy?.sleep
+
   // The first state is derived, not set from an effect. With no stored token
   // there is nothing to restore, so the application starts anonymous and the
   // guard never flashes a loading state on a cold visit.
@@ -158,9 +205,9 @@ export function AuthProvider({ children, storage = tokenStorage }: AuthProviderP
   )
 
   const client = useCallback((): ApiClient => {
-    clientRef.current ??= createApiClient({ getToken, onUnauthorized })
+    clientRef.current ??= createApiClient({ getToken, onUnauthorized, timeoutMs, sleep, wakeRetry })
     return clientRef.current
-  }, [getToken, onUnauthorized])
+  }, [getToken, onUnauthorized, timeoutMs, sleep, wakeRetry])
 
   /**
    * Builds the data capability for one validated identity.
@@ -175,9 +222,9 @@ export function AuthProvider({ children, storage = tokenStorage }: AuthProviderP
     (token: string, user: User, generation: number): DataSession => ({
       userId: user.id,
       generation,
-      client: createApiClient({ getToken: () => token, onUnauthorized }),
+      client: createApiClient({ getToken: () => token, onUnauthorized, timeoutMs, sleep, wakeRetry }),
     }),
-    [onUnauthorized],
+    [onUnauthorized, timeoutMs, sleep, wakeRetry],
   )
 
   /**

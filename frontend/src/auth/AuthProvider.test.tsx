@@ -27,11 +27,23 @@ function memoryStorage(initial: string | null = null): TokenStorage {
   return storage
 }
 
-function renderAuth(storage: TokenStorage, options: { strict?: boolean } = {}) {
+function renderAuth(
+  storage: TokenStorage,
+  options: {
+    strict?: boolean
+    /** Undefined keeps the wake policy off, which is what a fail-fast test wants. */
+    requestPolicy?: { wakeRetry?: false; sleep?: (ms: number) => Promise<void> }
+  } = {},
+) {
   return renderHook(() => useAuth(), {
     reactStrictMode: options.strict ?? false,
     wrapper: ({ children }: { children: ReactNode }) => (
-      <AuthProvider storage={storage}>{children}</AuthProvider>
+      <AuthProvider
+        storage={storage}
+        requestPolicy={options.requestPolicy ?? { wakeRetry: false }}
+      >
+        {children}
+      </AuthProvider>
     ),
   })
 }
@@ -166,6 +178,36 @@ describe('restore on load', () => {
     await waitFor(() => {
       expect(result.current.session.status).toBe('authenticated')
     })
+  })
+
+  it('waits out a starting API instead of declaring itself unavailable', async () => {
+    // The first two attempts fail the way a stopped service fails. With the wake
+    // policy on, the provider retries and ends up authenticated without the user
+    // touching Retry, which is the point on a host that stops the API when idle.
+    let attempts = 0
+    stubFetch(() => {
+      attempts += 1
+      if (attempts <= 2) {
+        throw new TypeError('Failed to fetch')
+      }
+      return jsonResponse({ data: USER })
+    })
+
+    const delays: number[] = []
+    const { result } = renderAuth(memoryStorage('kept-token'), {
+      requestPolicy: {
+        sleep: async (ms: number) => {
+          delays.push(ms)
+        },
+      },
+    })
+
+    await waitFor(() => {
+      expect(result.current.session).toEqual({ status: 'authenticated', user: USER })
+    })
+
+    expect(attempts).toBe(3)
+    expect(delays).toEqual([1_000, 2_000])
   })
 
   it('signs out locally from unavailable without calling the server', async () => {

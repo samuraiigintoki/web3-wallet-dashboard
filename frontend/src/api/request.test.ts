@@ -270,6 +270,8 @@ describe('request helper, error mapping', () => {
 
   it('maps the empty dev-proxy 502 to UNEXPECTED_RESPONSE', async () => {
     stubFetch(() => emptyProxyFailure())
+    // The wake policy is off by default at this layer, so one response is mapped
+    // to one error here; the policy itself is tested further down.
     const request = createRequest(deps())
 
     await expect(
@@ -322,14 +324,14 @@ describe('request helper, error mapping', () => {
     stubFetch(() => {
       throw new TypeError('Failed to fetch')
     })
-    const networkRequest = createRequest(deps())
+    const networkRequest = createRequest(deps({ wakeRetry: false }))
     await expect(
       networkRequest({ method: 'GET', path: '/users/me', guard: isUser }),
     ).rejects.toMatchObject({ code: 'NETWORK_ERROR', status: 0 })
 
     vi.unstubAllGlobals()
     stubFetch(hangingFetch)
-    const timeoutRequest = createRequest(deps({ timeoutMs: 5 }))
+    const timeoutRequest = createRequest(deps({ timeoutMs: 5, wakeRetry: false }))
     await expect(
       timeoutRequest({ method: 'GET', path: '/users/me', guard: isUser }),
     ).rejects.toMatchObject({ code: 'TIMEOUT', status: 0 })
@@ -425,7 +427,7 @@ describe('request helper, body phase', () => {
 
   it('maps a body that fails after the headers to an ApiError, not a raw TypeError', async () => {
     stubFetch(() => failingBodyResponse(200))
-    const request = createRequest(deps())
+    const request = createRequest(deps({ wakeRetry: false }))
 
     const error = await request({
       method: 'GET',
@@ -439,7 +441,7 @@ describe('request helper, body phase', () => {
 
   it('maps a failing body on an error response to an ApiError too', async () => {
     stubFetch(() => failingBodyResponse(500))
-    const request = createRequest(deps())
+    const request = createRequest(deps({ wakeRetry: false }))
 
     const error = await request({
       method: 'GET',
@@ -453,7 +455,7 @@ describe('request helper, body phase', () => {
 
   it('times out a body that never arrives, so the timeout bounds the whole call', async () => {
     stubFetch(() => hangingBodyResponse(200))
-    const request = createRequest(deps({ timeoutMs: 20 }))
+    const request = createRequest(deps({ timeoutMs: 20, wakeRetry: false }))
 
     const started = Date.now()
     const error = await request({
@@ -528,7 +530,7 @@ describe('request helper, token containment', () => {
     stubFetch(() => {
       throw new TypeError(`Failed to fetch ${TOKEN}`)
     })
-    const request = createRequest(deps({ getToken: () => TOKEN }))
+    const request = createRequest(deps({ getToken: () => TOKEN, wakeRetry: false }))
 
     const error = await request({
       method: 'GET',
@@ -540,5 +542,153 @@ describe('request helper, token containment', () => {
     expect(error).toBeInstanceOf(ApiError)
     expect((error as ApiError).message).not.toContain(TOKEN)
     expect(isRecord(error)).toBe(true)
+  })
+})
+
+describe('request helper, waking API', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  /**
+   * A sleep that records what it was asked to wait and returns immediately, so
+   * the schedule is asserted without spending it.
+   */
+  function recordingSleep(): { delays: number[]; sleep: (ms: number) => Promise<void> } {
+    const delays: number[] = []
+    return {
+      delays,
+      sleep: async (ms: number) => {
+        delays.push(ms)
+        await Promise.resolve()
+      },
+    }
+  }
+
+  it('keeps a read alive through a service that is starting, then returns the data', async () => {
+    vi.useFakeTimers()
+    try {
+      let calls = 0
+      stubFetch(() => {
+        calls += 1
+        if (calls < 3) {
+          throw new TypeError('Failed to fetch')
+        }
+        return jsonResponse({ data: USER })
+      })
+      const { delays, sleep } = recordingSleep()
+      const request = createRequest(deps({ sleep, wakeRetry: {} }))
+
+      const result = await request({ method: 'GET', path: '/users/me', guard: isUser })
+
+      expect(result.data).toEqual(USER)
+      expect(calls).toBe(3)
+      expect(delays).toEqual([1_000, 2_000])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('treats a proxy 503 as a service that is still coming up', async () => {
+    let calls = 0
+    stubFetch(() => {
+      calls += 1
+      if (calls === 1) {
+        return errorResponse(503, 'SERVICE_UNAVAILABLE')
+      }
+      return jsonResponse({ data: USER })
+    })
+    const { delays, sleep } = recordingSleep()
+    const request = createRequest(deps({ sleep, wakeRetry: {} }))
+
+    const result = await request({ method: 'GET', path: '/users/me', guard: isUser })
+
+    expect(result.data).toEqual(USER)
+    expect(calls).toBe(2)
+    expect(delays).toEqual([1_000])
+  })
+
+  it.each(['POST', 'PATCH', 'DELETE'] as const)(
+    'never repeats a %s, because a retry cannot know whether the first one landed',
+    async (method) => {
+      const fetchStub = stubFetch(() => {
+        throw new TypeError('Failed to fetch')
+      })
+      const { delays, sleep } = recordingSleep()
+      const request = createRequest(deps({ sleep, wakeRetry: {} }))
+
+      await expect(
+        request({ method, path: '/wallets', body: {}, guard: isUser }),
+      ).rejects.toMatchObject({ code: 'NETWORK_ERROR', status: 0 })
+
+      expect(fetchStub.mock).toHaveBeenCalledTimes(1)
+      expect(delays).toEqual([])
+    },
+  )
+
+  it('does not repeat a read that failed for a reason a retry cannot fix', async () => {
+    const fetchStub = stubFetch(() => errorResponse(500, 'INTERNAL_ERROR'))
+    const { delays, sleep } = recordingSleep()
+    const request = createRequest(deps({ sleep, wakeRetry: {} }))
+
+    await expect(
+      request({ method: 'GET', path: '/users/me', guard: isUser }),
+    ).rejects.toMatchObject({ status: 500 })
+
+    expect(fetchStub.mock).toHaveBeenCalledTimes(1)
+    expect(delays).toEqual([])
+  })
+
+  it('gives up once the schedule is spent and surfaces the last error', async () => {
+    const fetchStub = stubFetch(() => {
+      throw new TypeError('Failed to fetch')
+    })
+    const { delays, sleep } = recordingSleep()
+    const request = createRequest(deps({ sleep, wakeRetry: {} }))
+
+    await expect(
+      request({ method: 'GET', path: '/users/me', guard: isUser }),
+    ).rejects.toMatchObject({ code: 'NETWORK_ERROR' })
+
+    // One attempt plus one per delay in the schedule, and no more.
+    expect(fetchStub.mock).toHaveBeenCalledTimes(6)
+    expect(delays).toEqual([1_000, 2_000, 4_000, 8_000, 15_000])
+  })
+
+  it('stops waiting when the budget is smaller than the schedule', async () => {
+    const fetchStub = stubFetch(() => {
+      throw new TypeError('Failed to fetch')
+    })
+    const { delays, sleep } = recordingSleep()
+    const request = createRequest(deps({ sleep, wakeRetry: { budgetMs: 1_500 } }))
+
+    await expect(
+      request({ method: 'GET', path: '/users/me', guard: isUser }),
+    ).rejects.toMatchObject({ code: 'NETWORK_ERROR' })
+
+    // The 2000 ms wait would land past the 1500 ms budget, so it is not taken.
+    expect(delays).toEqual([1_000])
+    expect(fetchStub.mock).toHaveBeenCalledTimes(2)
+  })
+
+  it('surfaces a caller abort instead of waiting out the schedule', async () => {
+    stubFetch(() => {
+      throw new TypeError('Failed to fetch')
+    })
+    const controller = new AbortController()
+    const request = createRequest(deps({ wakeRetry: {} }))
+
+    const pending = request({
+      method: 'GET',
+      path: '/users/me',
+      guard: isUser,
+      signal: controller.signal,
+    })
+    const settled = pending.catch((caught: unknown) => caught)
+    controller.abort()
+
+    const error = await settled
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error).toMatchObject({ code: 'ABORTED' })
   })
 })
