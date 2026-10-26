@@ -297,8 +297,8 @@ minutes, so without a deploy the API starts failing on its own schedule.
   account, a wallet and a contract behind on every run. The Age-based workflow
   uploads encrypted artifacts with seven-day retention. The live artifact from
   run [40372465056](https://github.com/samuraiigintoki/web3-wallet-dashboard/actions/runs/40372465056)
-  uploaded successfully, but local decryption and restore are still pending. See
-  [docs/backups.md](backups.md).
+  uploaded successfully and was decrypted and restored locally into disposable
+  PostgreSQL 17.11. See [docs/backups.md](backups.md).
 
 ## Backups
 
@@ -308,6 +308,6 @@ only, and retains artifacts for seven days. Its separate `restore-drill` job
 checks export, encryption, decryption and restore with an ephemeral test identity
 and a disposable database; it does not decrypt the live artifact. The manual
 live run [40372465056](https://github.com/samuraiigintoki/web3-wallet-dashboard/actions/runs/40372465056)
-succeeded, but recovery from that artifact remains unverified until it is
-locally decrypted and restored. See [docs/backups.md](backups.md) for the
-procedure and status.
+succeeded, and the artifact was decrypted and restored locally into disposable
+PostgreSQL 17.11. See [docs/backups.md](backups.md) for the procedure and
+verification.
